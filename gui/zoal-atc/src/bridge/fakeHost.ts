@@ -32,6 +32,12 @@ export class FakeSkyscriptHost implements SkyscriptHost {
   // Replayed to the event listener the moment it announces readiness, which is
   // what the plugin does with its cached snapshot.
   replayOnReady: ConsoleEnvelope[] = [];
+  // Answers a request *before* handing back the receipt, which is the order the
+  // plugin answers a local action in: GuiBridge::submit queues the response on
+  // the js channel and only then returns the ack (gui_bridge.cpp). Modelled here
+  // because that ordering is a real hazard for the panel, not a test artifact —
+  // an answer that arrives before the receipt has nothing waiting for it yet.
+  answerBeforeAck: ((action: string) => unknown | undefined) | undefined;
 
   private nextRequestId = 1;
 
@@ -61,6 +67,14 @@ export class FakeSkyscriptHost implements SkyscriptHost {
 
     const requestId = this.nextRequestId++;
     this.requests.push({action: request.action, payload: request.payload, requestId});
+
+    if (this.answerBeforeAck) {
+      const answer = this.answerBeforeAck(request.action);
+      if (answer !== undefined) {
+        this.respondTo(requestId, answer);
+      }
+    }
+
     return {accepted: true, request_id: requestId, error: ""} satisfies RequestAck;
   }
 
