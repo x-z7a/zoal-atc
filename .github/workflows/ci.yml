@@ -21,14 +21,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DZOAL_ATC_BUILD_TESTS=ON -DZOAL_ATC_BUILD_PLUGIN=OFF
-
-      - name: Build
-        run: cmake --build build --config Release --parallel
+      # `make` and not raw cmake, because `make test` is what the release Gate
+      # runs. This job used to drive cmake directly with the right --config/-C
+      # flags while the Makefile had neither, so the Makefile path reached a tag
+      # having never run on Windows - where it configured a multi-config
+      # generator, built Debug, looked for Release, and reported all 11 tests
+      # "Not Run" as a pass. CI must run the command the release runs.
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        run: choco install make -y
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: make test
 
   plugin-build:
     name: X-Plane plugin (${{ matrix.os }})
