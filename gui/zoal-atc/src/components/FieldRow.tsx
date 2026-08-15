@@ -10,6 +10,10 @@ type Props = {
   initialValue?: string;
   clearOnSubmit?: boolean;
   disabled?: boolean;
+  // Masks the value, with a control to reveal it. For a credential: a token
+  // should not sit legible on a cockpit screen by default, but a pilot who just
+  // pasted one needs to be able to check it.
+  secret?: boolean;
   onSubmit: (value: string) => void;
 };
 
@@ -25,9 +29,11 @@ export function FieldRow({
   initialValue = "",
   clearOnSubmit = true,
   disabled = false,
+  secret = false,
   onSubmit,
 }: Props) {
   const [value, setValue] = useState(initialValue);
+  const [revealed, setRevealed] = useState(false);
 
   function submit(event: FormEvent): void {
     event.preventDefault();
@@ -46,7 +52,7 @@ export function FieldRow({
       </label>
       <input
         id={inputId}
-        type="text"
+        type={secret && !revealed ? "password" : "text"}
         inputMode={inputMode}
         placeholder={placeholder}
         autoComplete="off"
@@ -54,6 +60,16 @@ export function FieldRow({
         disabled={disabled}
         onChange={(event) => setValue(event.target.value)}
       />
+      {secret ? (
+        <button
+          type="button"
+          aria-pressed={revealed}
+          disabled={disabled}
+          onClick={() => setRevealed((shown) => !shown)}
+        >
+          {revealed ? "Hide" : "Show"}
+        </button>
+      ) : null}
       <button type="submit" disabled={disabled}>
         {submitLabel}
       </button>

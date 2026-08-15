@@ -56,6 +56,16 @@ export type SettingsView = {
   notifications?: NotificationsSetting;
 };
 
+// What the *plugin* holds, not the console: the credential and address of the
+// socket everything else here travels over. Answered locally, so it is readable
+// and writable while the console is unreachable.
+export type ConnectionView = {
+  // The bearer token sent on the upgrade. Empty means the endpoint is open.
+  token?: string;
+  // Read-only. Shown so the pilot can see which console the token is for.
+  url?: string;
+};
+
 // How this pilot wants to be told ATC spoke while the panel is closed. The
 // plugin raises the toast, so these are pushed to it rather than acted on here.
 export type NotificationsSetting = {

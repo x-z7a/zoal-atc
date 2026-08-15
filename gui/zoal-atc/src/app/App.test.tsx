@@ -429,6 +429,113 @@ describe("the panel", () => {
     });
   });
 
+  // The token is the one setting the plugin answers itself, because it is the
+  // credential the console refuses the connection over. Everything here is
+  // about that: it has to be readable and writable with nothing on the far end.
+  describe("the access token", () => {
+    async function openConnection(connect = true) {
+      await mountReady();
+      if (connect) {
+        connected();
+      }
+      await userEvent.click(screen.getByRole("tab", {name: "Settings"}));
+      await waitFor(() => {
+        expect(
+          host.requests.some((request) => request.action === "connection_settings"),
+        ).toBe(true);
+      });
+      const read = host.requests
+        .filter((request) => request.action === "connection_settings")
+        .pop();
+      return read?.requestId ?? 0;
+    }
+
+    it("shows the console it is pointed at, and the stored token", async () => {
+      const readId = await openConnection();
+
+      host.respondTo(readId, {token: "s3cret", url: "ws://atc.zoal.app/plugin"});
+
+      await waitFor(() => {
+        expect(screen.getByLabelText("Access token")).toHaveValue("s3cret");
+      });
+      expect(screen.getByText("ws://atc.zoal.app/plugin")).toBeInTheDocument();
+    });
+
+    // A token on screen in a cockpit is a token on screen behind the pilot.
+    it("masks the token until asked to show it", async () => {
+      const readId = await openConnection();
+      host.respondTo(readId, {token: "s3cret", url: "ws://host/plugin"});
+      await waitFor(() => expect(screen.getByLabelText("Access token")).toHaveValue("s3cret"));
+
+      expect(screen.getByLabelText("Access token")).toHaveAttribute("type", "password");
+      await userEvent.click(screen.getByRole("button", {name: "Show"}));
+      expect(screen.getByLabelText("Access token")).toHaveAttribute("type", "text");
+      await userEvent.click(screen.getByRole("button", {name: "Hide"}));
+      expect(screen.getByLabelText("Access token")).toHaveAttribute("type", "password");
+    });
+
+    // The reason the whole local path exists. A wrong token means a 401 means
+    // no socket; if this field needed the socket there would be no way back in
+    // short of hand-editing zoal_atc.cfg.
+    it("is readable and savable while the console is disconnected", async () => {
+      const readId = await openConnection(false);
+      host.emitStatus({connected: false, subscribed: false});
+      host.respondTo(readId, {token: "", url: "ws://atc.zoal.app/plugin"});
+      await waitFor(() => expect(screen.getByLabelText("Access token")).toHaveValue(""));
+
+      await userEvent.type(screen.getByLabelText("Access token"), "recovered");
+      await userEvent.click(screen.getByRole("button", {name: "Save token"}));
+
+      await waitFor(() => {
+        expect(
+          host.requests.some((request) => request.action === "save_connection_settings"),
+        ).toBe(true);
+      });
+      const save = host.requests.find(
+        (request) => request.action === "save_connection_settings",
+      );
+      expect(save?.payload).toEqual({token: "recovered"});
+    });
+
+    // Clearing is a save of nothing, not a separate verb: an open console is a
+    // real configuration, so the field has to be able to reach it.
+    it("clears the token by saving an empty value", async () => {
+      const readId = await openConnection();
+      host.respondTo(readId, {token: "s3cret", url: "ws://host/plugin"});
+      await waitFor(() => expect(screen.getByLabelText("Access token")).toHaveValue("s3cret"));
+
+      await userEvent.clear(screen.getByLabelText("Access token"));
+      await userEvent.click(screen.getByRole("button", {name: "Save token"}));
+
+      await waitFor(() => {
+        expect(
+          host.requests.some((request) => request.action === "save_connection_settings"),
+        ).toBe(true);
+      });
+      const save = host.requests.find(
+        (request) => request.action === "save_connection_settings",
+      );
+      expect(save?.payload).toEqual({token: ""});
+    });
+
+    it("tells the pilot when the plugin refuses the token", async () => {
+      const readId = await openConnection();
+      host.respondTo(readId, {token: "", url: "ws://host/plugin"});
+      await waitFor(() => expect(screen.getByLabelText("Access token")).toHaveValue(""));
+
+      await userEvent.type(screen.getByLabelText("Access token"), "bad");
+      await userEvent.click(screen.getByRole("button", {name: "Save token"}));
+      const save = host.requests
+        .filter((request) => request.action === "save_connection_settings")
+        .pop();
+      host.failRequest(save?.requestId ?? 0, "could not write zoal_atc.cfg");
+
+      await waitFor(() => {
+        expect(screen.getByText(/could not write zoal_atc.cfg/)).toBeInTheDocument();
+      });
+    });
+  });
+
   describe("settings", () => {
     async function openSettings() {
       await mountReady();
