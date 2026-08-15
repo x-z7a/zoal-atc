@@ -580,6 +580,23 @@ describe("the panel", () => {
       expect(screen.getByLabelText("Access token")).toHaveAttribute("type", "text");
     });
 
+    // The lockout that actually reached a cockpit, and it was never in React.
+    //
+    // An unreachable console puts `console-unreachable` on the panel, and the
+    // stylesheet dimmed *and* set `pointer-events: none` on every control-row
+    // button under it. The token row is a control row, so the two controls that
+    // exist to work while the console is unreachable became unclickable exactly
+    // then -- disabled by CSS, with every React `disabled` prop reading false.
+    it("marks the token row as answered by the plugin, not the console", async () => {
+      const readId = await openConnection(false);
+      host.emitStatus({connected: false, subscribed: false});
+      host.respondTo(readId, {token: "s3cret", url: "ws://atc.zoal.app/plugin"});
+      await waitFor(() => expect(screen.getByLabelText("Access token")).toHaveValue("s3cret"));
+
+      const row = screen.getByLabelText("Access token").closest(".control-row");
+      expect(row).toHaveClass("control-row-local");
+    });
+
     it("tells the pilot when the plugin refuses the token", async () => {
       const readId = await openConnection();
       host.respondTo(readId, {token: "", url: "ws://host/plugin"});
