@@ -61,10 +61,13 @@ export function FieldRow({
         onChange={(event) => setValue(event.target.value)}
       />
       {secret ? (
+        // Never disabled: revealing asks nobody and changes nothing but what is
+        // on this screen. A pilot checking the credential they just pasted is
+        // most likely to need it precisely when the thing that would disable
+        // this row -- a save that is not coming back -- is what went wrong.
         <button
           type="button"
           aria-pressed={revealed}
-          disabled={disabled}
           onClick={() => setRevealed((shown) => !shown)}
         >
           {revealed ? "Hide" : "Show"}
