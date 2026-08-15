@@ -82,12 +82,18 @@ help:
 
 # The SDK-free core. Builds and runs with no X-Plane SDK, no Skyscript and no
 # CEF, which is what lets CI run it on three platforms in seconds.
+# --config and -C are what make this work on Windows, where the default CMake
+# generator is Visual Studio: a multi-config generator ignores CMAKE_BUILD_TYPE,
+# builds Debug, and drops the executables in build/<Config>/. Without them cmake
+# built Debug while ctest looked for Release, so every test reported "Not Run" -
+# a green-looking build with zero tests executed. Single-config generators accept
+# both flags and ignore them, so macOS and Linux are unchanged.
 build:
 	cmake -S . -B "$(BUILD_DIR)" -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_TESTS=ON
-	cmake --build "$(BUILD_DIR)"
+	cmake --build "$(BUILD_DIR)" --config "$(BUILD_TYPE)" --parallel
 
 test: build
-	ctest --test-dir "$(BUILD_DIR)" --output-on-failure
+	ctest --test-dir "$(BUILD_DIR)" -C "$(BUILD_TYPE)" --output-on-failure
 
 gui-build:
 	cd gui/zoal-atc && $(NPM) ci && $(NPM) run build

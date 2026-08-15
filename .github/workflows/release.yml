@@ -107,9 +107,15 @@ jobs:
       # Tag-time quality used to rest entirely on the PR-time CI workflow: this
       # job went straight from checkout to packaging, so a tag pushed from a
       # branch that never opened a PR shipped unproven.
-      - name: Gate
+      #
+      # `make test` and not `make gate`: the C++ core is the platform-specific
+      # half and is worth proving on all three runners, while the panel is
+      # identical JavaScript everywhere - its unit tests run once in CI, and
+      # `archive-plugin` below builds it here regardless, so a panel that does
+      # not build still fails this job.
+      - name: Test
         shell: bash
-        run: make gate
+        run: make test
 
       - name: Package release
         shell: bash
