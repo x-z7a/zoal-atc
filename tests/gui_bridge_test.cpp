@@ -443,6 +443,87 @@ void test_non_gui_frames_fall_through() {
 
 } // namespace
 
+// The whole reason the seam exists: a disconnected bridge refuses every proxied
+// request, and the settings that repair the connection must not be among them.
+void test_local_actions_answer_without_the_console() {
+  auto config = test_config();
+  config.local_action =
+      [](const std::string &action,
+         const std::string &payload) -> std::optional<zoal_atc::gui::LocalAnswer> {
+    if (action != "connection_settings") {
+      return std::nullopt;
+    }
+    zoal_atc::gui::LocalAnswer answer;
+    answer.payload_json = payload.empty() ? R"({"token":""})" : payload;
+    return answer;
+  };
+  zoal_atc::gui::GuiBridge bridge(config);
+  bridge.attach_panel(0);
+  bridge.take_js_messages(64);
+
+  // Note what is *not* done here: no set_connected(true). The socket is down.
+  const auto result =
+      bridge.submit(R"({"action":"connection_settings"})", 0);
+  expect_true(result.accepted, "local action accepted while disconnected");
+
+  const auto payloads = js_payloads(bridge);
+  expect_size(payloads.size(), 1, "local action answered on console.event");
+  expect_true(payloads.at(0).find(R"("token")") != std::string::npos,
+              "local answer carries its payload");
+  // Answered inline, so nothing is owed to a console that is not there and
+  // nothing can time out.
+  expect_size(bridge.pending_count(), 0, "local action leaves nothing pending");
+  expect_size(bridge.take_socket_frames().size(), 0,
+              "local action sends the console nothing");
+}
+
+// A handler that returned an answer for everything would silently sever the
+// panel from the console, so "not mine" has to keep proxying.
+void test_local_actions_do_not_swallow_console_actions() {
+  auto config = test_config();
+  config.local_action =
+      [](const std::string &action,
+         const std::string &) -> std::optional<zoal_atc::gui::LocalAnswer> {
+    if (action != "connection_settings") {
+      return std::nullopt;
+    }
+    return zoal_atc::gui::LocalAnswer{};
+  };
+  zoal_atc::gui::GuiBridge bridge(config);
+  bring_up(bridge);
+
+  const auto result = bridge.submit(R"({"action":"settings"})", 0);
+  expect_true(result.accepted, "console action still accepted");
+  expect_size(bridge.pending_count(), 1, "console action is pending");
+  expect_size(bridge.take_socket_frames().size(), 1,
+              "console action reached the socket");
+}
+
+void test_local_action_failure_reaches_the_page() {
+  auto config = test_config();
+  config.local_action =
+      [](const std::string &,
+         const std::string &) -> std::optional<zoal_atc::gui::LocalAnswer> {
+    zoal_atc::gui::LocalAnswer answer;
+    answer.ok = false;
+    answer.error = "token contains a control character";
+    return answer;
+  };
+  zoal_atc::gui::GuiBridge bridge(config);
+  bridge.attach_panel(0);
+  bridge.take_js_messages(64);
+
+  // Accepted is about the receipt, not the outcome: the request was taken, and
+  // the failure travels in the answer like a console's would.
+  const auto result = bridge.submit(R"({"action":"save"})", 0);
+  expect_true(result.accepted, "a failing local action is still accepted");
+
+  const auto payloads = js_payloads(bridge);
+  expect_size(payloads.size(), 1, "failure answered on console.event");
+  expect_true(payloads.at(0).find("control character") != std::string::npos,
+              "the reason reaches the page");
+}
+
 int main() {
   test_submit_needs_a_console();
   test_attach_subscribes_and_acks();
@@ -456,6 +537,9 @@ int main() {
   test_detach_forgets_the_page();
   test_reattaching_does_not_accumulate_subscriptions();
   test_non_gui_frames_fall_through();
+  test_local_actions_answer_without_the_console();
+  test_local_actions_do_not_swallow_console_actions();
+  test_local_action_failure_reaches_the_page();
 
   if (g_failures != 0) {
     return EXIT_FAILURE;

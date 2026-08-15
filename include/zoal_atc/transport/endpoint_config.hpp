@@ -42,6 +42,22 @@ EndpointConfigResult apply_config_text(std::string_view text,
 // its own once interpolated into the upgrade request.
 bool token_is_safe(std::string_view token);
 
+// Returns `text` with `key` set to `value`, for the one setting the panel is
+// allowed to write. The file is the pilot's: their comments, their ordering and
+// every key we did not touch survive, because a "save" that rewrote the file
+// from our model of it would silently discard whatever they had put there.
+//
+// In priority order it rewrites the first live `key =` line, else uncomments the
+// template's commented one in place, else appends. Uncommenting in place matters
+// because the template explains each key directly above it, and an appended
+// duplicate would leave the explanation attached to a line that no longer has
+// any effect.
+//
+// The value is written verbatim, so callers validate first - token_is_safe for
+// the token. An empty value is legitimate and means "clear".
+std::string upsert_config_value(std::string_view text, std::string_view key,
+                                std::string_view value);
+
 // The commented config file the plugin writes on first run, so the file is
 // discoverable at the path that reads it rather than only in the README.
 //

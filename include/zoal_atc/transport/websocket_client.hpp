@@ -59,6 +59,18 @@ public:
 
   WebSocketStatus connect();
   void close();
+
+  // Swaps the bearer token and drops the connection so the next re-dial carries
+  // it. Both halves have to happen under one lock: a token changed while the
+  // old socket lived would sit unused until something else disconnected, and
+  // the pilot would be told a bad credential was saved and working.
+  //
+  // The reconnect itself is the receiver loop's job - it already re-dials
+  // whatever it finds here.
+  void reauthenticate(std::string token);
+
+  // The token currently in use, for a panel that offers to change it.
+  [[nodiscard]] std::string auth_token() const;
   [[nodiscard]] bool connected() const;
   WebSocketStatus send_text(std::string_view payload) override;
   [[nodiscard]] WebSocketStatus receive_text(std::string &payload);

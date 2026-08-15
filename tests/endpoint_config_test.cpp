@@ -10,6 +10,7 @@ using zoal_atc::transport::default_config_template;
 using zoal_atc::transport::EndpointConfigResult;
 using zoal_atc::transport::host_header;
 using zoal_atc::transport::parse_websocket_url;
+using zoal_atc::transport::upsert_config_value;
 using zoal_atc::transport::WebSocketEndpoint;
 
 namespace {
@@ -301,6 +302,92 @@ int main() {
     endpoint.host = "::1";
     endpoint.port = 80;
     require_eq(host_header(endpoint), "[::1]", "IPv6 host bracketed bare");
+  }
+
+  // --- upsert_config_value ---------------------------------------------------
+  //
+  // The panel writes the token into a file the pilot also edits by hand, so the
+  // property under test is mostly what *survives* the write.
+  {
+    require_eq(upsert_config_value("token = old\n", "token", "new"),
+               "token = new\n", "rewrites a live assignment");
+  }
+  {
+    require_eq(upsert_config_value("", "token", "secret"), "token = secret\n",
+               "appends to an empty file");
+  }
+  {
+    require_eq(upsert_config_value("url = ws://host/plugin", "token", "secret"),
+               "url = ws://host/plugin\ntoken = secret\n",
+               "appends a missing key, terminating the previous line");
+  }
+  {
+    // The template ships every key commented out. Uncommenting in place keeps
+    // the key under the comment that explains it.
+    require_eq(upsert_config_value("# token = your-shared-secret\n", "token",
+                                   "secret"),
+               "token = secret\n", "uncomments the template line in place");
+    require_eq(upsert_config_value("#token=x\n", "token", "secret"),
+               "token = secret\n", "uncomments without spaces");
+  }
+  {
+    const std::string before = "# a comment\n"
+                               "url = ws://host/plugin\n"
+                               "\n"
+                               "# explains the token\n"
+                               "# token = your-shared-secret\n"
+                               "client_id = abc\n";
+    const std::string after = "# a comment\n"
+                              "url = ws://host/plugin\n"
+                              "\n"
+                              "# explains the token\n"
+                              "token = secret\n"
+                              "client_id = abc\n";
+    require_eq(upsert_config_value(before, "token", "secret"), after,
+               "comments, blank lines and other keys survive");
+  }
+  {
+    // A live assignment wins over a commented one no matter the order, or a
+    // save would edit the dead line and appear to do nothing.
+    require_eq(upsert_config_value("token = live\n# token = dead\n", "token",
+                                   "new"),
+               "token = new\n# token = dead\n",
+               "prefers the live assignment over a commented one");
+    require_eq(upsert_config_value("# token = dead\ntoken = live\n", "token",
+                                   "new"),
+               "# token = dead\ntoken = new\n",
+               "prefers the live assignment even when it is second");
+  }
+  {
+    require_eq(upsert_config_value("token = old\r\n", "token", "new"),
+               "token = new\r\n", "preserves CRLF line endings");
+  }
+  {
+    // Clearing is a write, not a delete: the key stays visible so the pilot can
+    // see it is deliberately empty rather than never set.
+    require_eq(upsert_config_value("token = old\n", "token", ""),
+               "token = \n", "an empty value clears in place");
+  }
+  {
+    // `auth_token` is the accepted alias, and must not be mistaken for `token`
+    // in either direction - writing one while the other is live would leave the
+    // file with two assignments and the parser taking the last.
+    require_eq(upsert_config_value("auth_token = old\n", "token", "new"),
+               "auth_token = old\ntoken = new\n",
+               "does not rewrite a different key that ends the same way");
+    require_eq(upsert_config_value("# url = ws://elsewhere\n", "token", "s"),
+               "# url = ws://elsewhere\ntoken = s\n",
+               "does not uncomment an unrelated key");
+  }
+  {
+    // Round trip: what we write has to be what the parser reads back.
+    WebSocketEndpoint base;
+    const std::string written =
+        upsert_config_value(default_config_template(), "token", "secret");
+    const auto parsed = apply_config_text(written, base);
+    require(parsed.ok, "written template still parses");
+    require_eq(parsed.endpoint.auth_token, "secret",
+               "the parser reads back what was written");
   }
 
   std::cout << "endpoint config tests passed\n";
