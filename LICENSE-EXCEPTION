@@ -1,0 +1,45 @@
+zoal-atc — X-Plane SDK linking exception
+========================================
+
+Additional permission under GNU GPL version 3 section 7
+-------------------------------------------------------
+
+Copyright (C) 2026 x-z7a
+
+This exception is an additional permission under section 7 of the GNU General
+Public License, version 3 ("GPLv3"), granted by the copyright holders of
+zoal-atc.
+
+zoal-atc is an X-Plane plugin. It cannot do its job without the X-Plane Plugin
+SDK (XPLM/XPWidgets) and the X-Plane simulator that provides those interfaces at
+run time, and neither is distributed under a GPL-compatible licence. Read
+strictly, GPLv3 would therefore forbid the only form in which this software is
+useful.
+
+You have permission to link or combine any covered work with the X-Plane Plugin
+SDK (including the XPLM and XPWidgets headers, import libraries, and frameworks
+published by Laminar Research), and with the X-Plane simulator itself, and to
+convey the resulting work. The terms of the GNU General Public License version 3
+continue to apply to the covered work in every other respect, and this exception
+extends no further than the X-Plane SDK and simulator named above.
+
+If you modify this software, you may extend this exception to your version, but
+you are not obliged to do so. If you do not wish to extend it, delete this
+statement from your version.
+
+Notes on the other components this plugin uses
+----------------------------------------------
+
+Neither of the following requires the exception above; both are GPL-compatible
+and are recorded here so the combined work's licensing is legible.
+
+  * SkyScript (https://github.com/x-z7a/SkyScript) — MIT. The library is
+    downloaded at build time and ships beside the .xpl; its notice travels in
+    every release at licenses/skyscript/LICENSE.
+
+  * miniaudio (https://github.com/mackron/miniaudio) — public domain, or MIT-0
+    at your option. A single header, downloaded at build time.
+
+The Chromium Embedded Framework is deliberately not distributed with this
+plugin: since SkyScript v0.5.0 the panel resolves CEF against X-Plane's own
+install.

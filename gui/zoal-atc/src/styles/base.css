@@ -1,0 +1,538 @@
+/* The panel's look, carried across from the pre-React stylesheet unchanged.
+ *
+ * Only the colour literals moved (into tokens.css); every size, weight and rule
+ * is the one that shipped. A visual pass is deliberately out of scope here --
+ * the point of phase 24 is to make one cheap, not to guess at it. */
+
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  margin: 0;
+  min-width: 640px;
+  min-height: 480px;
+  background: var(--bg);
+}
+
+/* The panel is exactly the window and never taller: the conversation scrolls,
+   the frame around it does not. A page that scrolls as a whole means the input
+   walks off the bottom, which on a 620px window it did. */
+.panel {
+  display: flex;
+  overflow: hidden;
+  height: 100vh;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+
+/* ---- Mast ---------------------------------------------------------------- */
+
+.mast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+
+.eyebrow,
+.label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 1px 0 0;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.status-stack {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.status {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  color: var(--text-status);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.status-ready {
+  border-color: var(--ok-border);
+  background: var(--ok-surface);
+  color: var(--ok-text);
+}
+
+.status-waiting {
+  border-color: var(--waiting-border);
+  background: var(--waiting-surface);
+  color: var(--waiting-text);
+}
+
+/* ---- Tiles and panels ---------------------------------------------------- */
+
+/* Six readouts across when the window is wide, folding to three and then two as
+   it narrows. They are a glance, not the content: the radio below them is what
+   the window is for, so they take one short band and no more. */
+.grid {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 6px;
+}
+
+.tile,
+.feed {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.tile {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 9px 7px;
+}
+
+.tile strong {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The qualifier under a readout. Truncated rather than wrapped: a filed route
+   is long, and the tile is a glance -- the whole string is on Settings. */
+.tile-detail {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* The one obvious thing to do with a readout, sitting on its label line so it
+   costs no height. */
+.tile-action {
+  padding: 0;
+  border: none;
+  margin-left: auto;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tile-action:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.tile-action:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.feed {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+/* The radio takes everything the readouts and the mast leave. */
+.radio {
+  flex: 1;
+}
+
+.feed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.feed p {
+  margin: 0;
+  color: var(--text-feed);
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--warn);
+  box-shadow: 0 0 0 4px rgb(239 215 132 / 14%);
+}
+
+@media (max-width: 760px) {
+  .panel {
+    padding: 10px;
+  }
+
+  .status-stack {
+    justify-content: flex-end;
+  }
+}
+
+/* ---- Radio log ----------------------------------------------------------- */
+
+/* Laid out as a conversation, because that is what it is.
+ *
+ * Who spoke is carried by side, by colour and by a name above the bubble --
+ * three cues, because this is read at a glance in flight and a pilot who has to
+ * parse a line to find out whether it was theirs has already lost time. This
+ * cockpit is on the right, the way every messaging app puts you on the right. */
+
+.comm-wrap {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.comm-log {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 2px;
+  overflow-y: auto;
+  list-style: none;
+  scroll-behavior: smooth;
+}
+
+.bubble-row {
+  display: flex;
+  max-width: 82%;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.from-atc {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.from-pilot {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.bubble-speaker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+/* One seat should not look like another. Approach handing you to Tower is a
+   change of person, and the colour says so before the words do. */
+.tone-pilot {
+  color: var(--accent-pilot);
+}
+
+.tone-delivery {
+  color: var(--delivery);
+}
+
+.tone-surface {
+  color: var(--surface-seat);
+}
+
+.tone-tower {
+  color: var(--tower);
+}
+
+.tone-radar {
+  color: var(--accent);
+}
+
+.tone-advisory,
+.tone-atc {
+  color: var(--text-dim);
+}
+
+.bubble {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-comm);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* The tail corner, which is what makes a bubble read as coming from a side. */
+.from-atc .bubble {
+  border-top-left-radius: 3px;
+}
+
+.from-pilot .bubble {
+  border-top-right-radius: 3px;
+  border-color: var(--pilot-bubble-border);
+  background: var(--pilot-bubble);
+  color: var(--text);
+}
+
+/* An overheard copy is another aircraft's clearance. It must not read as this
+   cockpit's, or a routing bug looks like normal operation (phase 22 M7). */
+.is-overheard .bubble {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-pilot);
+}
+
+.bubble-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+/* ---- Composer ------------------------------------------------------------ */
+
+/* Docked to the log, because a chat has its input at the bottom of the chat.
+   Tuning sits beside it: it is a radio action, and a row of its own under the
+   card was space the conversation was not getting. */
+.composer {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.composer form {
+  display: flex;
+  gap: 6px;
+}
+
+.composer-tune {
+  flex: 0 1 auto;
+}
+
+.composer-tune input {
+  width: 92px;
+}
+
+.composer-say {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.composer input {
+  min-width: 0;
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text-input);
+  font: inherit;
+  font-size: 13px;
+}
+
+.composer input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.composer button {
+  flex: none;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-input);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.composer button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.composer button:disabled,
+.composer input:disabled {
+  opacity: 0.5;
+}
+
+/* Reading back through the log must not mean missing the call that just came
+   in, so the log says how much it is holding below. */
+.jump-latest {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
+  cursor: pointer;
+}
+
+/* ---- Controls ------------------------------------------------------------ */
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.control-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.control-row .label {
+  flex: none;
+  width: 90px;
+}
+
+.control-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text-input);
+  font: inherit;
+  font-size: 14px;
+}
+
+.control-row input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.control-row button {
+  flex: none;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text-input);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.control-row button:hover {
+  border-color: var(--accent);
+}
+
+.flight-plan {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: baseline;
+  padding: 8px 0;
+}
+
+.flight-plan strong {
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.flight-plan span:last-child {
+  grid-column: 2;
+  color: var(--text-dim);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Failure and staleness ----------------------------------------------- */
+
+/* Rendered only when there is something to say, so it takes no space in the
+   normal case. */
+.action-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* Stale telemetry is not the same condition as a disconnected console, and the
+   pilot needs to tell them apart: one means the numbers above stopped arriving,
+   the other means nobody is listening to the radio. */
+.stale-banner {
+  margin: 0;
+  color: var(--warn);
+  font-size: 13px;
+}
+
+.stale-banner.is-stale {
+  padding: 6px 10px;
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  background: var(--warn-surface);
+}
+
+/* While the console is unreachable every value on screen is last-known. Dimming
+   the readouts says so at a glance; the log keeps full contrast because what was
+   already said is still true. */
+.console-unreachable .tile strong,
+.console-unreachable .json-block {
+  opacity: 0.45;
+}
+
+.console-unreachable .control-row button {
+  opacity: 0.5;
+  pointer-events: none;
+}

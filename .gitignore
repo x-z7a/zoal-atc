@@ -1,0 +1,13 @@
+.DS_Store
+
+# Downloads, not build outputs: the pinned Skyscript bundle, the X-Plane SDK and
+# miniaudio are all fetched by the build and none of them are ours to commit.
+/.cache/
+/sdk/
+/vendor/
+
+# Build outputs.
+/build*/
+/dist/
+node_modules/
+*.xpl
