@@ -518,6 +518,68 @@ describe("the panel", () => {
       expect(save?.payload).toEqual({token: ""});
     });
 
+    // The lockout this row exists to prevent, reached from the inside.
+    //
+    // Saving a token drops the socket on purpose, so a save is exactly the
+    // request most likely to lose its answer. If losing it leaves the row
+    // disabled, a pilot who typed the token wrong has no way to type it again —
+    // the same dead end as gating the field on the console, arrived at by a
+    // different route.
+    it("lets the pilot try again when the save is never answered", async () => {
+      const readId = await openConnection(false);
+      host.emitStatus({connected: false, subscribed: false});
+      host.respondTo(readId, {token: "wrong", url: "ws://atc.zoal.app/plugin"});
+      await waitFor(() => expect(screen.getByLabelText("Access token")).toHaveValue("wrong"));
+
+      await userEvent.clear(screen.getByLabelText("Access token"));
+      await userEvent.type(screen.getByLabelText("Access token"), "corrected");
+      await userEvent.click(screen.getByRole("button", {name: "Save token"}));
+      // Nothing answers, the way a plugin that queued the response for a page
+      // that had not registered it yet never will.
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", {name: "Save token"})).toBeEnabled();
+        expect(screen.getByLabelText("Access token")).toBeEnabled();
+      });
+    });
+
+    // The plugin queues a local answer before it returns the receipt, so the
+    // answer can reach the page while the request is still registering.
+    it("keeps an answer that beats its own receipt", async () => {
+      const readId = await openConnection(false);
+      host.emitStatus({connected: false, subscribed: false});
+      host.respondTo(readId, {token: "wrong", url: "ws://atc.zoal.app/plugin"});
+      await waitFor(() => expect(screen.getByLabelText("Access token")).toHaveValue("wrong"));
+
+      host.answerBeforeAck = (action) =>
+        action === "save_connection_settings"
+          ? {token: "corrected", url: "ws://atc.zoal.app/plugin"}
+          : undefined;
+
+      await userEvent.clear(screen.getByLabelText("Access token"));
+      await userEvent.type(screen.getByLabelText("Access token"), "corrected");
+      await userEvent.click(screen.getByRole("button", {name: "Save token"}));
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", {name: "Save token"})).toBeEnabled();
+      });
+      expect(screen.queryByText(/no answer from the console/)).not.toBeInTheDocument();
+    });
+
+    // Revealing is local to the page: it reads no socket and asks nobody. A
+    // pilot checking what they just pasted must not be blocked by a request in
+    // flight — least of all the save that is failing.
+    it("can still reveal the token while a save is in flight", async () => {
+      const readId = await openConnection(false);
+      host.respondTo(readId, {token: "s3cret", url: "ws://atc.zoal.app/plugin"});
+      await waitFor(() => expect(screen.getByLabelText("Access token")).toHaveValue("s3cret"));
+
+      await userEvent.click(screen.getByRole("button", {name: "Save token"}));
+
+      await userEvent.click(screen.getByRole("button", {name: "Show"}));
+      expect(screen.getByLabelText("Access token")).toHaveAttribute("type", "text");
+    });
+
     it("tells the pilot when the plugin refuses the token", async () => {
       const readId = await openConnection();
       host.respondTo(readId, {token: "", url: "ws://host/plugin"});

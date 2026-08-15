@@ -19,6 +19,14 @@ type PendingRequest = {
   timer: ReturnType<typeof setTimeout>;
 };
 
+// An answer that arrived before anything was waiting for it.
+type EarlyAnswer = {
+  ok: boolean;
+  payload: unknown;
+  error: string;
+  timer: ReturnType<typeof setTimeout>;
+};
+
 // Longer than the plugin's own 10s request timeout (gui_bridge.hpp) on purpose.
 // The plugin's timeout produces a specific error the pilot can act on, and it
 // should win in the normal case. This one is the backstop for the case the
@@ -26,9 +34,42 @@ type PendingRequest = {
 // because the socket went away or the page reloaded underneath it.
 const REQUEST_TIMEOUT_MS = 15000;
 
+// The receipt is the host's return value, and nothing underneath it guarantees
+// one. Without this bound a host that accepts a post and never answers leaves
+// the promise pending for the life of the page, and every control the caller
+// disabled while it waited stays disabled — which is how a mistyped token can
+// take away the field that fixes it.
+const ACK_TIMEOUT_MS = 5000;
+
+// How long an answer waits for the request it belongs to. The plugin queues a
+// local action's response *before* it returns the receipt (gui_bridge.cpp), so
+// the answer can reach the page while `request` is still awaiting the ack.
+// Dropping it there is silent and unrecoverable: the caller then waits out the
+// full request timeout for something that already arrived.
+const EARLY_ANSWER_TTL_MS = 30000;
+
+// Rejects if `promise` has not settled in `ms`. Used where the far side is the
+// Skyscript host itself, which has no timeout of its own to fall back on.
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  });
+}
+
 export class ConsoleBridge {
   private readonly host: SkyscriptHost | undefined;
   private readonly pending = new Map<number, PendingRequest>();
+  private readonly earlyAnswers = new Map<number, EarlyAnswer>();
   private readonly eventHandlers = new Map<string, Set<EventHandler>>();
   private readonly statusHandlers = new Set<StatusHandler>();
   private started = false;
@@ -121,14 +162,34 @@ export class ConsoleBridge {
       throw new Error("bridge not started");
     }
 
-    const ack = (await this.host.postMessage(REQUEST_CHANNEL, {
-      action,
-      payload: payload ?? null,
-    })) as RequestAck | null;
+    const ack = (await withTimeout(
+      this.host.postMessage(REQUEST_CHANNEL, {action, payload: payload ?? null}),
+      ACK_TIMEOUT_MS,
+      "the panel host did not acknowledge the request",
+    )) as RequestAck | null;
 
     if (!ack || !ack.accepted) {
       panelWarn("request refused", {action, ack});
       throw new Error(ack?.error || "request refused");
+    }
+
+    // dispose() settles what is in `pending`, and until the receipt arrives
+    // this request is not in it yet. Re-checking here is what keeps a request
+    // made just before shutdown from outliving the page that made it.
+    if (this.disposed) {
+      throw new Error("panel is shutting down");
+    }
+
+    // The answer may already be here: the plugin queues a local action's
+    // response before it hands back the receipt we just awaited.
+    const early = this.earlyAnswers.get(ack.request_id);
+    if (early) {
+      this.earlyAnswers.delete(ack.request_id);
+      clearTimeout(early.timer);
+      if (!early.ok) {
+        throw new Error(early.error || "request failed");
+      }
+      return early.payload;
     }
 
     return new Promise<unknown>((resolve, reject) => {
@@ -153,8 +214,28 @@ export class ConsoleBridge {
       waiting.reject(new Error("panel is shutting down"));
     }
     this.pending.clear();
+    for (const [, held] of this.earlyAnswers) {
+      clearTimeout(held.timer);
+    }
+    this.earlyAnswers.clear();
     this.eventHandlers.clear();
     this.statusHandlers.clear();
+  }
+
+  // Parks an answer nothing is waiting for yet, on a timer so a page that
+  // never claims it does not accumulate them.
+  private holdEarlyAnswer(
+    requestId: number,
+    answer: {ok: boolean; payload: unknown; error: string},
+  ): void {
+    const existing = this.earlyAnswers.get(requestId);
+    if (existing) {
+      clearTimeout(existing.timer);
+    }
+    const timer = setTimeout(() => {
+      this.earlyAnswers.delete(requestId);
+    }, EARLY_ANSWER_TTL_MS);
+    this.earlyAnswers.set(requestId, {...answer, timer});
   }
 
   private settle(requestId: number): PendingRequest | undefined {
@@ -180,8 +261,14 @@ export class ConsoleBridge {
       case "response": {
         const waiting = this.settle(envelope.request_id);
         if (!waiting) {
-          // A response to a request this page did not make, or made before a
-          // reload. Nothing is waiting on it.
+          // Either the answer overtook its own receipt — hold it, `request`
+          // will claim it in a moment — or it belongs to a request made before
+          // a reload, in which case the TTL discards it.
+          this.holdEarlyAnswer(envelope.request_id, {
+            ok: envelope.ok,
+            payload: envelope.payload,
+            error: envelope.error,
+          });
           return;
         }
         if (envelope.ok) {
