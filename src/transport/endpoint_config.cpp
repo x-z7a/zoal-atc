@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <vector>
 
 namespace zoal_atc::transport {
 namespace {
@@ -95,6 +96,103 @@ bool parse_port(std::string_view text, std::uint16_t &port,
 }
 
 } // namespace
+
+namespace {
+
+// True when `line` assigns `key`, by exactly the rules apply_config_text reads
+// it with: the first `=` or `:` separates, and the key is compared lowercased
+// and trimmed. Sharing the rule is the point - a writer that disagreed with the
+// parser about what a key line is would edit one line while the plugin obeyed
+// another.
+bool assigns_key(std::string_view line, std::string_view key) {
+  const auto separator = line.find_first_of("=:");
+  if (separator == std::string_view::npos) {
+    return false;
+  }
+  return to_lower(trim(line.substr(0, separator))) == key;
+}
+
+// Strips leading comment markers and space, so `# token = x` and `#token=x`
+// both read as a commented assignment of `token`.
+std::string_view uncomment(std::string_view line) {
+  while (!line.empty() && (line.front() == '#' || line.front() == ';')) {
+    line.remove_prefix(1);
+  }
+  return trim(line);
+}
+
+} // namespace
+
+std::string upsert_config_value(std::string_view text, std::string_view key,
+                                std::string_view value) {
+  const std::string wanted = to_lower(trim(key));
+  const std::string assignment = wanted + " = " + std::string(value);
+
+  // Split into content and line ending separately, so a rewritten line keeps
+  // the ending it had and a CRLF file does not gain a lone LF.
+  std::vector<std::string> lines;
+  std::vector<std::string> endings;
+  for (std::size_t pos = 0; pos < text.size();) {
+    const auto newline = text.find('\n', pos);
+    if (newline == std::string_view::npos) {
+      lines.emplace_back(text.substr(pos));
+      endings.emplace_back("");
+      break;
+    }
+    std::size_t content_end = newline;
+    std::string ending = "\n";
+    if (content_end > pos && text[content_end - 1] == '\r') {
+      content_end -= 1;
+      ending = "\r\n";
+    }
+    lines.emplace_back(text.substr(pos, content_end - pos));
+    endings.emplace_back(std::move(ending));
+    pos = newline + 1;
+  }
+
+  constexpr auto kNone = std::string_view::npos;
+  std::size_t live = kNone;
+  std::size_t commented = kNone;
+  for (std::size_t i = 0; i < lines.size() && live == kNone; ++i) {
+    const std::string_view line = trim(lines[i]);
+    if (line.empty()) {
+      continue;
+    }
+    if (line.front() == '#' || line.front() == ';') {
+      if (commented == kNone && assigns_key(uncomment(line), wanted)) {
+        commented = i;
+      }
+      continue;
+    }
+    if (assigns_key(line, wanted)) {
+      live = i;
+    }
+  }
+
+  const std::size_t target = live != kNone ? live : commented;
+  if (target != kNone) {
+    lines[target] = assignment;
+  } else {
+    // A file that did not end in a newline would otherwise have the new key
+    // glued onto its last line.
+    if (!endings.empty() && endings.back().empty()) {
+      endings.back() = text.find("\r\n") != std::string_view::npos ? "\r\n" : "\n";
+    }
+    lines.push_back(assignment);
+    endings.emplace_back(text.find("\r\n") != std::string_view::npos ? "\r\n"
+                                                                    : "\n");
+  }
+  // We are writing the file, so it ends like a text file should.
+  if (!endings.empty() && endings.back().empty()) {
+    endings.back() = "\n";
+  }
+
+  std::string out;
+  for (std::size_t i = 0; i < lines.size(); ++i) {
+    out.append(lines[i]).append(endings[i]);
+  }
+  return out;
+}
 
 // The token is interpolated into an HTTP header, so a stray control character
 // would let its source append headers of its own.
@@ -265,6 +363,11 @@ std::string default_config_template() {
       "# the console's environment. Over ws:// it crosses the network in\n"
       "# cleartext, so treat it as a gate against strangers finding an open\n"
       "# endpoint, not as transport security.\n"
+      "#\n"
+      "# You can also set this in the sim, on the in-sim panel's Settings tab.\n"
+      "# Saving there rewrites this line and reconnects, so you can see whether\n"
+      "# the console accepts it. Editing here works too; the plugin reads this\n"
+      "# file at startup.\n"
       "#\n"
       "# token = your-shared-secret\n"
       "\n"

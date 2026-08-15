@@ -93,6 +93,16 @@ while the config claimed otherwise.
 
 ### Authentication
 
+The token can be set **in the sim**, on the panel's Settings tab under
+*Connection*. It is the one setting the plugin stores itself rather than the
+console, because it is the credential the console refuses the connection over —
+gated on a live socket like everything else, the control that fixes a bad token
+would be disabled exactly when it is needed. Saving rewrites the `token` line in
+`zoal_atc.cfg`, keeping your comments and other keys, then reconnects so the
+status line shows whether the console accepted it. Save it empty to clear it.
+The console URL is deliberately read-only there: a mistyped endpoint takes you
+off the air with no way back from inside the sim.
+
 When `token` is set the plugin sends `Authorization: Bearer <token>` on the
 upgrade. The console enforces it when `ZOAL_ATC_PLUGIN_TOKEN` is set in its own
 environment, refusing the upgrade with `401` before a WebSocket exists. Both

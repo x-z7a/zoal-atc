@@ -14,6 +14,39 @@ SubmitResult GuiBridge::submit(const std::string &panel_request_json,
     return {false, 0, build_request_ack(false, 0, "malformed request")};
   }
 
+  // Local actions are offered the request first, and deliberately called
+  // outside the lock: a handler may write a file, and the socket thread should
+  // not wait on that. They also run before the connected check, because a
+  // setting that repairs the connection cannot require one.
+  //
+  // The handler is copied under the lock rather than read through config_,
+  // since set_local_action can assign it. Copying a std::function per submit is
+  // nothing next to the request it is about to answer.
+  std::function<std::optional<LocalAnswer>(const std::string &,
+                                           const std::string &)>
+      local_action;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    local_action = config_.local_action;
+  }
+  if (local_action) {
+    if (auto answer = local_action(request->action, request->payload_json)) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      GuiResponse response;
+      response.request_id = next_request_id_++;
+      response.ok = answer->ok;
+      response.payload_json = answer->payload_json;
+      response.error = answer->error;
+      // Receipt now, answer on console.event - the same two steps a proxied
+      // request takes, so the panel needs no second code path for these.
+      if (panel_attached_) {
+        enqueue_js_locked(build_js_response(response));
+      }
+      return {true, response.request_id,
+              build_request_ack(true, response.request_id, "")};
+    }
+  }
+
   std::lock_guard<std::mutex> lock(mutex_);
   if (!connected_) {
     // Refuse now rather than let the panel wait out a timeout to learn what the
@@ -49,6 +82,14 @@ std::string GuiBridge::attach_panel(std::uint64_t now_ms) {
   }
   replay_locked();
   return R"({"ok":true,"replayed":)" + std::to_string(cache_.size()) + "}";
+}
+
+void GuiBridge::set_local_action(
+    std::function<std::optional<LocalAnswer>(const std::string &,
+                                             const std::string &)>
+        handler) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  config_.local_action = std::move(handler);
 }
 
 void GuiBridge::detach_panel() {

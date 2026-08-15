@@ -283,6 +283,107 @@ void append_client_id(const std::string &path, const std::string &client_id) {
   log_line("recorded a new client_id in " + path);
 }
 
+// --- the panel's connection settings ----------------------------------------
+//
+// The one thing the panel changes without the console, because it is how a
+// console that refuses the connection becomes reachable at all. Everything else
+// the Settings tab offers is stored console-side and needs a live socket; a
+// token gated the same way could only be fixed by hand-editing zoal_atc.cfg,
+// which is the file the panel exists to spare the pilot.
+//
+// The URL travels with it read-only. It is deliberately not editable: a mistyped
+// endpoint takes the pilot off the air with no way back inside the sim, and the
+// hosted console's address does not change.
+
+std::string g_config_path;
+std::string g_console_label;
+
+std::string connection_settings_json() {
+  const std::string token =
+      g_websocket ? g_websocket->auth_token() : std::string();
+  return std::string(R"({"token":")") +
+         zoal_atc::transport::json_escape(token) + R"(","url":")" +
+         zoal_atc::transport::json_escape(g_console_label) + R"("})";
+}
+
+// Writes through a temporary and renames, so a crash or a full disk cannot
+// leave the pilot with a truncated config and no way to reach a console. The
+// file holds their hand-written comments and their client_id, not just our key.
+bool write_config_atomically(const std::string &path,
+                             const std::string &contents) {
+  const std::string temp = path + ".tmp";
+  std::FILE *file = std::fopen(temp.c_str(), "wb");
+  if (file == nullptr) {
+    return false;
+  }
+  const std::size_t written =
+      std::fwrite(contents.data(), 1, contents.size(), file);
+  const bool complete = written == contents.size();
+  if (std::fclose(file) != 0 || !complete) {
+    std::remove(temp.c_str());
+    return false;
+  }
+  // POSIX renames over an existing file atomically; Windows refuses, so the
+  // target goes first there and the window is accepted.
+#if defined(_WIN32)
+  std::remove(path.c_str());
+#endif
+  if (std::rename(temp.c_str(), path.c_str()) != 0) {
+    std::remove(temp.c_str());
+    return false;
+  }
+  return true;
+}
+
+std::optional<zoal_atc::gui::LocalAnswer>
+handle_local_gui_action(const std::string &action,
+                        const std::string &payload_json) {
+  if (action == "connection_settings") {
+    return zoal_atc::gui::LocalAnswer{true, connection_settings_json(), ""};
+  }
+  if (action != "save_connection_settings") {
+    // Not ours: the bridge proxies it to the console as usual.
+    return std::nullopt;
+  }
+
+  const auto token =
+      zoal_atc::transport::json_string_field(payload_json, "token");
+  if (!token.has_value()) {
+    return zoal_atc::gui::LocalAnswer{false, "null",
+                                      "the request carried no token"};
+  }
+  // The same fence the config parser applies, refused here so the pilot is told
+  // rather than finding the value silently dropped on the next start.
+  if (!zoal_atc::transport::token_is_safe(*token)) {
+    return zoal_atc::gui::LocalAnswer{
+        false, "null", "a token cannot contain a control character"};
+  }
+  if (g_config_path.empty()) {
+    return zoal_atc::gui::LocalAnswer{false, "null",
+                                      "no config file path is known"};
+  }
+
+  const auto existing = read_file(g_config_path);
+  const std::string updated = zoal_atc::transport::upsert_config_value(
+      existing.value_or(std::string()), "token", *token);
+  if (!write_config_atomically(g_config_path, updated)) {
+    return zoal_atc::gui::LocalAnswer{false, "null",
+                                      "could not write " + g_config_path};
+  }
+
+  // Present-or-absent, never the value: the log is the one artifact a pilot
+  // pastes into a bug report.
+  log_line(token->empty() ? "console token cleared from the panel"
+                          : "console token set from the panel");
+
+  // Swap it on the live socket and drop the connection, so the status line
+  // shows whether the new credential works instead of waiting for a restart.
+  if (g_websocket) {
+    g_websocket->reauthenticate(*token);
+  }
+  return zoal_atc::gui::LocalAnswer{true, connection_settings_json(), ""};
+}
+
 std::optional<std::string> env_value(const char *name) {
   const char *value = std::getenv(name);
   if (value == nullptr || *value == '\0') {
@@ -295,6 +396,9 @@ WebSocketEndpoint resolve_console_endpoint(const std::string &system_path) {
   WebSocketEndpoint endpoint;  // loopback default
 
   const std::string config_path = system_path + kConfigRelativePath;
+  // Remembered so the panel can write the token back to the same file this
+  // resolution read it from.
+  g_config_path = config_path;
   const auto config_text = read_file(config_path);
   if (!config_text.has_value()) {
     // First run on this install: leave a documented file at the path that
@@ -1440,10 +1544,15 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   // session_id every frame carries names this installation rather than the old
   // shared constant (phase22 M1).
   g_client_id = endpoint.client_id;
+  // The panel shows this beside the token so the pilot can see which console
+  // the credential is for. Read-only there, and built before the move.
+  g_console_label = "ws://" + host_header(endpoint) + endpoint.path;
   const std::string endpoint_description =
-      "ws://" + host_header(endpoint) + endpoint.path +
+      g_console_label +
       (endpoint.auth_token.empty() ? " (no token)" : " (token set)");
   g_websocket = std::make_unique<WebSocketClient>(std::move(endpoint));
+  // Installed once the socket exists, because saving a token re-dials it.
+  g_gui_bridge.set_local_action(handle_local_gui_action);
   g_transport_sink =
       std::make_unique<AsyncWebSocketPttSink>(
           *g_websocket, frame_session_id(), [](const std::string &reason) {
