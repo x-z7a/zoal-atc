@@ -6,7 +6,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -23,6 +25,14 @@ struct JsMessage {
   std::string payload;
 };
 
+// LocalAnswer is a response the plugin produced by itself, without the console.
+struct LocalAnswer {
+  bool ok = true;
+  // Raw JSON value, as a console answer's payload would be.
+  std::string payload_json;
+  std::string error;
+};
+
 struct GuiBridgeConfig {
   // How long a panel request may wait for the console before the panel is told
   // it will not be answered. A promise that never settles is worse than a
@@ -32,6 +42,22 @@ struct GuiBridgeConfig {
   std::size_t max_pending = 32;
   std::size_t max_js_queue = 256;
   std::vector<std::string> topics{"flight", "facility"};
+
+  // Actions the plugin answers itself. Consulted before the connected check,
+  // and nullopt means "not mine" so the request proxies to the console as usual.
+  //
+  // This exists for exactly one reason: the connection settings are how a pilot
+  // repairs a console they cannot reach. Gated on the socket like every other
+  // action, the one control that fixes a bad token would be disabled precisely
+  // when it is needed, and the only way out would be hand-editing zoal_atc.cfg -
+  // which is the thing the panel was built to replace.
+  //
+  // Called on the X-Plane main thread and outside the bridge's lock, so a
+  // handler may touch the filesystem without blocking the socket thread. It
+  // must still be quick: it runs inside a Skyscript handler.
+  std::function<std::optional<LocalAnswer>(const std::string &action,
+                                           const std::string &payload_json)>
+      local_action;
 };
 
 // SubmitResult is what a console.request call resolves to in the browser.
@@ -80,6 +106,14 @@ public:
 
   // detach_panel drops everything owed to a page that is gone.
   void detach_panel();
+
+  // Installs the local action handler after construction. The bridge is a
+  // static and the plugin only learns its config path at XPluginStart, so the
+  // handler cannot be supplied to the constructor.
+  void set_local_action(
+      std::function<std::optional<LocalAnswer>(const std::string &action,
+                                               const std::string &payload_json)>
+          handler);
 
   // set_panel_visible gates the high-volume event stream. A hidden panel keeps
   // only the latest of each event; showing it again replays that.

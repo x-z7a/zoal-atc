@@ -228,6 +228,21 @@ void WebSocketClient::close() {
   close_locked();
 }
 
+void WebSocketClient::reauthenticate(std::string token) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (endpoint_.auth_token == token) {
+    // Saving the token you already had should not drop a working connection.
+    return;
+  }
+  endpoint_.auth_token = std::move(token);
+  close_locked();
+}
+
+std::string WebSocketClient::auth_token() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return endpoint_.auth_token;
+}
+
 void WebSocketClient::close_locked() {
   if (socket_ != -1) {
     shutdown_socket(socket_);

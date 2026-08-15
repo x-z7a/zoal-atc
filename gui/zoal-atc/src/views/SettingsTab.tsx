@@ -1,9 +1,10 @@
 import {useEffect, useState} from "react";
 
-import {ACTIONS} from "../bridge/actions";
+import {ACTIONS, LOCAL_ACTIONS} from "../bridge/actions";
 import {EVENTS} from "../bridge/types";
 import {
   DEFAULT_NOTIFICATIONS,
+  type ConnectionView,
   type FlightPlanView,
   type NotificationsSetting,
   type SettingsView,
@@ -37,6 +38,17 @@ export function SettingsTab() {
 
   const [settings, setSettings] = useState<SettingsView | undefined>(undefined);
 
+  // The connection settings get their own runner so a failed console save does
+  // not clear the token's error, or the other way round. They are answered by
+  // the plugin, so the two never share a failure mode either.
+  const {
+    run: runLocal,
+    error: localError,
+    clearError: clearLocalError,
+    busy: localBusy,
+  } = useConsoleAction();
+  const [connection, setConnection] = useState<ConnectionView | undefined>(undefined);
+
   // Read what is stored before offering to change it: a field that starts empty
   // when a value is remembered invites the pilot to retype what the console
   // already has, and to wonder which one it is using.
@@ -57,6 +69,33 @@ export function SettingsTab() {
     };
     // run changes identity with the bridge; re-reading on that is correct.
   }, [boot, run]);
+
+  // Read on the same terms: the Skyscript host has to be up, but the console
+  // does not. This read answers while the socket is down, which is the whole
+  // point of the section.
+  useEffect(() => {
+    if (boot !== "ready") {
+      return;
+    }
+    let cancelled = false;
+    void runLocal(LOCAL_ACTIONS.connectionSettings)
+      .then((payload) => {
+        if (!cancelled) {
+          setConnection(payload as ConnectionView);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [boot, runLocal]);
+
+  function saveToken(token: string): void {
+    clearLocalError();
+    void runLocal(LOCAL_ACTIONS.saveConnectionSettings, {token})
+      .then((payload) => setConnection(payload as ConnectionView))
+      .catch(() => {});
+  }
 
   const notifications = settings?.notifications ?? DEFAULT_NOTIFICATIONS;
 
@@ -89,6 +128,43 @@ export function SettingsTab() {
 
   return (
     <section className="controls" aria-label="Settings">
+      <h2 className="section-title">Connection</h2>
+
+      <div className="setting">
+        <span className="label">Console</span>
+        <strong>{connection?.url || "—"}</strong>
+        <p className="setting-help">
+          Where this plugin connects. Fixed here — change it in{" "}
+          <code>Output/preferences/zoal_atc.cfg</code> if you run your own console.
+        </p>
+      </div>
+
+      <div className="setting">
+        {/* Keyed on the loaded token so the field remounts with it once the
+            plugin answers, rather than sitting empty over a stored value. */}
+        <FieldRow
+          key={connection ? "loaded" : "loading"}
+          label="Access token"
+          placeholder="Leave empty if the console is open"
+          // Not plain "Save": the SimBrief row below has one, and two buttons
+          // reading the same word on one screen is ambiguous to a screen reader
+          // even where the layout makes it obvious to an eye.
+          submitLabel="Save token"
+          secret
+          initialValue={connection?.token ?? ""}
+          clearOnSubmit={false}
+          disabled={localBusy || boot !== "ready"}
+          onSubmit={saveToken}
+        />
+        <p className="setting-help">
+          Authorises this aircraft with the console. Saving reconnects, so the status above tells
+          you straight away whether it was accepted. Unlike everything else here this is stored by
+          the plugin, not the console — it has to work while the console is unreachable, because it
+          is how it becomes reachable. Save it empty to clear it.
+        </p>
+        <ErrorText message={localError} />
+      </div>
+
       <h2 className="section-title">Flight plan</h2>
 
       <div className="setting">

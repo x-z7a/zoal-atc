@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {ALL_ACTIONS} from "./actions";
+import {ALL_ACTIONS, ALL_LOCAL_ACTIONS} from "./actions";
 
 // The counterpart of TestEveryActionThePanelSendsIsAccepted in
 // console/internal/gui/gui_test.go. That test pins the strings the console will
@@ -26,5 +26,15 @@ describe("the action contract with the console", () => {
       "traffic",
       "tune_radio",
     ]);
+  });
+
+  // The plugin checks its local handler before it checks the socket, so a name
+  // in both sets would be answered locally and never reach the console -- the
+  // console action would simply stop happening, with nothing failing anywhere.
+  it("keeps the plugin's local actions out of the console's set", () => {
+    const shared = ALL_LOCAL_ACTIONS.filter((action) =>
+      (ALL_ACTIONS as readonly string[]).includes(action),
+    );
+    expect(shared).toEqual([]);
   });
 });
