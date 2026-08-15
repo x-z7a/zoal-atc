@@ -14,6 +14,11 @@ type Props = {
   // should not sit legible on a cockpit screen by default, but a pilot who just
   // pasted one needs to be able to check it.
   secret?: boolean;
+  // True when the plugin answers this row itself, so an unreachable console is
+  // no reason to deaden it. The panel dims and disables control rows while the
+  // console is gone, which is right for everything the console owns and exactly
+  // wrong for the controls that exist to bring it back.
+  local?: boolean;
   onSubmit: (value: string) => void;
 };
 
@@ -30,6 +35,7 @@ export function FieldRow({
   clearOnSubmit = true,
   disabled = false,
   secret = false,
+  local = false,
   onSubmit,
 }: Props) {
   const [value, setValue] = useState(initialValue);
@@ -46,7 +52,10 @@ export function FieldRow({
   const inputId = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
   return (
-    <form className="control-row" onSubmit={submit}>
+    <form
+      className={`control-row${local ? " control-row-local" : ""}`}
+      onSubmit={submit}
+    >
       <label className="label" htmlFor={inputId}>
         {label}
       </label>
