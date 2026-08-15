@@ -41,11 +41,12 @@ export function SettingsTab() {
   // The connection settings get their own runner so a failed console save does
   // not clear the token's error, or the other way round. They are answered by
   // the plugin, so the two never share a failure mode either.
+  // Its `busy` is deliberately not read: see the token row below, which stays
+  // usable while a save is in flight because it is the way back from a bad one.
   const {
     run: runLocal,
     error: localError,
     clearError: clearLocalError,
-    busy: localBusy,
   } = useConsoleAction();
   const [connection, setConnection] = useState<ConnectionView | undefined>(undefined);
 
@@ -153,7 +154,13 @@ export function SettingsTab() {
           secret
           initialValue={connection?.token ?? ""}
           clearOnSubmit={false}
-          disabled={localBusy || boot !== "ready"}
+          // Deliberately not gated on the save in flight, unlike every other
+          // row here. Saving a token drops the socket on purpose, so this is
+          // the request most likely to lose its answer -- and locking the field
+          // until an answer that is not coming would take away the only control
+          // that repairs a mistyped credential. Re-saving is harmless: it
+          // rewrites one line and re-dials.
+          disabled={boot !== "ready"}
           onSubmit={saveToken}
         />
         <p className="setting-help">

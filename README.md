@@ -28,8 +28,9 @@ The archive contains the `.xpl`, the SkyScript runtime it links, and the in-sim
 panel. It ships no CEF: since SkyScript v0.5.0 the library resolves the CEF
 runtime that comes with X-Plane.
 
-Out of the box the plugin talks to a console on `127.0.0.1:8765`. To point it at
-a hosted console, see *Console endpoint* below.
+Out of the box the plugin talks to the hosted console at `ws://atc.zoal.app/plugin`,
+so a fresh install needs no configuration. To point it at a console you run
+yourself, see *Console endpoint* below.
 
 ## What it does
 
@@ -57,9 +58,15 @@ a hosted console, see *Console endpoint* below.
 The console does not have to be on the same machine. The plugin resolves its
 endpoint at `XPluginStart`, last source winning:
 
-1. `ws://127.0.0.1:8765/plugin` — the default, unchanged for a local console.
+1. `ws://atc.zoal.app/plugin` — the default: the hosted console, which is what a
+   downloaded release should reach without being configured first.
 2. `<X-Plane>/Output/preferences/zoal_atc.cfg`
 3. `ZOAL_ATC_CONSOLE_URL` / `ZOAL_ATC_CONSOLE_TOKEN` environment variables.
+
+Running a console locally is the case that needs configuring now. Put
+`url = ws://127.0.0.1:8765/plugin` in the config file (the port is not optional —
+omitting it means the scheme default, 80), or export `ZOAL_ATC_CONSOLE_URL` for a
+terminal-launched sim.
 
 X-Plane is usually launched from Finder or Steam, where an exported variable
 never reaches it, so the config file is the option to rely on; the variables are

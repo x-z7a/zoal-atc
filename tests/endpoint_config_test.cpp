@@ -55,6 +55,21 @@ void reject_url(const std::string &url, const std::string &why) {
 }  // namespace
 
 int main() {
+  // Where a plugin nobody configured connects. The console is hosted, and the
+  // plugin is the only artifact a pilot downloads, so a loopback default would
+  // point every install at a machine that is not running a console -- and the
+  // panel's URL is read-only, so the only way out would be hand-editing the
+  // very file the panel exists to spare them.
+  {
+    const WebSocketEndpoint fresh;
+    require_eq(fresh.host, "atc.zoal.app", "default host is the hosted console");
+    require_eq(fresh.port, 80, "default port is the scheme default");
+    require_eq(fresh.path, "/plugin", "default path is the console handler");
+    require(fresh.auth_token.empty(), "no token by default");
+    require_eq(host_header(fresh), "atc.zoal.app",
+               "default endpoint needs no port in the Host header");
+  }
+
   // The deployed console: no port in the URL means the scheme default (80),
   // not the loopback development port.
   {
