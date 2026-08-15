@@ -7,7 +7,7 @@
 // what bridge.js was until phase 24 (scripts/verify-release-tree.sh listed
 // index.html, main.js and styles.css, never bridge.js).
 import {build} from "esbuild";
-import {stat} from "node:fs/promises";
+import {readFile, stat} from "node:fs/promises";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 
@@ -46,3 +46,32 @@ if (size > MAX_BUNDLE_BYTES) {
   process.exit(1);
 }
 console.log(`dist/main.js ${kib} KiB (budget ${(MAX_BUNDLE_BYTES / 1024).toFixed(0)} KiB)`);
+
+// An unreachable console dims and un-clicks the panel's control rows, which is
+// honest for every value the console owns and catastrophic for the one row the
+// *plugin* answers: the access token, which exists to be usable while the
+// console is unreachable, because it is how the console becomes reachable.
+//
+// This is checked on the shipped stylesheet rather than in a unit test because
+// jsdom never applies it -- the bug that reached a cockpit had `disabled={false}`
+// on every control and was invisible to the whole React suite. `.control-row-local`
+// (FieldRow's `local` prop) is the exemption.
+const css = await readFile(path.join(root, "dist/main.css"), "utf8");
+const deadening = css
+  .split("}")
+  .filter(
+    (rule) =>
+      rule.includes(".console-unreachable") &&
+      rule.includes(".control-row") &&
+      rule.includes("pointer-events:none"),
+  );
+const unexempt = deadening.filter((rule) => !rule.includes(":not(.control-row-local)"));
+if (deadening.length === 0 || unexempt.length > 0) {
+  console.error(
+    deadening.length === 0
+      ? "dist/main.css: the console-unreachable control-row rule is gone; if that is intended, drop this check."
+      : `dist/main.css: an unreachable console would deaden a plugin-answered row:\n  ${unexempt.join("}\n  ")}}`,
+  );
+  process.exit(1);
+}
+console.log("dist/main.css: plugin-answered control rows survive an unreachable console");

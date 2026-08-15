@@ -532,7 +532,14 @@ h1 {
   opacity: 0.45;
 }
 
-.console-unreachable .control-row button {
+/* Deadening a control whose value the console owns is honest: pressing it could
+   only fail. A row the *plugin* answers is the opposite case, and `.control-row-local`
+   marks it -- the access token lives there, and it is the one control that has
+   to work while the console is unreachable, because it is how the console
+   becomes reachable again. Without this exemption a mistyped token took away
+   the field that fixes it, with nothing in React disabled and nothing in the
+   log to show for it. */
+.console-unreachable .control-row:not(.control-row-local) button {
   opacity: 0.5;
   pointer-events: none;
 }

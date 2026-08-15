@@ -152,6 +152,9 @@ export function SettingsTab() {
           // even where the layout makes it obvious to an eye.
           submitLabel="Save token"
           secret
+          // Answered by the plugin, so an unreachable console must not deaden
+          // it: this row is how the console becomes reachable again.
+          local
           initialValue={connection?.token ?? ""}
           clearOnSubmit={false}
           // Deliberately not gated on the save in flight, unlike every other
