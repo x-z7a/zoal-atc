@@ -13,11 +13,19 @@ namespace zoal_atc::transport {
 using SocketHandle = intptr_t;
 
 struct WebSocketEndpoint {
-  std::string host = "127.0.0.1";
-  std::uint16_t port = 8765;
+  // The hosted console, because that is where an unconfigured plugin has to
+  // land. We host the console and ship only the plugin, so the pilot who
+  // downloads a release is not running a console of their own — a loopback
+  // default would dial a port nothing is listening on, and the panel's URL is
+  // read-only, so their only way out would be hand-editing the config file the
+  // panel exists to spare them. Developers running a console locally are the
+  // ones who override now: `url = ws://127.0.0.1:8765/plugin` in
+  // Output/preferences/zoal_atc.cfg, or ZOAL_ATC_CONSOLE_URL.
+  std::string host = "atc.zoal.app";
+  std::uint16_t port = 80;
   std::string path = "/plugin";
   // Sent as `Authorization: Bearer <token>` on the upgrade when non-empty.
-  // Empty means an unauthenticated console, which is the loopback default.
+  // Empty means a console that asks for no shared secret.
   std::string auth_token;
   // Stable identity for this plugin installation, generated on first run and
   // persisted in the config file (phase22 M1). It identifies the airframe, not
