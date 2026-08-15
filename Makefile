@@ -155,8 +155,14 @@ release-plugin: plugin gui-build
 # cmake -E tar is the archiver because cmake is already a hard dependency on all
 # three platforms - Windows runners have no zip and macOS no zip -X. .DS_Store is
 # deleted rather than filtered because the archiver has no exclude option.
+# The .DS_Store sweep is macOS-only on purpose. Finder is the only thing that
+# creates them, and on a Windows runner `find` is as likely to resolve to
+# System32's unrelated find.exe as to the MSYS one - which would fail the
+# release for a file that cannot exist there.
 archive-plugin: release-plugin
+ifeq ($(PLATFORM),macos)
 	find "$(RELEASE_DIR)" -name .DS_Store -delete
+endif
 	cd "$(DIST_DIR)" && cmake -E tar cf "zoal-atc-$(PLATFORM)-$(ARCH).zip" --format=zip "zoal-atc"
 
 release-all:
