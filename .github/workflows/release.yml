@@ -1,0 +1,256 @@
+name: Release
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to package and publish with the current workflow'
+        required: false
+        type: string
+
+jobs:
+  prepare-release:
+    name: Prepare GitHub release
+    runs-on: ubuntu-24.04
+    if: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Create or reuse release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          release_json="$(mktemp)"
+          if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets,isDraft > "${release_json}"; then
+            is_draft="$(jq -r '.isDraft' "${release_json}")"
+            package_assets="$(jq '[.assets[]?.name | select(test("^zoal-atc-.*\\.zip$"))] | length' "${release_json}")"
+
+            if [ "${is_draft}" != "true" ] && [ "${package_assets}" -gt 0 ]; then
+              echo "::error::Release ${RELEASE_TAG} is already published with package assets; refusing to overwrite it."
+              exit 1
+            fi
+
+            echo "Using existing release ${RELEASE_TAG}"
+          else
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --draft \
+              --verify-tag \
+              --title "${RELEASE_TAG}" \
+              --generate-notes
+            gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json assets,isDraft > "${release_json}"
+          fi
+
+          mapfile -t stale_assets < <(
+            jq -r '.assets[]?.name | select(test("^zoal-atc-.*\\.zip$"))' "${release_json}"
+          )
+
+          if [ ${#stale_assets[@]} -eq 0 ]; then
+            echo "No stale package assets to delete"
+            exit 0
+          fi
+
+          printf 'Deleting %s stale package assets\n' "${#stale_assets[@]}"
+          for asset in "${stale_assets[@]}"; do
+            gh release delete-asset "${RELEASE_TAG}" "${asset}" --repo "${GITHUB_REPOSITORY}" --yes
+          done
+
+  package:
+    name: Package (${{ matrix.os }})
+    needs: prepare-release
+    runs-on: ${{ matrix.os }}
+    if: ${{ always() && (needs.prepare-release.result == 'success' || needs.prepare-release.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      # No Go: packaging archives with `cmake -E tar`, and cmake is already a
+      # hard dependency of the plugin build on all three platforms.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: gui/zoal-atc/package-lock.json
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - name: Install Windows build dependencies
+        if: runner.os == 'Windows'
+        run: choco install make mingw -y
+
+      - name: Add MinGW to PATH
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "C:\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      # Tag-time quality used to rest entirely on the PR-time CI workflow: this
+      # job went straight from checkout to packaging, so a tag pushed from a
+      # branch that never opened a PR shipped unproven.
+      - name: Gate
+        shell: bash
+        run: make gate
+
+      - name: Package release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: make archive-plugin
+
+      - name: Upload package to release
+        if: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          packages=()
+          for package in dist/zoal-atc-*.zip; do
+            [ -e "${package}" ] || continue
+            packages+=("${package}")
+          done
+
+          if [ ${#packages[@]} -ne 1 ]; then
+            printf 'Expected one package, found %s:\n' "${#packages[@]}" >&2
+            printf '  %s\n' "${packages[@]}" >&2
+            exit 1
+          fi
+
+          gh release upload "${RELEASE_TAG}" "${packages[0]}" --repo "${GITHUB_REPOSITORY}" --clobber
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !(startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.tag != '')) }}
+        with:
+          name: zoal-atc-${{ runner.os }}
+          path: dist/zoal-atc-*.zip
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs: [prepare-release, package]
+    runs-on: ubuntu-24.04
+    if: ${{ always() && needs.prepare-release.result == 'success' && needs.package.result == 'success' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Verify release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(
+            gh release view "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json assets \
+              --jq '.assets[]?.name | select(test("^zoal-atc-.*\\.zip$"))'
+          )
+
+          printf 'Release package assets:\n'
+          printf '  %s\n' "${assets[@]}"
+
+          if [ ${#assets[@]} -ne 3 ]; then
+            echo "::error::Expected 3 release package assets, found ${#assets[@]}"
+            exit 1
+          fi
+
+      - name: Publish release
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_id="$(
+            gh release view "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json databaseId \
+              --jq '.databaseId'
+          )"
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" -f draft=false
+
+  prune-releases:
+    name: Prune old releases
+    needs: publish
+    runs-on: ubuntu-24.04
+    if: ${{ needs.publish.result == 'success' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: Delete releases older than the latest 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tags < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq 'map(select((.draft | not) and (.prerelease | not))) | sort_by(.created_at) | reverse | .[5:][]?.tag_name'
+          )
+
+          if [ ${#tags[@]} -eq 0 ]; then
+            echo "No old releases to prune"
+            exit 0
+          fi
+
+          printf 'Deleting %s old releases\n' "${#tags[@]}"
+          for tag in "${tags[@]}"; do
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
+          done
+
+  cleanup-staged-release:
+    name: Delete staged release assets
+    needs: [prepare-release, package, publish]
+    runs-on: ubuntu-24.04
+    if: ${{ always() && needs.prepare-release.result == 'success' && needs.publish.result != 'success' }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - name: Delete partially uploaded package assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t assets < <(
+            gh release view "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json assets \
+              --jq '.assets[]?.name | select(test("^zoal-atc-.*\\.zip$"))'
+          )
+
+          if [ ${#assets[@]} -gt 0 ]; then
+            printf 'Deleting %s staged package assets\n' "${#assets[@]}"
+            for asset in "${assets[@]}"; do
+              gh release delete-asset "${RELEASE_TAG}" "${asset}" --repo "${GITHUB_REPOSITORY}" --yes
+            done
+          fi
+
+          is_draft="$(
+            gh release view "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json isDraft \
+              --jq '.isDraft'
+          )"
+
+          if [ "${is_draft}" = "true" ]; then
+            gh release delete "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --yes
+          fi

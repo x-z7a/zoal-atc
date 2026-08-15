@@ -1,0 +1,61 @@
+/* Every colour the panel uses, named once.
+ *
+ * The previous stylesheet had no custom properties at all -- the same handful of
+ * hex literals were repeated down the file, so changing one meant finding all of
+ * them. The values here are exactly those literals: this is an extraction, not a
+ * restyle. A visual pass comes later, and these are the handles it will pull. */
+:root {
+  color-scheme: dark;
+
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* Surfaces, darkest to lightest. */
+  --bg: #111418;
+  --surface-sunken: #12171c;
+  --surface: #171c22;
+  --surface-comm: #1c222a;
+  --surface-raised: #232b33;
+
+  --border: #2e3741;
+  --border-strong: #3c4651;
+
+  /* Text, brightest to dimmest. */
+  --text: #eef2f5;
+  --text-input: #e6edf3;
+  --text-status: #d8e1e8;
+  --text-feed: #ccd6df;
+  --text-pilot: #c9d4de;
+  --text-dim: #95a5b5;
+
+  /* Roles. ATC and pilot are distinguishable at a glance, on purpose. */
+  --accent: #6fb3e0;
+  --accent-pilot: #8fce9b;
+
+  /* This cockpit's own bubble, sitting on the right the way a messaging app
+     puts you on the right. Tinted rather than filled: a solid block of colour
+     at this size is louder than the radio deserves. */
+  --pilot-bubble: #1b2c26;
+  --pilot-bubble-border: #2f5344;
+
+  /* One seat should not look like another. Approach handing you to Tower is a
+     change of person, and the colour says so before the words do. */
+  --delivery: #c9a2e0;
+  --surface-seat: #efd784;
+  --tower: #8fbce0;
+  --warn: #efd784;
+  --warn-surface: #241f16;
+  --danger: #efa0a0;
+
+  --ok-border: #35795f;
+  --ok-surface: #17372d;
+  --ok-text: #8ee2bd;
+
+  --waiting-border: #806f33;
+  --waiting-surface: #382f16;
+  --waiting-text: #efd784;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+}
