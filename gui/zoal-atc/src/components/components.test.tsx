@@ -72,6 +72,25 @@ describe("CommLog", () => {
     expect(screen.getByText("ATC")).toBeInTheDocument();
   });
 
+  // The console now relays the other half of the party line: what other pilots
+  // on the frequency said, not just what the controller answered them. Those
+  // arrive as pilot entries, and a pilot entry used to be labelled "this
+  // cockpit" unconditionally — so another aircraft's call would appear over
+  // this pilot's own callsign, as words they had just said.
+  it("names the aircraft that spoke on an overheard pilot transmission", () => {
+    render(
+      <CommLog
+        entries={[
+          entry({kind: "pilot", text: "Thunder Bay ground, 905G, radio check", overheard: true, spokenBy: "905G"}),
+        ]}
+        ownCallsign="AC21"
+      />,
+    );
+
+    expect(screen.getByText("905G")).toBeInTheDocument();
+    expect(screen.queryByText("AC21")).not.toBeInTheDocument();
+  });
+
   it("calls this cockpit by its callsign once the console has heard one", () => {
     const {rerender} = render(<CommLog entries={[entry({kind: "pilot", text: "alpha"})]} />);
     expect(screen.getByText("You")).toBeInTheDocument();

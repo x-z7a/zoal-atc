@@ -15,8 +15,13 @@ const STICK_SLACK_PX = 48;
 
 function CommEntry({entry, ownCallsign}: {entry: CommLogEntry; ownCallsign?: string}) {
   const fromPilot = entry.kind !== "atc";
+  // An overheard pilot transmission is another aircraft on the frequency, not
+  // this one. Labelled as this cockpit it reads as words the pilot just said
+  // themselves -- which is the one reading that makes the party line useless.
   const speaker = fromPilot
-    ? ownCallsign || "You"
+    ? entry.overheard
+      ? entry.spokenBy || "Aircraft"
+      : ownCallsign || "You"
     : formatPosition(entry.spokenBy);
 
   const className = [
