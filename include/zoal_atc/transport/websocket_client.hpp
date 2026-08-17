@@ -1,6 +1,9 @@
 #ifndef ZOAL_ATC_TRANSPORT_WEBSOCKET_CLIENT_HPP
 #define ZOAL_ATC_TRANSPORT_WEBSOCKET_CLIENT_HPP
 
+#include "zoal_atc/transport/reconnect_gate.hpp"
+
+#include <atomic>
 #include <cstdint>
 #include <cstddef>
 #include <mutex>
@@ -79,7 +82,14 @@ public:
 
   // The token currently in use, for a panel that offers to change it.
   [[nodiscard]] std::string auth_token() const;
-  [[nodiscard]] bool connected() const;
+
+  // Deliberately lock-free. The flight loop asks this every frame, and the lock
+  // it used to take is held across a blocking dial — so with the console away,
+  // X-Plane's frame loop stalled for as long as the OS took to give up on the
+  // connect. Reported as "massive lag" in flight on 2026-08-17.
+  [[nodiscard]] bool connected() const {
+    return connected_.load(std::memory_order_acquire);
+  }
   WebSocketStatus send_text(std::string_view payload) override;
   [[nodiscard]] WebSocketStatus receive_text(std::string &payload);
 
@@ -100,7 +110,11 @@ private:
   WebSocketEndpoint endpoint_;
   mutable std::mutex mutex_;
   SocketHandle socket_ = -1;
-  bool connected_ = false;
+  // Atomic so connected() can answer without the lock; every write still happens
+  // under mutex_.
+  std::atomic<bool> connected_{false};
+  // Paces re-dialling. Guarded by mutex_, like the socket it protects.
+  ReconnectGate reconnect_gate_;
 };
 
 } // namespace zoal_atc::transport

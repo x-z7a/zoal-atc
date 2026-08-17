@@ -18,7 +18,9 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+#include <fcntl.h>
 #include <netdb.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -141,6 +143,100 @@ std::uint64_t read_u64(const std::uint8_t *data) {
   return value;
 }
 
+std::uint64_t steady_ms() {
+  return static_cast<std::uint64_t>(
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch())
+          .count());
+}
+
+// How long a single dial may take. The OS default is far longer — about 75
+// seconds on macOS for a host that drops packets rather than refusing — and the
+// client's lock is held throughout, which is what turned an absent console into
+// a stalled sim.
+constexpr int kConnectTimeoutMs = 5000;
+
+bool set_non_blocking(SocketHandle handle, bool enable) {
+#if defined(_WIN32)
+  u_long mode = enable ? 1UL : 0UL;
+  return ioctlsocket(static_cast<SOCKET>(handle), FIONBIO, &mode) == 0;
+#else
+  const int fd = static_cast<int>(handle);
+  const int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0) {
+    return false;
+  }
+  const int updated = enable ? (flags | O_NONBLOCK) : (flags & ~O_NONBLOCK);
+  return fcntl(fd, F_SETFL, updated) == 0;
+#endif
+}
+
+// connect_within dials with a bounded wait: a non-blocking connect, then select
+// for writability, then SO_ERROR for the verdict.
+//
+// The socket is returned to blocking mode on success, because every read and
+// write after the handshake assumes it.
+bool connect_within(SocketHandle handle, const addrinfo *ai, int timeout_ms) {
+#if defined(_WIN32)
+  const SOCKET fd = static_cast<SOCKET>(handle);
+  const int addr_len = static_cast<int>(ai->ai_addrlen);
+#else
+  const int fd = static_cast<int>(handle);
+  const socklen_t addr_len = ai->ai_addrlen;
+  // select() cannot express a descriptor at or past FD_SETSIZE. A plugin holds
+  // a handful of sockets, so this is a guard against the impossible rather than
+  // a case to handle.
+  if (fd < 0 || fd >= FD_SETSIZE) {
+    return false;
+  }
+#endif
+  if (!set_non_blocking(handle, true)) {
+    return false;
+  }
+
+  bool ok = false;
+  if (::connect(fd, ai->ai_addr, addr_len) == 0) {
+    ok = true;
+  } else {
+#if defined(_WIN32)
+    const bool in_progress = WSAGetLastError() == WSAEWOULDBLOCK;
+#else
+    const bool in_progress = errno == EINPROGRESS;
+#endif
+    if (in_progress) {
+      fd_set writable;
+      FD_ZERO(&writable);
+      FD_SET(fd, &writable);
+      timeval tv{};
+      tv.tv_sec = timeout_ms / 1000;
+      tv.tv_usec = (timeout_ms % 1000) * 1000;
+#if defined(_WIN32)
+      const int ready = select(0, nullptr, &writable, nullptr, &tv);
+#else
+      const int ready = select(fd + 1, nullptr, &writable, nullptr, &tv);
+#endif
+      if (ready > 0) {
+        // Writable only means the attempt finished; SO_ERROR says how.
+        int error = 0;
+#if defined(_WIN32)
+        int error_len = static_cast<int>(sizeof(error));
+        const int got = getsockopt(fd, SOL_SOCKET, SO_ERROR,
+                                   reinterpret_cast<char *>(&error), &error_len);
+#else
+        socklen_t error_len = sizeof(error);
+        const int got = getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &error_len);
+#endif
+        ok = got == 0 && error == 0;
+      }
+    }
+  }
+
+  if (!ok) {
+    return false;
+  }
+  return set_non_blocking(handle, false);
+}
+
 } // namespace
 
 WebSocketClient::WebSocketClient(WebSocketEndpoint endpoint)
@@ -154,12 +250,26 @@ WebSocketStatus WebSocketClient::connect() {
 }
 
 WebSocketStatus WebSocketClient::connect_locked() {
-  if (connected_) {
+  if (connected_.load(std::memory_order_relaxed)) {
     return WebSocketStatus::success();
+  }
+
+  // One dial, then wait. Every queued frame and every receive used to re-dial,
+  // which against an unreachable host meant a fresh OS connect timeout each
+  // time, and against a console rejecting the token meant a hot loop.
+  const std::uint64_t now_ms = steady_ms();
+  if (!reconnect_gate_.ready(now_ms)) {
+    // Worded from the backoff rather than the countdown so the text is stable
+    // while a wait runs: a caller that suppresses repeats then prints one line
+    // per escalation, not one per second.
+    return WebSocketStatus::failure(
+        "console not reachable; retrying every " +
+        std::to_string(reconnect_gate_.delay_ms() / 1000) + "s");
   }
 
 #if defined(_WIN32)
   if (!winsock_runtime().ok()) {
+    reconnect_gate_.note_failure(now_ms);
     return WebSocketStatus::failure("WSAStartup failed");
   }
 #endif
@@ -173,6 +283,7 @@ WebSocketStatus WebSocketClient::connect_locked() {
   const int gai =
       getaddrinfo(endpoint_.host.c_str(), port.c_str(), &hints, &results);
   if (gai != 0) {
+    reconnect_gate_.note_failure(now_ms);
     return WebSocketStatus::failure("resolve " + endpoint_.host + ": " +
                                     gai_strerror(gai));
   }
@@ -190,20 +301,14 @@ WebSocketStatus WebSocketClient::connect_locked() {
       continue;
     }
 
-#if defined(_WIN32)
-    const int connect_result =
-        ::connect(fd, ai->ai_addr, static_cast<int>(ai->ai_addrlen));
-#else
-    const int connect_result = ::connect(fd, ai->ai_addr, ai->ai_addrlen);
-#endif
-    if (connect_result == 0) {
+    if (connect_within(static_cast<SocketHandle>(fd), ai, kConnectTimeoutMs)) {
       socket_ = static_cast<SocketHandle>(fd);
       status = send_handshake_locked();
       if (status.ok) {
         status = read_handshake_response_locked();
       }
       if (status.ok) {
-        connected_ = true;
+        connected_.store(true, std::memory_order_release);
         // Introduce ourselves before anything else crosses the wire, so the
         // console can attribute every later frame to this aircraft rather than
         // to whatever the frames themselves claim (phase22 M1). A reconnect
@@ -220,6 +325,15 @@ WebSocketStatus WebSocketClient::connect_locked() {
     }
   }
   freeaddrinfo(results);
+
+  // A rejected upgrade (a wrong token) lands here just like an unreachable
+  // host, and must be paced the same way: it is a server that has already said
+  // no, and asking again immediately only asks faster.
+  if (status.ok) {
+    reconnect_gate_.note_success();
+  } else {
+    reconnect_gate_.note_failure(now_ms);
+  }
   return status;
 }
 
@@ -235,6 +349,10 @@ void WebSocketClient::reauthenticate(std::string token) {
     return;
   }
   endpoint_.auth_token = std::move(token);
+  // A new credential is new information. Whatever backoff the old one earned by
+  // being rejected is no longer evidence about this one, and a pilot who has
+  // just fixed their token should not sit out a thirty second wait for it.
+  reconnect_gate_.reset();
   close_locked();
 }
 
@@ -249,12 +367,7 @@ void WebSocketClient::close_locked() {
     close_socket(socket_);
   }
   socket_ = -1;
-  connected_ = false;
-}
-
-bool WebSocketClient::connected() const {
-  std::lock_guard<std::mutex> lock(mutex_);
-  return connected_;
+  connected_.store(false, std::memory_order_release);
 }
 
 WebSocketStatus WebSocketClient::send_text(std::string_view payload) {
@@ -405,7 +518,7 @@ WebSocketStatus WebSocketClient::recv_exact(std::uint8_t *data,
     SocketHandle socket = -1;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (!connected_ || socket_ == -1) {
+      if (!connected_.load(std::memory_order_relaxed) || socket_ == -1) {
         return WebSocketStatus::failure("websocket not connected");
       }
       socket = socket_;
