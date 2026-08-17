@@ -1,6 +1,7 @@
 #include "zoal_atc/transport/async_websocket_ptt_sink.hpp"
 
 #include "zoal_atc/transport/base64.hpp"
+#include "zoal_atc/transport/bounded_queue.hpp"
 
 #include <cstdint>
 #include <sstream>
@@ -73,7 +74,7 @@ void AsyncWebSocketPttSink::publish(ptt::PttEvent event) {
     QueuedMessage message;
     message.type = QueuedMessage::Type::PttEvent;
     message.event = std::move(event);
-    queue_.push_back(std::move(message));
+    enqueue_locked(std::move(message));
   }
   cv_.notify_one();
 }
@@ -87,9 +88,18 @@ void AsyncWebSocketPttSink::publish_text(std::string payload) {
     QueuedMessage message;
     message.type = QueuedMessage::Type::Text;
     message.text = std::move(payload);
-    queue_.push_back(std::move(message));
+    enqueue_locked(std::move(message));
   }
   cv_.notify_one();
+}
+
+void AsyncWebSocketPttSink::enqueue_locked(QueuedMessage message) {
+  dropped_ += push_bounded(queue_, std::move(message), kMaxQueuedMessages);
+}
+
+std::uint64_t AsyncWebSocketPttSink::dropped() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return dropped_;
 }
 
 void AsyncWebSocketPttSink::stop() {

@@ -653,6 +653,11 @@ void process_atc_replies() {
 }
 
 void reply_receiver_loop() {
+  // The last failure reported, so a console that stays away fills Log.txt with
+  // one line rather than one per second. A *changed* reason is still news --
+  // "connection refused" becoming "401" is the difference between a console
+  // that is down and a token that is wrong.
+  std::string last_failure;
   while (!g_reply_receiver_stopping.load()) {
     if (!g_websocket) {
       break;
@@ -663,7 +668,10 @@ void reply_receiver_loop() {
       break;
     }
     if (!status.ok) {
-      log_line("websocket receive failed: " + status.message);
+      if (status.message != last_failure) {
+        last_failure = status.message;
+        log_line("websocket receive failed: " + status.message);
+      }
       // Connection lost: drop any console-commanded rate so sampling reverts to
       // the local policy until the console reconnects and re-commands (P2-M4).
       {
@@ -682,6 +690,10 @@ void reply_receiver_loop() {
     }
     // A frame arriving is the only evidence this thread gets that the socket is
     // up; receive_text reconnects underneath us.
+    if (!last_failure.empty()) {
+      log_line("websocket reconnected");
+      last_failure.clear();
+    }
     g_gui_bridge.set_connected(true, monotonic_ms());
     // GUI frames are queued, never delivered from here: Skyscript is pumped on
     // the main thread and this is not it.
