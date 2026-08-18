@@ -89,6 +89,16 @@
   font-weight: 700;
 }
 
+/* The field a group of strips belongs to. Two aircraft at different airports
+   are separate organisations, and the header is what stops them reading as one
+   controller's bay. */
+.bay-facility th {
+  padding-top: 12px;
+  color: var(--text);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
 .bay-empty {
   margin: 0;
   color: var(--text-dim);
