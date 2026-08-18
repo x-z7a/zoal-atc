@@ -111,6 +111,10 @@ export type BayRow = {
   lifecycle?: string;
   service?: string;
   airport?: string;
+  // The field whose positions own this aircraft, which is not the same as
+  // airport: that one is whatever own-ship is nearest to, and for most of a
+  // flight it names somewhere the aircraft is only passing over.
+  facility?: string;
   frequencyMhz?: number;
   onGround?: boolean;
   altitudeFt?: number;
@@ -123,9 +127,19 @@ export type BayRow = {
   active?: boolean;
 };
 
+// One field being worked, and how many aircraft are at it.
+export type FacilityBay = {
+  facility: string;
+  count?: number;
+};
+
 export type BayView = {
   flights?: BayRow[];
   count?: number;
+  // The fields being worked. Two aircraft at different airports are two
+  // organisations that share nothing, and a single flat bay showed them as one
+  // controller's problem.
+  facilities?: FacilityBay[];
 };
 
 // One record from the console's structured debug log.
