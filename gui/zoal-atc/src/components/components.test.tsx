@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import {describe, expect, it, vi} from "vitest";
 
 import type {BayRow, CommLogEntry} from "../bridge/views";
-import {BayTable} from "./BayTable";
+import {BayTable, groupByFacility} from "./BayTable";
 import {CommLog} from "./CommLog";
 import {ErrorText} from "./ErrorText";
 import {FieldRow} from "./FieldRow";
@@ -315,5 +315,43 @@ describe("BayTable", () => {
     render(<BayTable rows={[row({hasTelemetry: false, telemetryAgeSeconds: 0})]} />);
 
     expect(screen.getByText("no feed")).toBeInTheDocument();
+  });
+});
+
+describe("BayTable facility grouping", () => {
+  function row(overrides: Partial<BayRow> = {}): BayRow {
+    return {flightId: "flight-1", callsign: "GABCD", ...overrides};
+  }
+
+  it("groups aircraft by the field working them", () => {
+    const groups = groupByFacility([
+      row({flightId: "a", facility: "CYOW"}),
+      row({flightId: "b", facility: "EGLL"}),
+      row({flightId: "c", facility: "CYOW"}),
+    ]);
+    expect(groups.map(([facility, rows]) => [facility, rows.length])).toEqual([
+      ["CYOW", 2],
+      ["EGLL", 1],
+    ]);
+  });
+
+  // The facility is the field whose positions own the aircraft. airport is
+  // whatever own-ship is nearest to, which for most of a flight is somewhere it
+  // is only passing over -- usable as a fallback, never a substitute.
+  it("falls back to the nearest field when no facility has resolved", () => {
+    const groups = groupByFacility([row({flightId: "a", airport: "CYHM"})]);
+    expect(groups[0][0]).toBe("CYHM");
+  });
+
+  // A console working one field gains nothing from a header saying so.
+  it("names the facility only when more than one is being worked", () => {
+    const one = render(<BayTable rows={[row({facility: "CYOW"})]} />);
+    expect(one.container.querySelector(".bay-facility")).toBeNull();
+    one.unmount();
+
+    const two = render(
+      <BayTable rows={[row({flightId: "a", facility: "CYOW"}), row({flightId: "b", facility: "EGLL"})]} />,
+    );
+    expect(two.container.querySelectorAll(".bay-facility")).toHaveLength(2);
   });
 });
