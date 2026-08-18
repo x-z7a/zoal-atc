@@ -12,7 +12,30 @@ function age(seconds: number | undefined, hasTelemetry: boolean | undefined): st
   return `${Math.round(seconds ?? 0)}s`;
 }
 
-// Every aircraft this facility has on frequency.
+// groupByFacility splits the bay into the fields being worked.
+//
+// Two aircraft at one airport are one facility's problem; two at different
+// airports are separate organisations that share nothing and coordinate
+// nothing. Shown as a single flat list they read as one controller working
+// both, which is the assumption this panel most easily hides.
+//
+// Rows keep the order the console sent them in, and the groups follow the order
+// the fields first appear, so nothing reshuffles under a reader between frames.
+export function groupByFacility(rows: readonly BayRow[]): [string, BayRow[]][] {
+  const groups = new Map<string, BayRow[]>();
+  for (const row of rows) {
+    const key = row.facility || row.airport || "unknown";
+    const existing = groups.get(key);
+    if (existing) {
+      existing.push(row);
+    } else {
+      groups.set(key, [row]);
+    }
+  }
+  return [...groups.entries()];
+}
+
+// Every aircraft this console has on frequency, grouped by the field working it.
 //
 // Awareness, never a second controller station: the panel only ever displays
 // this (phase 23 invariants). The console already sends every field here on
@@ -23,6 +46,8 @@ export function BayTable({rows}: Props) {
     return <p className="bay-empty">No aircraft connected.</p>;
   }
 
+  const groups = groupByFacility(rows);
+
   return (
     <div className="bay-scroll">
       <table className="bay">
@@ -31,15 +56,25 @@ export function BayTable({rows}: Props) {
             <th>Callsign</th>
             <th>Phase</th>
             <th>Service</th>
-            <th>Field</th>
+            <th>Nearest</th>
             <th>COM1</th>
             <th>Altitude</th>
             <th>Owes</th>
             <th>Feed</th>
           </tr>
         </thead>
-        <tbody>
-          {rows.map((row) => (
+        {groups.map(([facility, facilityRows]) => (
+        <tbody key={facility}>
+          {/* Named only when there is more than one: a single-field console
+              would otherwise gain a header row that says nothing. */}
+          {groups.length > 1 ? (
+            <tr className="bay-facility">
+              <th colSpan={8} scope="colgroup">
+                {facility} · {facilityRows.length}
+              </th>
+            </tr>
+          ) : null}
+          {facilityRows.map((row) => (
             <tr key={row.flightId} className={row.active ? "bay-active" : ""}>
               <td>{row.callsign || row.flightId}</td>
               <td>{row.lifecycle || "—"}</td>
@@ -68,6 +103,7 @@ export function BayTable({rows}: Props) {
             </tr>
           ))}
         </tbody>
+        ))}
       </table>
     </div>
   );
