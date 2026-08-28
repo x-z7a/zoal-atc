@@ -30,6 +30,14 @@ template <typename T> double at(const std::vector<T> &v, int i) {
 bool slot_populated(const TrafficArrays &arrays, int i) {
   const double lat = at(arrays.lat, i);
   const double lon = at(arrays.lon, i);
+  // A missing/initialising dataref can return NaN. It used to pass the null
+  // island check below, survive every range comparison (all false for NaN),
+  // and finally be rendered as 0 by json_number: one anonymous aircraft at
+  // 0,0 on every report.
+  if (!std::isfinite(lat) || !std::isfinite(lon) || lat < -90.0 ||
+      lat > 90.0 || lon < -180.0 || lon > 180.0) {
+    return false;
+  }
   return !(std::fabs(lat) < 1e-9 && std::fabs(lon) < 1e-9);
 }
 
@@ -91,6 +99,10 @@ TrafficExtract extract_targets(const TrafficArrays &arrays, int num_acf,
                                const TrafficBounds &bounds,
                                bool datarefs_resolved) {
   TrafficExtract out;
+  out.ownship.mode_s_id =
+      static_cast<std::int32_t>(at(arrays.modeS_id, 0));
+  out.ownship.callsign = tcas_string_at(arrays.flight_id, 0);
+  out.ownship.icao_type = tcas_string_at(arrays.icao_type, 0);
 
   // The distinction the whole phase turns on: a dataref that does not exist
   // reports no picture, never zero aircraft.

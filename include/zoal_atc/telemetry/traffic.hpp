@@ -63,6 +63,15 @@ struct TrafficTarget {
   bool on_ground = false;
 };
 
+// AircraftIdentity is slot 0 of the TCAS arrays: X-Plane's ownship identity.
+// It rides with authoritative ownship telemetry so the console never has to
+// borrow identity from a nearby traffic return.
+struct AircraftIdentity {
+  std::int32_t mode_s_id = 0;
+  std::string callsign;
+  std::string icao_type;
+};
+
 // TrafficArrays is one raw read of the TCAS datarefs: the parallel arrays
 // exactly as XPLMGetDatav* returns them. Short vectors are tolerated (a missing
 // field reads as its zero value) so a partial dataref set degrades rather than
@@ -126,6 +135,7 @@ struct TrafficCensus {
 // TrafficExtract is one snapshot's worth of bounded targets plus the claim about
 // the feed behind them.
 struct TrafficExtract {
+  AircraftIdentity ownship;
   std::vector<TrafficTarget> targets;
   TrafficStatus status = TrafficStatus::unavailable;
   // True when the count cap dropped targets that were otherwise in range — a

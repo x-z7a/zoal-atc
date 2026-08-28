@@ -33,6 +33,13 @@ struct TelemetrySnapshot {
   double heading_true_deg = 0;
   bool on_ground = false;
 
+  // Authoritative ownship identity from TCAS slot 0. This is separate from the
+  // surrounding traffic entries and may be partially absent when a network
+  // client or aircraft does not publish every field.
+  std::string callsign;
+  std::string icao_type;
+  std::int32_t mode_s_id = 0;
+
   // Radios
   double com1_freq_mhz = 0;
   double com2_freq_mhz = 0;
