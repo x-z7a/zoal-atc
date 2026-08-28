@@ -39,10 +39,12 @@ yourself, see *Console endpoint* below.
   stray release, short transmission, max-duration cutoff and recorder failure.
   Microphone capture is cross-platform through `miniaudio`.
 - **Telemetry sampling.** The starter dataref catalog sampled into `telemetry`
-  frames, including TCAS traffic. The rate is **console-controlled**: the plugin
-  decodes the `telemetry_control` frame and samples at the commanded interval,
-  falling back to a local policy when no command has arrived or the connection
-  drops.
+  frames, including TCAS traffic and authoritative ownship callsign, ICAO type
+  and Mode S identity from TCAS slot 0. Non-finite or out-of-range traffic
+  positions are discarded before serialization. The rate is
+  **console-controlled**: the plugin decodes the `telemetry_control` frame and
+  samples at the commanded interval, falling back to a local policy when no
+  command has arrived or the connection drops.
 - **Navdata.** Hash-first sending of scoped `apt.dat` blocks, CIFP, airspace and
   VRP data, answering `navdata_*_request`, plus METAR.
 - **The in-sim panel.** A React + TypeScript app hosted by SkyScript/CEF, with

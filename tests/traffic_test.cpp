@@ -267,6 +267,39 @@ void test_null_island_slots_are_not_targets() {
   require(got.status == TrafficStatus::known_empty, "and the sky reads empty");
 }
 
+// A dataref slot can contain NaN while X-Plane or a network traffic plugin is
+// initialising it. NaN used to pass the populated check and become 0,0 during
+// JSON formatting, producing one anonymous ghost aircraft at null island.
+void test_non_finite_slots_are_not_targets() {
+  TrafficArrays a = empty_arrays();
+  a.modeS_id[5] = 0xABC123;
+  a.lat[5] = std::nanf("");
+  a.lon[5] = std::nanf("");
+  put_string(a.flight_id, 5, "GHOST");
+
+  const TrafficExtract got = extract_targets(a, 1, kOwn, TrafficBounds{}, true);
+  require(got.targets.empty(), "a non-finite position is not a target");
+  require(got.census.seen == 0, "an invalid slot is not counted as seen");
+  require(got.status == TrafficStatus::known_empty,
+          "an invalid slot does not turn an empty sky current");
+}
+
+void test_ownship_identity_comes_from_slot_zero() {
+  TrafficArrays a = empty_arrays();
+  a.modeS_id[0] = 0x00001F;
+  put_string(a.flight_id, 0, "JIA5419");
+  put_string(a.icao_type, 0, "SR22");
+
+  const TrafficExtract got = extract_targets(a, 1, kOwn, TrafficBounds{}, true);
+  require(got.ownship.mode_s_id == 0x00001F,
+          "ownship Mode S comes from slot 0");
+  require(got.ownship.callsign == "JIA5419",
+          "ownship callsign comes from slot 0");
+  require(got.ownship.icao_type == "SR22", "ownship type comes from slot 0");
+  require(got.targets.empty(),
+          "slot 0 remains excluded from surrounding traffic");
+}
+
 // A target with no mode-S id is still a target: the id is identity, not
 // validity, and X-Plane does not always publish one.
 void test_zero_modes_id_still_emitted() {
@@ -392,6 +425,8 @@ int main() {
   test_unresolved_datarefs_are_unavailable();
   test_empty_sky_is_known_empty();
   test_null_island_slots_are_not_targets();
+  test_non_finite_slots_are_not_targets();
+  test_ownship_identity_comes_from_slot_zero();
   test_zero_modes_id_still_emitted();
   test_short_arrays_degrade();
   test_unit_conversions();
