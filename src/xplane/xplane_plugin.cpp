@@ -1170,6 +1170,9 @@ TelemetrySnapshot sample_telemetry() {
   s.now_secs = read_f(g_datarefs.total_running_time_sec);
 
   const tel::TrafficExtract traffic = sample_traffic(s, s.now_secs);
+  s.callsign = traffic.ownship.callsign;
+  s.icao_type = traffic.ownship.icao_type;
+  s.mode_s_id = traffic.ownship.mode_s_id;
   s.traffic = traffic.targets;
   s.traffic_status = traffic.status;
   s.traffic_truncated = traffic.truncated;

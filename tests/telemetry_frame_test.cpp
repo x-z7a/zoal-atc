@@ -38,6 +38,9 @@ TelemetrySnapshot sample_snapshot() {
   s.vertical_speed_fpm = -640.0;
   s.heading_true_deg = 310.0;
   s.on_ground = true;
+  s.callsign = "JIA5419";
+  s.icao_type = "SR22";
+  s.mode_s_id = 0x00001F;
   s.com1_freq_mhz = 118.6;
   s.com1_standby_mhz = 121.6;
   s.active_com = 1;
@@ -69,6 +72,9 @@ void frame_matches_wire_contract() {
   require_contains(frame, "\"latitude_deg\":37.4611", "latitude");
   require_contains(frame, "\"longitude_deg\":-122.115", "longitude");
   require_contains(frame, "\"on_ground\":true", "on ground");
+  require_contains(frame, "\"callsign\":\"JIA5419\"", "ownship callsign");
+  require_contains(frame, "\"icao_type\":\"SR22\"", "ownship type");
+  require_contains(frame, "\"mode_s\":31", "ownship Mode S");
   require_contains(frame, "\"indicated_airspeed_kts\":2.4", "indicated airspeed");
   require_contains(frame, "\"vertical_speed_fpm\":-640", "vertical speed");
   require_contains(frame, "\"com1_freq_mhz\":118.6", "com1");

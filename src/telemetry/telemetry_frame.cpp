@@ -24,7 +24,10 @@ std::string build_telemetry_frame(const TelemetrySnapshot &s,
       << ",\"indicated_airspeed_kts\":" << json_number(s.indicated_airspeed_kts)
       << ",\"vertical_speed_fpm\":" << json_number(s.vertical_speed_fpm)
       << ",\"heading_true_deg\":" << json_number(s.heading_true_deg)
-      << ",\"on_ground\":" << (s.on_ground ? "true" : "false");
+      << ",\"on_ground\":" << (s.on_ground ? "true" : "false")
+      << ",\"callsign\":\"" << json_escape(s.callsign) << "\""
+      << ",\"icao_type\":\"" << json_escape(s.icao_type) << "\""
+      << ",\"mode_s\":" << s.mode_s_id;
 
   out << ",\"com1_freq_mhz\":" << json_number(s.com1_freq_mhz)
       << ",\"com2_freq_mhz\":" << json_number(s.com2_freq_mhz)
