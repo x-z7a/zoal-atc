@@ -1,3 +1,5 @@
+import {useEffect, useState} from "react";
+
 import {ACTIONS} from "../bridge/actions";
 import {EVENTS} from "../bridge/types";
 import type {BayView, FlightPlanView, PanelTelemetry, SessionView} from "../bridge/views";
@@ -20,6 +22,11 @@ import {
 import {useConsole} from "../state/ConsoleProvider";
 import {useCommLog, useConsoleAction, useConsoleEvent, useConsoleStatus} from "../state/hooks";
 
+// How long the "new flight" control stays armed before it forgets it was
+// pressed. Long enough to reach with a mouse in turbulence, short enough that a
+// panel nobody is looking at is not one press away from ending the flight.
+const ARMED_MS = 5000;
+
 // What the pilot flies with.
 //
 // Own-ship across the top, the radio filling everything left, and the things
@@ -35,6 +42,15 @@ export function HomeTab() {
   const entries = useCommLog();
   const status = useConsoleStatus();
   const {run, error, clearError, busy} = useConsoleAction();
+  const [arming, setArming] = useState(false);
+
+  useEffect(() => {
+    if (!arming) {
+      return;
+    }
+    const lapse = setTimeout(() => setArming(false), ARMED_MS);
+    return () => clearTimeout(lapse);
+  }, [arming]);
 
   function tune(value: string): void {
     const mhz = Number.parseFloat(value);
@@ -63,10 +79,40 @@ export function HomeTab() {
       .catch(() => {});
   }
 
+  // Two presses, because this one throws something away.
+  //
+  // A console identifies a flight by the plugin installation, so flying again
+  // tomorrow can look like the same aeroplane still parked where it was, still
+  // holding the clearance it was given. It works some of that out on its own,
+  // but only the pilot knows for certain, and this is how they say so.
+  //
+  // The button arms rather than fires: it sits a few pixels from Reload, and an
+  // accidental press would cost somebody the clearance they had just copied.
+  // Arming lapses on its own so a panel left alone does not stay one press away
+  // from forgetting the flight.
+  function endSession(): void {
+    if (!arming) {
+      setArming(true);
+      return;
+    }
+    setArming(false);
+    clearError();
+    void run(ACTIONS.endFlightSession).catch(() => {});
+  }
+
   return (
     <>
       <section className="grid" aria-label="Aircraft status">
-        <Tile label="Flight" value={session?.callsign || "waiting"} detail={session?.lifecycle} />
+        <Tile
+          label="Flight"
+          value={session?.callsign || "waiting"}
+          detail={session?.lifecycle}
+          action={{
+            label: arming ? "Confirm" : "New flight",
+            onClick: endSession,
+            disabled: busy,
+          }}
+        />
         <Tile
           label="COM1"
           value={formatFrequency(telemetry?.frequencyMhz)}
