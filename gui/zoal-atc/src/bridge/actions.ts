@@ -18,7 +18,6 @@ export const ACTIONS = {
   flightPlan: "flight_plan",
   facilitySnapshot: "facility_snapshot",
   status: "status",
-  debugTail: "debug_tail",
   // Writes.
   tuneRadio: "tune_radio",
   submitText: "submit_text",

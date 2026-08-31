@@ -20,7 +20,6 @@ describe("the action contract with the console", () => {
   it("sends exactly the actions the console pins", () => {
     expect([...ALL_ACTIONS].sort()).toEqual([
       "comm_log",
-      "debug_tail",
       "facility_snapshot",
       "flight_plan",
       "flight_snapshot",
