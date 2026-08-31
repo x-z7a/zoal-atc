@@ -58,7 +58,7 @@ export function SettingsTab() {
       return;
     }
     let cancelled = false;
-    void run(ACTIONS.settings)
+    void runLocal(LOCAL_ACTIONS.settings)
       .then((payload) => {
         if (!cancelled) {
           setSettings(payload as SettingsView);
@@ -69,7 +69,7 @@ export function SettingsTab() {
       cancelled = true;
     };
     // run changes identity with the bridge; re-reading on that is correct.
-  }, [boot, run]);
+  }, [boot, runLocal]);
 
   // Read on the same terms: the Skyscript host has to be up, but the console
   // does not. This read answers while the socket is down, which is the whole
@@ -101,8 +101,8 @@ export function SettingsTab() {
   const notifications = settings?.notifications ?? DEFAULT_NOTIFICATIONS;
 
   function save(next: SettingsView): void {
-    clearError();
-    void run(ACTIONS.saveSettings, {
+    clearLocalError();
+    void runLocal(LOCAL_ACTIONS.saveSettings, {
       simbriefPilotId: next.simbriefPilotId ?? "",
       notifications: next.notifications ?? DEFAULT_NOTIFICATIONS,
     })
@@ -122,7 +122,10 @@ export function SettingsTab() {
 
   function importNow(): void {
     clearError();
-    void run(ACTIONS.refreshFlightPlan, {pilotId: ""})
+    // Named rather than left to the console. The ID lives here now, and a
+    // console only learns a changed one on the next connection; sending it
+    // means an import works the moment it is saved.
+    void run(ACTIONS.refreshFlightPlan, {pilotId: settings?.simbriefPilotId ?? ""})
       .then((payload) => store.setEvent(EVENTS.flightPlan, payload))
       .catch(() => {});
   }
@@ -189,7 +192,10 @@ export function SettingsTab() {
           inputMode="numeric"
           initialValue={settings?.simbriefPilotId ?? ""}
           clearOnSubmit={false}
-          disabled={busy || boot !== "ready"}
+          // Answered by the plugin, like the token above: this is the pilot's
+          // own preference and it must be settable while the console is down.
+          local
+          disabled={boot !== "ready"}
           onSubmit={savePilotID}
         />
         <p className="setting-help">
