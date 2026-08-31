@@ -7,14 +7,12 @@ import {describeStatus, isConsoleReachable} from "../domain/status";
 import {readShellParams} from "../domain/shell";
 import {useConsole} from "../state/ConsoleProvider";
 import {useConsoleStatus, useTelemetryFreshness} from "../state/hooks";
-import {DebugTab} from "../views/DebugTab";
 import {HomeTab} from "../views/HomeTab";
 import {SettingsTab} from "../views/SettingsTab";
 
 const TABS: readonly TabDefinition[] = [
   {id: "home", label: "Home"},
   {id: "settings", label: "Settings"},
-  {id: "debug", label: "Debug"},
 ];
 
 type Props = {
@@ -80,9 +78,6 @@ export function App({search}: Props) {
           </TabPanel>
           <TabPanel id="settings" active={active}>
             <SettingsTab />
-          </TabPanel>
-          <TabPanel id="debug" active={active}>
-            <DebugTab pluginVersion={shell.pluginVersion} skyscript={shell.skyscript} />
           </TabPanel>
         </>
       )}
