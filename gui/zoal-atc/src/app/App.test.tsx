@@ -302,22 +302,22 @@ describe("the panel", () => {
 
   describe("tabs", () => {
     // A chat's input belongs at the bottom of the chat, and there is only one
-    // of it -- Debug does not carry a second.
+    // of it -- no other tab carries a second.
     it("puts the transmit box with the radio, and nowhere else", async () => {
       await mountReady();
       connected();
 
       expect(screen.getByLabelText("Transmit")).toBeInTheDocument();
 
-      await userEvent.click(screen.getByRole("tab", {name: "Debug"}));
+      await userEvent.click(screen.getByRole("tab", {name: "Settings"}));
 
       expect(screen.queryByLabelText("Transmit")).toBeNull();
     });
 
     // The reason ConsoleStore exists. facility_snapshot only fires when an
-    // aircraft connects, so without a remembered value a tab opened afterwards
-    // would show an empty bay until somebody else took off.
-    it("shows values that arrived before the tab was opened", async () => {
+    // aircraft connects, so without a remembered value a tab returned to
+    // afterwards would show an empty bay until somebody else took off.
+    it("shows values that arrived while another tab was open", async () => {
       await mountReady();
       connected();
 
@@ -338,26 +338,13 @@ describe("the panel", () => {
         ],
       });
 
-      await userEvent.click(screen.getByRole("tab", {name: "Debug"}));
+      await userEvent.click(screen.getByRole("tab", {name: "Settings"}));
+      await userEvent.click(screen.getByRole("tab", {name: "Home"}));
 
-      expect(screen.getByText("cruise")).toBeInTheDocument();
-      expect(screen.getByText("133.400")).toBeInTheDocument();
+      expect(screen.getByText("1 aircraft")).toBeInTheDocument();
     });
 
     // The console publishes these and the pre-React panel handled neither.
-    it("shows the last turn on Debug", async () => {
-      await mountReady();
-      connected();
-
-      host.emitEvent("transcript", {text: "ready to taxi"});
-      host.emitEvent("atc_reply", {text: "taxi via alpha", category: "instruction", sent: true});
-
-      await userEvent.click(screen.getByRole("tab", {name: "Debug"}));
-
-      expect(screen.getByText("ready to taxi")).toBeInTheDocument();
-      expect(screen.getByText("taxi via alpha")).toBeInTheDocument();
-      expect(screen.getByText("instruction")).toBeInTheDocument();
-    });
 
     it("offers the SimBrief pilot ID on Settings", async () => {
       await mountReady();
@@ -369,65 +356,6 @@ describe("the panel", () => {
     });
   });
 
-  describe("the debug log", () => {
-    async function openDebug() {
-      await mountReady();
-      connected();
-      await userEvent.click(screen.getByRole("tab", {name: "Debug"}));
-      await waitFor(() => {
-        expect(host.requests.some((request) => request.action === "debug_tail")).toBe(true);
-      });
-      return host.requests.filter((request) => request.action === "debug_tail").pop();
-    }
-
-    // Pulled rather than pushed, and only while the tab is mounted: the log is
-    // verbose and nobody wants it streaming behind a tab nobody is looking at.
-    it("asks for the log when the tab is opened, and not before", async () => {
-      await mountReady();
-      connected();
-      expect(host.requests.some((request) => request.action === "debug_tail")).toBe(false);
-
-      await userEvent.click(screen.getByRole("tab", {name: "Debug"}));
-
-      await waitFor(() => {
-        expect(host.requests.some((request) => request.action === "debug_tail")).toBe(true);
-      });
-    });
-
-    it("shows the records the console returns, newest first", async () => {
-      const read = await openDebug();
-      host.respondTo(read?.requestId ?? 0, [
-        {ts: "2026-08-13T20:00:00Z", category: "ai_call", fields: {event: "judge", latency_ms: 900}},
-        {ts: "2026-08-13T20:00:05Z", category: "delivery", fields: {event: "commit"}},
-      ]);
-
-      const rows = await screen.findAllByRole("listitem");
-      const debugRows = rows.filter((row) => row.textContent?.includes("event="));
-      expect(debugRows[0]).toHaveTextContent("event=commit");
-      expect(debugRows[1]).toHaveTextContent("event=judge");
-    });
-
-    it("re-reads under the category the chip names", async () => {
-      const read = await openDebug();
-      host.respondTo(read?.requestId ?? 0, []);
-
-      await userEvent.click(screen.getByRole("button", {name: "Model"}));
-
-      await waitFor(() => {
-        const pulls = host.requests.filter((request) => request.action === "debug_tail");
-        expect(pulls[pulls.length - 1]?.payload).toMatchObject({category: "ai_call"});
-      });
-    });
-
-    it("says so plainly when a category is empty", async () => {
-      const read = await openDebug();
-      host.respondTo(read?.requestId ?? 0, []);
-
-      expect(
-        await screen.findByText("No records under this category yet."),
-      ).toBeInTheDocument();
-    });
-  });
 
   // The token is the one setting the plugin answers itself, because it is the
   // credential the console refuses the connection over. Everything here is
