@@ -335,11 +335,144 @@ bool write_config_atomically(const std::string &path,
   return true;
 }
 
+// The pilot's own preferences, answered here rather than proxied.
+//
+// A SimBrief pilot ID and how somebody wants to be told ATC spoke belong to the
+// person in the cockpit, not to whichever facility they are talking to today.
+// The config file already holds the SimBrief ID and already sends it on the
+// hello, so a copy on a console would be a second answer to a question that has
+// one, and the two would drift the first time the pilot flew somewhere else.
+//
+// Answering locally has a second effect worth having: these keep working while
+// the console is unreachable, which is when a pilot is most likely to be
+// fiddling with settings.
+
+// config_value reads one key out of the config text, applying the same
+// last-one-wins rule the config parser does.
+std::optional<std::string> config_value(const std::string &text,
+                                        const std::string &key) {
+  std::optional<std::string> found;
+  std::size_t pos = 0;
+  while (pos <= text.size()) {
+    const std::size_t end = text.find('\n', pos);
+    std::string line = text.substr(pos, end == std::string::npos
+                                            ? std::string::npos
+                                            : end - pos);
+    pos = (end == std::string::npos) ? text.size() + 1 : end + 1;
+
+    const std::size_t hash = line.find('#');
+    if (hash != std::string::npos) {
+      line = line.substr(0, hash);
+    }
+    const std::size_t equals = line.find('=');
+    if (equals == std::string::npos) {
+      continue;
+    }
+    std::string name = line.substr(0, equals);
+    std::string value = line.substr(equals + 1);
+    const auto trim = [](std::string &text) {
+      const std::size_t first = text.find_first_not_of(" \t\r");
+      const std::size_t last = text.find_last_not_of(" \t\r");
+      text = (first == std::string::npos) ? std::string()
+                                          : text.substr(first, last - first + 1);
+    };
+    trim(name);
+    trim(value);
+    if (name == key) {
+      found = value;
+    }
+  }
+  return found;
+}
+
+std::string settings_json() {
+  const auto text = read_file(g_config_path).value_or(std::string());
+  const auto prefs = zoal_atc::gui::local_notification_preferences();
+  std::ostringstream out;
+  out << R"({"simbriefPilotId":")"
+      << zoal_atc::transport::json_escape(
+             config_value(text, "simbrief_id").value_or(std::string()))
+      << R"(","notifications":{"enabled":)"
+      << (prefs.enabled ? "true" : "false") << R"(,"corner":")"
+      << zoal_atc::transport::json_escape(prefs.corner)
+      << R"(","timeoutSecs":)" << prefs.timeout_secs << R"(,"sound":)"
+      << (prefs.sound ? "true" : "false") << "}}";
+  return out.str();
+}
+
 std::optional<zoal_atc::gui::LocalAnswer>
 handle_local_gui_action(const std::string &action,
                         const std::string &payload_json) {
   if (action == "connection_settings") {
     return zoal_atc::gui::LocalAnswer{true, connection_settings_json(), ""};
+  }
+  if (action == "settings") {
+    return zoal_atc::gui::LocalAnswer{true, settings_json(), ""};
+  }
+  if (action == "save_settings") {
+    if (g_config_path.empty()) {
+      return zoal_atc::gui::LocalAnswer{false, "null",
+                                        "no config file path is known"};
+    }
+    const auto pilot_id =
+        zoal_atc::transport::json_string_field(payload_json, "simbriefPilotId");
+    if (pilot_id.has_value()) {
+      if (!zoal_atc::transport::token_is_safe(*pilot_id)) {
+        return zoal_atc::gui::LocalAnswer{
+            false, "null", "a pilot ID cannot contain a control character"};
+      }
+      const auto existing = read_file(g_config_path);
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          existing.value_or(std::string()), "simbrief_id", *pilot_id);
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      // Present-or-absent, never the value, like the token above: the log is
+      // the artifact a pilot pastes into a bug report.
+      log_line(pilot_id->empty() ? "simbrief pilot id cleared from the panel"
+                                 : "simbrief pilot id set from the panel");
+      // The socket is deliberately left alone. The hello carries the ID, so a
+      // console learns the new one on the next connection; until then the panel
+      // sends it with an import explicitly. Dropping a live connection the way
+      // a token change does would take a pilot off the air to change a
+      // preference that is not about being on the air.
+    }
+
+    // Notifications are entirely ours: the plugin raises the toast, so this is
+    // applied rather than stored and forwarded.
+    auto prefs = zoal_atc::gui::local_notification_preferences();
+    const auto notifications =
+        zoal_atc::transport::json_raw_field(payload_json, "notifications");
+    if (notifications.has_value()) {
+      const auto &block = *notifications;
+      if (const auto enabled =
+              zoal_atc::transport::json_bool_field(block, "enabled")) {
+        prefs.enabled = *enabled;
+      }
+      if (const auto corner =
+              zoal_atc::transport::json_string_field(block, "corner")) {
+        if (*corner == "top_left" || *corner == "top_right" ||
+            *corner == "bottom_left" || *corner == "bottom_right") {
+          prefs.corner = *corner;
+        }
+      }
+      if (const auto timeout =
+              zoal_atc::transport::json_number_field(block, "timeoutSecs")) {
+        // Bounded here rather than trusted: nothing on a toast over a hidden
+        // browser can be clicked, so one that waits to be dismissed never
+        // leaves, and one that stays a minute has become furniture.
+        if (*timeout > 0.0 && *timeout <= 60.0) {
+          prefs.timeout_secs = *timeout;
+        }
+      }
+      if (const auto sound =
+              zoal_atc::transport::json_bool_field(block, "sound")) {
+        prefs.sound = *sound;
+      }
+      zoal_atc::gui::set_local_notification_preferences(prefs);
+    }
+    return zoal_atc::gui::LocalAnswer{true, settings_json(), ""};
   }
   if (action != "save_connection_settings") {
     // Not ours: the bridge proxies it to the console as usual.

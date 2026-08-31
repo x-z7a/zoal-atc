@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <functional>
+#include "zoal_atc/gui/notification.hpp"
+
 #include <string>
 
 namespace zoal_atc::gui {
@@ -37,6 +39,16 @@ bool apply_notification_control(const std::string &frame);
 // clear_notification_control reverts to the local default, for when the console
 // goes away. A stale preference should not outlive the console that sent it.
 void clear_notification_control();
+
+// set_local_notification_preferences sets the baseline the panel's own settings
+// tab writes. It is deliberately the local fallback rather than a command: this
+// is the pilot's own choice, made in their cockpit, and it must outlive any
+// console they happen to be connected to.
+void set_local_notification_preferences(const NotificationPreferences &prefs);
+
+// local_notification_preferences reads that baseline back, so the settings tab
+// shows what is in force rather than what it last sent.
+NotificationPreferences local_notification_preferences();
 
 } // namespace zoal_atc::gui
 
