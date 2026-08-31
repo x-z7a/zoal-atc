@@ -22,6 +22,15 @@ export const ACTIONS = {
   tuneRadio: "tune_radio",
   submitText: "submit_text",
   refreshFlightPlan: "refresh_flight_plan",
+  // The pilot saying this is a different flight from the last one.
+  //
+  // A console identifies a flight by the plugin installation, so the same
+  // simulator flying again tomorrow looks like the same aeroplane still sitting
+  // where it was. It notices some of that on its own — a new callsign, a new
+  // filed plan, a long enough silence — but only the person in the cockpit
+  // knows for certain, and only they can say so before the controller has
+  // worked it out.
+  endFlightSession: "end_flight_session",
 } as const;
 
 export type ActionName = (typeof ACTIONS)[keyof typeof ACTIONS];

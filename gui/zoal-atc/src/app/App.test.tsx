@@ -1,6 +1,6 @@
-import {render, screen, waitFor, within} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {ConsoleBridge} from "../bridge/ConsoleBridge";
 import {FakeSkyscriptHost} from "../bridge/fakeHost";
@@ -40,6 +40,10 @@ describe("the panel", () => {
 
   afterEach(() => {
     bridge.dispose();
+    // A test that fakes the clock and then times out never reaches its own
+    // cleanup, and every test after it hangs waiting for a tick that will never
+    // come. One line here turns that from a file full of failures into one.
+    vi.useRealTimers();
   });
 
   it("shows the plugin version the plugin put in the URL", async () => {
@@ -251,6 +255,64 @@ describe("the panel", () => {
 
       expect(await screen.findByRole("button", {name: "Reload"})).toBeInTheDocument();
       expect(screen.getByText("CYOW -> CYGK")).toBeInTheDocument();
+    });
+  });
+
+  // A console identifies a flight by the plugin installation, so flying again
+  // tomorrow can look like the same aeroplane still parked where it was, still
+  // holding the clearance it was given. The console works some of that out
+  // itself; only the pilot knows for certain.
+  describe("ending the flight session", () => {
+    it("arms before it fires, because this throws something away", async () => {
+      await mountReady();
+      connected();
+
+      await userEvent.click(screen.getByRole("button", {name: "New flight"}));
+
+      expect(screen.getByRole("button", {name: "Confirm"})).toBeInTheDocument();
+      expect(host.requests.some((request) => request.action === "end_flight_session")).toBe(
+        false,
+      );
+    });
+
+    it("tells the console on the second press", async () => {
+      await mountReady();
+      connected();
+
+      await userEvent.click(screen.getByRole("button", {name: "New flight"}));
+      await userEvent.click(screen.getByRole("button", {name: "Confirm"}));
+
+      await waitFor(() => {
+        expect(
+          host.requests.some((request) => request.action === "end_flight_session"),
+        ).toBe(true);
+      });
+      expect(screen.getByRole("button", {name: "New flight"})).toBeInTheDocument();
+    });
+
+    // A panel nobody is looking at must not sit one press away from forgetting
+    // the flight.
+    //
+    // The clock is faked only after the panel is up, and the press is a plain
+    // event rather than a user-event: mounting under fake timers hangs, because
+    // everything the panel does on the way up is waiting for something.
+    it("forgets it was armed", async () => {
+      await mountReady();
+      connected();
+
+      vi.useFakeTimers();
+      try {
+        fireEvent.click(screen.getByRole("button", {name: "New flight"}));
+        expect(screen.getByRole("button", {name: "Confirm"})).toBeInTheDocument();
+
+        act(() => {
+          vi.advanceTimersByTime(6000);
+        });
+
+        expect(screen.getByRole("button", {name: "New flight"})).toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 
