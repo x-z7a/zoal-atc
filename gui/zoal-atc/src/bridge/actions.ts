@@ -18,13 +18,11 @@ export const ACTIONS = {
   flightPlan: "flight_plan",
   facilitySnapshot: "facility_snapshot",
   status: "status",
-  settings: "settings",
   debugTail: "debug_tail",
   // Writes.
   tuneRadio: "tune_radio",
   submitText: "submit_text",
   refreshFlightPlan: "refresh_flight_plan",
-  saveSettings: "save_settings",
 } as const;
 
 export type ActionName = (typeof ACTIONS)[keyof typeof ACTIONS];
@@ -39,10 +37,20 @@ export const ALL_ACTIONS: readonly ActionName[] = Object.values(ACTIONS);
 //
 // They exist because the connection settings are how a pilot repairs a console
 // they cannot reach. Every action in ACTIONS is refused while the socket is
-// down; these two are the ones that have to work then.
+// down; these are the ones that have to work then.
 export const LOCAL_ACTIONS = {
   connectionSettings: "connection_settings",
   saveConnectionSettings: "save_connection_settings",
+  // The pilot's own preferences. They moved here from ACTIONS deliberately: a
+  // SimBrief ID and how somebody wants to be notified belong to the person in
+  // the cockpit, not to whichever facility they are talking to today. The
+  // plugin's config file already holds the ID and already sends it on the
+  // hello, so a copy on a console would be a second answer to a question that
+  // has one -- and the two would drift the first time this pilot flew
+  // somewhere else. Answering locally also means they keep working while the
+  // console is unreachable, which is when settings get fiddled with.
+  settings: "settings",
+  saveSettings: "save_settings",
 } as const;
 
 export type LocalActionName = (typeof LOCAL_ACTIONS)[keyof typeof LOCAL_ACTIONS];

@@ -333,4 +333,15 @@ bool apply_notification_control(const std::string &frame) {
 
 void clear_notification_control() { g_notifications.reset(); }
 
+void set_local_notification_preferences(const NotificationPreferences &prefs) {
+  // The baseline, not a console command. A preference the pilot set in their
+  // own panel belongs to them, so it has to survive the console going away —
+  // which is exactly what reset() falls back to.
+  g_notifications.local = prefs;
+}
+
+NotificationPreferences local_notification_preferences() {
+  return g_notifications.local;
+}
+
 } // namespace zoal_atc::gui
