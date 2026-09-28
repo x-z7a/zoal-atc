@@ -89,9 +89,23 @@ struct TrafficArrays {
   std::vector<float> psi_deg;
   std::vector<float> v_msc; // total true speed, m/s
   std::vector<std::int32_t> weight_on_wheels;
+  // Height of each target above the terrain under it, in metres, from the
+  // sim's own terrain probe. Absent or NaN where it could not be measured.
+  std::vector<float> height_agl_m;
   std::vector<char> flight_id;
   std::vector<char> icao_type;
 };
+
+// target_on_ground decides whether a TCAS target is on the ground.
+//
+// X-Plane's TCAS weight_on_wheels is not reliable for every kind of traffic:
+// at Montreal a 787 was reported on the ground at 2,900 ft and 390 kt, and the
+// console called it "on the ground" five miles out. Height above the terrain is
+// the measurement that means it, so it decides wherever it is known. Where it
+// is not, the flag is believed only for a target slow and level enough to be
+// on wheels. height_agl_m is NaN when unknown.
+bool target_on_ground(bool weight_on_wheels, double height_agl_m,
+                      double groundspeed_kts, double vertical_speed_fpm);
 
 // OwnPosition is the ownship reference the distance/vertical bounds are taken
 // from. It is used only to filter and sort — never to derive geometry.
