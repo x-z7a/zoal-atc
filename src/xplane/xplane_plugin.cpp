@@ -14,10 +14,12 @@
 #include <XPLMNavigation.h>
 #include <XPLMPlugin.h>
 #include <XPLMProcessing.h>
+#include <XPLMScenery.h>
 #include <XPLMUtilities.h>
 
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <condition_variable>
 #include <cstdio>
 #include <random>
@@ -945,6 +947,11 @@ struct TelemetryDatarefs {
   XPLMDataRef tcas_psi = nullptr;
   XPLMDataRef tcas_v_msc = nullptr;
   XPLMDataRef tcas_weight_on_wheels = nullptr;
+  // Local OpenGL position of each target, which is what the terrain probe
+  // takes. Optional: without them on-ground falls back to the TCAS flag.
+  XPLMDataRef tcas_x = nullptr;
+  XPLMDataRef tcas_y = nullptr;
+  XPLMDataRef tcas_z = nullptr;
   XPLMDataRef tcas_flight_id = nullptr;
   XPLMDataRef tcas_icao_type = nullptr;
 
@@ -1022,6 +1029,9 @@ struct TelemetryDatarefs {
     tcas_v_msc = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/V_msc");
     tcas_weight_on_wheels = XPLMFindDataRef(
         "sim/cockpit2/tcas/targets/position/weight_on_wheels");
+    tcas_x = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/x");
+    tcas_y = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/y");
+    tcas_z = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/z");
     tcas_flight_id = XPLMFindDataRef("sim/cockpit2/tcas/targets/flight_id");
     tcas_icao_type = XPLMFindDataRef("sim/cockpit2/tcas/targets/icao_type");
     if (!traffic_resolved()) {
@@ -1179,6 +1189,13 @@ void lowest_cloud_layer(int &type_out, double &base_ft_out) {
 // Bulk array reads: one XPLM call per dataref per sample, never a lookup per
 // target. A null dataref yields an empty vector, which extract_targets treats
 // as "field absent" and degrades on.
+XPLMProbeRef g_terrain_probe = nullptr;
+
+// Height of each populated TCAS target above the terrain under it, in metres.
+// X-Plane's TCAS weight_on_wheels is not reliable for every kind of traffic —
+// at Montreal a 787 read on the ground at 2,900 ft and 390 kt — and height
+// above the terrain is the measurement on-ground means. NaN where it cannot be
+// measured, which leaves the decision to the flag.
 std::vector<float> read_array_f(XPLMDataRef ref, int count) {
   if (ref == nullptr) {
     return {};
@@ -1187,6 +1204,43 @@ std::vector<float> read_array_f(XPLMDataRef ref, int count) {
   const int got = XPLMGetDatavf(ref, out.data(), 0, count);
   out.resize(static_cast<std::size_t>(got < 0 ? 0 : got));
   return out;
+}
+
+std::vector<float> read_heights_agl(const std::vector<float> &lat,
+                                    const std::vector<float> &lon, int count) {
+  const float unknown = std::numeric_limits<float>::quiet_NaN();
+  if (g_datarefs.tcas_x == nullptr || g_datarefs.tcas_y == nullptr ||
+      g_datarefs.tcas_z == nullptr) {
+    return {};
+  }
+  const std::vector<float> xs = read_array_f(g_datarefs.tcas_x, count);
+  const std::vector<float> ys = read_array_f(g_datarefs.tcas_y, count);
+  const std::vector<float> zs = read_array_f(g_datarefs.tcas_z, count);
+  if (g_terrain_probe == nullptr) {
+    g_terrain_probe = XPLMCreateProbe(xplm_ProbeY);
+  }
+  std::vector<float> heights(static_cast<std::size_t>(count), unknown);
+  for (int i = 1; i < count; ++i) {
+    const auto slot = static_cast<std::size_t>(i);
+    if (slot >= xs.size() || slot >= ys.size() || slot >= zs.size()) {
+      break;
+    }
+    // Only populated slots: an empty one sits at the origin, and probing it
+    // costs a terrain query for nothing.
+    const bool populated = (slot < lat.size() && lat[slot] != 0.f) ||
+                           (slot < lon.size() && lon[slot] != 0.f);
+    if (!populated) {
+      continue;
+    }
+    XPLMProbeInfo_t info{};
+    info.structSize = sizeof(info);
+    if (XPLMProbeTerrainXYZ(g_terrain_probe, xs[slot], ys[slot], zs[slot],
+                            &info) != xplm_ProbeHitTerrain) {
+      continue;
+    }
+    heights[slot] = ys[slot] - info.locationY;
+  }
+  return heights;
 }
 
 std::vector<std::int32_t> read_array_i(XPLMDataRef ref, int count) {
@@ -1241,6 +1295,7 @@ zoal_atc::telemetry::TrafficExtract sample_traffic(const TelemetrySnapshot &own,
   arrays.psi_deg = read_array_f(g_datarefs.tcas_psi, n);
   arrays.v_msc = read_array_f(g_datarefs.tcas_v_msc, n);
   arrays.weight_on_wheels = read_array_i(g_datarefs.tcas_weight_on_wheels, n);
+  arrays.height_agl_m = read_heights_agl(arrays.lat, arrays.lon, n);
   arrays.flight_id =
       read_array_b(g_datarefs.tcas_flight_id, n * tel::kTcasStringSlotWidth);
   arrays.icao_type =
@@ -1739,6 +1794,11 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
 
 PLUGIN_API void XPluginStop() {
   zoal_atc::gui::stop_skyscript_panel();
+
+  if (g_terrain_probe) {
+    XPLMDestroyProbe(g_terrain_probe);
+    g_terrain_probe = nullptr;
+  }
 
   if (g_flight_loop) {
     XPLMDestroyFlightLoop(g_flight_loop);
