@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -167,6 +168,41 @@ void test_weight_on_wheels_drives_on_ground() {
   require(got.targets.size() == 2, "both targets expected");
   require(got.targets[0].on_ground, "weight_on_wheels target must read on_ground");
   require(!got.targets[1].on_ground, "airborne target must not read on_ground");
+}
+
+// X-Plane's TCAS weight_on_wheels is not reliable for every kind of traffic: at
+// Montreal a 787 read on the ground at 2,900 ft and 390 kt. Height above the
+// terrain decides wherever it is known; the flag is believed only for a target
+// slow and level enough to be on wheels.
+void test_on_ground_is_decided_by_height_where_known() {
+  const double unknown = std::numeric_limits<double>::quiet_NaN();
+  require(!target_on_ground(true, 600.0, 217.0, 0.0),
+          "flagged on the ground at 600 m and 217 kt is flying");
+  require(!target_on_ground(true, 600.0, 112.0, 0.0),
+          "flagged on the ground at 600 m above the terrain is flying");
+  require(target_on_ground(false, 4.0, 12.0, 0.0),
+          "4 m above the terrain at taxi speed is on the ground, flag or not");
+  require(target_on_ground(true, 5.5, 140.0, 0.0), "a takeoff roll is on the ground");
+  require(!target_on_ground(true, unknown, 390.0, 0.0),
+          "no ground roll reaches 390 kt");
+  require(!target_on_ground(true, unknown, 150.0, 2000.0),
+          "nothing on wheels climbs at 2,000 fpm");
+  require(target_on_ground(true, unknown, 15.0, 0.0),
+          "without a height, a slow level flagged target is believed");
+  require(!target_on_ground(false, unknown, 15.0, 0.0),
+          "without a height or a flag, it is airborne");
+}
+
+void test_height_reaches_the_extracted_target() {
+  TrafficArrays a = empty_arrays();
+  put_target(a, 1, kOwn.lat_deg, kOwn.lon_deg, 0.5, "RJA272", "B789");
+  a.weight_on_wheels[1] = 1;
+  a.height_agl_m.assign(kTcasSlots, std::numeric_limits<float>::quiet_NaN());
+  a.height_agl_m[1] = 850.f;
+
+  const TrafficExtract got = extract_targets(a, 1, kOwn, TrafficBounds{}, true);
+  require(got.targets.size() == 1, "the target is kept");
+  require(!got.targets[0].on_ground, "850 m above the terrain is not on the ground");
 }
 
 void test_radius_and_vertical_bounds() {
@@ -417,6 +453,8 @@ int main() {
   test_fixed_width_string_records();
   test_string_sanitising();
   test_weight_on_wheels_drives_on_ground();
+  test_on_ground_is_decided_by_height_where_known();
+  test_height_reaches_the_extracted_target();
   test_radius_and_vertical_bounds();
   test_census_counts_capped_targets();
   test_census_on_an_empty_sky();

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace zoal_atc::telemetry {
 namespace {
@@ -94,6 +95,38 @@ double traffic_distance_nm(double lat1, double lon1, double lat2, double lon2) {
   return std::sqrt(dlat * dlat + dlon * dlon);
 }
 
+namespace {
+
+// A reference point on wheels sits a few metres above the terrain — the
+// centre of gravity of a widebody is five or six. Ten is still on the ground;
+// anything above it is flying.
+constexpr double kOnGroundMaxHeightM = 10.0;
+// No takeoff or landing roll reaches this, and nothing on wheels climbs or
+// descends at this rate.
+constexpr double kMaxGroundRollKts = 200.0;
+constexpr double kMaxGroundVerticalSpeedFpm = 1000.0;
+
+double height_at(const std::vector<float> &values, int index) {
+  if (index < 0 || static_cast<std::size_t>(index) >= values.size()) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  return static_cast<double>(values[static_cast<std::size_t>(index)]);
+}
+
+} // namespace
+
+bool target_on_ground(bool weight_on_wheels, double height_agl_m,
+                      double groundspeed_kts, double vertical_speed_fpm) {
+  if (groundspeed_kts > kMaxGroundRollKts ||
+      std::fabs(vertical_speed_fpm) > kMaxGroundVerticalSpeedFpm) {
+    return false;
+  }
+  if (std::isfinite(height_agl_m)) {
+    return height_agl_m < kOnGroundMaxHeightM;
+  }
+  return weight_on_wheels;
+}
+
 TrafficExtract extract_targets(const TrafficArrays &arrays, int num_acf,
                                const OwnPosition &own,
                                const TrafficBounds &bounds,
@@ -148,7 +181,9 @@ TrafficExtract extract_targets(const TrafficArrays &arrays, int num_acf,
     t.vertical_speed_fpm = at(arrays.vertical_speed_fpm, i);
     t.track_deg = at(arrays.hpath_deg, i);
     t.heading_deg = at(arrays.psi_deg, i);
-    t.on_ground = at(arrays.weight_on_wheels, i) != 0.0;
+    t.on_ground = target_on_ground(at(arrays.weight_on_wheels, i) != 0.0,
+                                   height_at(arrays.height_agl_m, i),
+                                   t.groundspeed_kts, t.vertical_speed_fpm);
 
     // Bounding only — well outside every range the console decides on, so
     // nothing actionable is filtered away.
