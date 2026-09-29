@@ -290,6 +290,31 @@ describe("the panel", () => {
       expect(screen.getByRole("button", {name: "New flight"})).toBeInTheDocument();
     });
 
+    // The chat window only appends what is pushed to it, so the last flight's
+    // clearances stayed on screen after "new flight" while every controller
+    // had forgotten them.
+    it("empties the radio log once the console has taken the end", async () => {
+      await mountReady();
+      connected();
+      host.emitEvent("comm_log", {kind: "atc", text: "AC21, cleared to Toronto"});
+      expect(await screen.findByText("AC21, cleared to Toronto")).toBeInTheDocument();
+
+      await userEvent.click(screen.getByRole("button", {name: "New flight"}));
+      await userEvent.click(screen.getByRole("button", {name: "Confirm"}));
+
+      const ended = await waitFor(() => {
+        const request = host.requests.find((each) => each.action === "end_flight_session");
+        expect(request).toBeDefined();
+        return request!;
+      });
+      expect(screen.getByText("AC21, cleared to Toronto")).toBeInTheDocument();
+      act(() => host.respondTo(ended.requestId, {ended: true}));
+
+      await waitFor(() => {
+        expect(screen.queryByText("AC21, cleared to Toronto")).not.toBeInTheDocument();
+      });
+    });
+
     // A panel nobody is looking at must not sit one press away from forgetting
     // the flight.
     //
