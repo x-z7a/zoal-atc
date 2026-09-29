@@ -82,6 +82,18 @@ export class ConsoleStore {
     };
   }
 
+  // clearComm empties the chat window. "New flight" is a different journey
+  // under the same flight ID, and the console clears its record of the last
+  // one; the window only ever appends what is pushed to it, so it has to be
+  // told to start again too.
+  clearComm(): void {
+    if (this.comm.length === 0) {
+      return;
+    }
+    this.comm = [];
+    this.notify();
+  }
+
   private appendComm(entry: CommLogEntry | null): void {
     if (!entry) {
       return;
