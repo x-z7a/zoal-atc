@@ -97,7 +97,12 @@ export function HomeTab() {
     }
     setArming(false);
     clearError();
-    void run(ACTIONS.endFlightSession).catch(() => {});
+    // The chat window starts again with the flight, once the console has
+    // taken the end. A request that failed leaves the flight, and its log,
+    // where they were.
+    void run(ACTIONS.endFlightSession)
+      .then(() => store.clearComm())
+      .catch(() => {});
   }
 
   return (

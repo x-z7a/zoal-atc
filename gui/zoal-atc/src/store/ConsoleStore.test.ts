@@ -66,6 +66,14 @@ describe("ConsoleStore", () => {
   });
 
   describe("comm log", () => {
+    it("empties on a new flight", () => {
+      store.setEvent("comm_log", {kind: "atc", text: "cleared to Toronto"});
+
+      store.clearComm();
+
+      expect(store.getCommLog()).toEqual([]);
+    });
+
     it("keeps entries in the order they were heard", () => {
       store.setEvent("comm_log", {kind: "atc", text: "first"});
       store.setEvent("comm_log", {kind: "pilot", text: "second"});
