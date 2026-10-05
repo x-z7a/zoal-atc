@@ -169,6 +169,85 @@ describe("the panel", () => {
     });
   });
 
+  // The window only hears lines pushed while it is open, and a closed window
+  // came back showing one line of a conversation that had three. The console
+  // keeps the whole record; the panel asks for it.
+  describe("the radio while the window was closed", () => {
+    const said = (minute: number, kind: string, text: string) => ({
+      kind,
+      text,
+      at: `2026-10-05T14:${String(minute).padStart(2, "0")}:00Z`,
+    });
+
+    function commLogRequests() {
+      return host.requests.filter((request) => request.action === "comm_log");
+    }
+
+    it("shows everything the console kept when the panel comes up", async () => {
+      await mountReady();
+      connected();
+      await waitFor(() => expect(commLogRequests()).toHaveLength(1));
+
+      host.respondTo(commLogRequests()[0].requestId, [
+        said(1, "pilot", "Ottawa departure, AC21 with you"),
+        said(1, "atc", "AC21, radar contact"),
+        said(5, "atc", "AC21, contact Montreal Center one one eight point four seven five"),
+      ]);
+
+      const log = await screen.findByRole("list", {name: "Radio log"});
+      await waitFor(() => expect(within(log).getAllByRole("listitem")).toHaveLength(3));
+      expect(within(log).getAllByRole("listitem")[2]).toHaveTextContent("Montreal Center");
+    });
+
+    it("asks again when the plugin says events went unseen", async () => {
+      await mountReady();
+      connected();
+      await waitFor(() => expect(commLogRequests()).toHaveLength(1));
+      host.respondTo(commLogRequests()[0].requestId, [said(1, "atc", "AC21, radar contact")]);
+      await screen.findByText("AC21, radar contact");
+
+      // Closed, two lines spoken, reopened: the plugin kept the newest and
+      // counted the one it replaced.
+      host.emitStatus({connected: true, subscribed: true, droppedEvents: 1});
+      await waitFor(() => expect(commLogRequests()).toHaveLength(2));
+      host.respondTo(commLogRequests()[1].requestId, [
+        said(1, "atc", "AC21, radar contact"),
+        said(3, "pilot", "request direct SELES"),
+        said(3, "atc", "AC21, proceed direct SELES"),
+      ]);
+
+      expect(await screen.findByText("request direct SELES")).toBeInTheDocument();
+      expect(screen.getByText("AC21, proceed direct SELES")).toBeInTheDocument();
+    });
+
+    it("does not show a replayed line twice", async () => {
+      await mountReady();
+      connected();
+      await waitFor(() => expect(commLogRequests()).toHaveLength(1));
+      host.respondTo(commLogRequests()[0].requestId, []);
+
+      host.emitEvent("comm_log", said(2, "atc", "AC21, climb and maintain one two thousand"));
+      host.emitEvent("comm_log", said(2, "atc", "AC21, climb and maintain one two thousand"));
+
+      const log = await screen.findByRole("list", {name: "Radio log"});
+      await waitFor(() =>
+        expect(within(log).getAllByText("AC21, climb and maintain one two thousand")).toHaveLength(1),
+      );
+    });
+
+    it("keeps a line pushed while the console was answering", async () => {
+      await mountReady();
+      connected();
+      await waitFor(() => expect(commLogRequests()).toHaveLength(1));
+
+      host.emitEvent("comm_log", said(4, "atc", "AC21, traffic, twelve o'clock"));
+      host.respondTo(commLogRequests()[0].requestId, [said(1, "atc", "AC21, radar contact")]);
+
+      expect(await screen.findByText("AC21, radar contact")).toBeInTheDocument();
+      expect(screen.getByText("AC21, traffic, twelve o'clock")).toBeInTheDocument();
+    });
+  });
+
   describe("tuning", () => {
     it("sends the frequency and target the console expects", async () => {
       await mountReady();
