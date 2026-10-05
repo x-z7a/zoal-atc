@@ -5,7 +5,8 @@ import {ConsoleBridge} from "../bridge/ConsoleBridge";
 import {ACTIONS} from "../bridge/actions";
 import {errorMessage, waitForSkyscriptHost} from "../bridge/skyscript";
 import {EVENTS} from "../bridge/types";
-import {ConsoleStore} from "../store/ConsoleStore";
+import type {CommLogEntry} from "../bridge/views";
+import {COMM_LOG_LIMIT, ConsoleStore} from "../store/ConsoleStore";
 
 // How the panel came up, which is the first thing to know when it is showing
 // nothing. Opened in an ordinary browser there is no host and never will be;
@@ -56,6 +57,56 @@ export function ConsoleProvider({children, bridge: injected, hostTimeoutMs}: Pro
     // Only a bridge this effect created is ours to dispose. An injected one
     // belongs to whoever passed it in.
     let created: ConsoleBridge | undefined;
+    let unwatch = () => {};
+    let syncing = false;
+
+    // resyncComm asks the console for the whole conversation and puts it in
+    // the chat window. The window only hears lines pushed while it is open, and
+    // the console has been keeping every one of them regardless.
+    async function resyncComm(active: ConsoleBridge): Promise<void> {
+      if (syncing || cancelled) {
+        return;
+      }
+      syncing = true;
+      store.beginCommSync();
+      try {
+        const entries = await active.request(ACTIONS.commLog, {limit: COMM_LOG_LIMIT});
+        if (cancelled) {
+          return;
+        }
+        if (Array.isArray(entries)) {
+          store.finishCommSync(entries as CommLogEntry[]);
+        } else {
+          store.abandonCommSync();
+        }
+      } catch {
+        // A console that cannot answer leaves the window showing what it has,
+        // and the next reconnect or reopen asks again.
+        store.abandonCommSync();
+      } finally {
+        syncing = false;
+      }
+    }
+
+    // watchForMissedLines resyncs when the panel may have missed something:
+    // the console link coming back, or the plugin reporting that events were
+    // replaced before anybody saw them -- which is what a closed window is.
+    function watchForMissedLines(active: ConsoleBridge): () => void {
+      let previous = store.getStatus();
+      return store.subscribe(() => {
+        const status = store.getStatus();
+        if (status === previous) {
+          return;
+        }
+        const linked = status.connected && status.subscribed;
+        const wasLinked = previous.connected && previous.subscribed;
+        const missed = status.droppedEvents > previous.droppedEvents;
+        previous = status;
+        if (linked && (!wasLinked || missed)) {
+          void resyncComm(active);
+        }
+      });
+    }
 
     async function boot(): Promise<void> {
       let active = injected;
@@ -86,6 +137,10 @@ export function ConsoleProvider({children, bridge: injected, hostTimeoutMs}: Pro
         }
         setBoot("ready");
 
+        // A page that has just loaded holds none of the conversation so far.
+        unwatch = watchForMissedLines(active);
+        void resyncComm(active);
+
         // The flight plan is not published on a schedule -- it changes when
         // somebody imports one -- so the panel asks once on the way up.
         const plan = await active.request(ACTIONS.flightPlan);
@@ -104,6 +159,7 @@ export function ConsoleProvider({children, bridge: injected, hostTimeoutMs}: Pro
 
     return () => {
       cancelled = true;
+      unwatch();
       detach();
       created?.dispose();
     };
