@@ -34,6 +34,11 @@ export class ConsoleStore {
   private readonly events = new Map<string, unknown>();
   private readonly listeners = new Set<() => void>();
   private comm: readonly CommLogEntry[] = [];
+  // Lines pushed while a resync is in flight. The console read its record at
+  // some moment between the request and the answer, so a line pushed in that
+  // window may or may not be in what comes back; it is kept here and added to
+  // the answer unless the answer already has it.
+  private arrivedDuringSync: CommLogEntry[] | null = null;
   private status: ConsoleStatus = DISCONNECTED;
 
   subscribe = (listener: () => void): Unsubscribe => {
@@ -94,8 +99,47 @@ export class ConsoleStore {
     this.notify();
   }
 
+  // beginCommSync marks the moment the panel asked the console for its whole
+  // record of the conversation.
+  //
+  // The window only hears what is pushed to it while it is open. Close it and
+  // the plugin stops delivering events and keeps just the newest of each name,
+  // so a pilot who talked to three controllers with the panel shut came back to
+  // one line. The console has kept every line all along (it is the radio
+  // record), so the page asks for it rather than trusting what it was shown.
+  beginCommSync(): void {
+    this.arrivedDuringSync = [];
+  }
+
+  // finishCommSync replaces the window with the console's record, plus any line
+  // pushed since the request that the record does not already hold.
+  finishCommSync(entries: readonly CommLogEntry[]): void {
+    const since = this.arrivedDuringSync ?? [];
+    this.arrivedDuringSync = null;
+    const next: CommLogEntry[] = [];
+    for (const entry of [...entries, ...since]) {
+      if (entry && !holds(next, entry)) {
+        next.push(entry);
+      }
+    }
+    this.comm = next.length > COMM_LOG_LIMIT ? next.slice(next.length - COMM_LOG_LIMIT) : next;
+    this.notify();
+  }
+
+  // abandonCommSync leaves the window as it was: a resync that failed has
+  // nothing better to offer than what the page already shows.
+  abandonCommSync(): void {
+    this.arrivedDuringSync = null;
+  }
+
   private appendComm(entry: CommLogEntry | null): void {
     if (!entry) {
+      return;
+    }
+    this.arrivedDuringSync?.push(entry);
+    if (holds(this.comm, entry)) {
+      // The plugin replays the newest line every time the window is shown, and
+      // a line the window already has is not a second transmission.
       return;
     }
     const next = [...this.comm, entry];
@@ -108,4 +152,16 @@ export class ConsoleStore {
       listener();
     }
   }
+}
+
+// holds reports a line the log already has. Only a line stamped with when it
+// was said can be recognised again: two unstamped lines with the same words may
+// genuinely be two transmissions.
+function holds(log: readonly CommLogEntry[], entry: CommLogEntry): boolean {
+  if (!entry.at) {
+    return false;
+  }
+  return log.some(
+    (held) => held.at === entry.at && held.kind === entry.kind && held.text === entry.text,
+  );
 }

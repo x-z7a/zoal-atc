@@ -36,6 +36,8 @@ export type CommLogEntry = {
   // The controller position that transmitted ("ground", "tower", …). Empty on a
   // pilot entry, and on an ATC entry from a console that predates the field.
   spokenBy?: string;
+  // The pilot turn this line belongs to.
+  turnId?: string;
 };
 
 export type FlightPlanView = {
