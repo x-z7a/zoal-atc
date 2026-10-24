@@ -4,10 +4,9 @@
 # that cannot find it must fail here rather than quietly produce a plugin with
 # no GUI.
 #
-# There is deliberately no CEF check. Since Skyscript v0.5.0 the library loads
-# the CEF runtime that ships with X-Plane, so no CEF tree is distributed with
-# the library bundle and none is packaged beside the plugin. Requiring one is
-# what used to reject a bundle that was correct.
+# There is deliberately no CEF check. Since Skyscript v0.12.0 the panel is an
+# X-Plane browser window (SDK 4.4, X-Plane 12.4.4+), so there is no CEF tree in
+# the library bundle and none is packaged beside the plugin.
 
 if(NOT ZOAL_ATC_SKYSCRIPT_ROOT)
     message(FATAL_ERROR "ZOAL_ATC_SKYSCRIPT_ROOT is unset. Run `make -C atc skyscript-lib` (or scripts/ensure-skyscript-lib.sh) to provision the pinned Skyscript release.")
