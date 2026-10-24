@@ -25,8 +25,8 @@ said and what the simulator is doing, sends both, and renders what comes back.
    `zoal_atc/gui_toggle`.
 
 The archive contains the `.xpl`, the SkyScript runtime it links, and the in-sim
-panel. It ships no CEF: since SkyScript v0.5.0 the library resolves the CEF
-runtime that comes with X-Plane.
+panel. It ships no browser: since SkyScript v0.12.0 the panel is an X-Plane
+browser window, so **X-Plane 12.4.4 or newer is required**.
 
 Out of the box the plugin talks to the hosted console at `ws://atc.zoal.app/plugin`,
 so a fresh install needs no configuration. To point it at a console you run
@@ -47,7 +47,7 @@ yourself, see *Console endpoint* below.
   command has arrived or the connection drops.
 - **Navdata.** Hash-first sending of scoped `apt.dat` blocks, CIFP, airspace and
   VRP data, answering `navdata_*_request`, plus METAR.
-- **The in-sim panel.** A React + TypeScript app hosted by SkyScript/CEF, with
+- **The in-sim panel.** A React + TypeScript app hosted by SkyScript in an X-Plane browser window, with
   Home, Settings and Debug tabs. The panel never talks to the console directly —
   everything goes through the plugin's socket over the `console.request` /
   `console.event` bridge, so credentials stay out of the page.
@@ -149,7 +149,7 @@ make gate       # core tests + panel build + panel tests — the pre-done gate
 
 | Target | What it does |
 | --- | --- |
-| `make test` | Builds and runs the SDK-free C++ core tests (no SDK, no SkyScript, no CEF) |
+| `make test` | Builds and runs the SDK-free C++ core tests (no SDK, no SkyScript) |
 | `make gui-build` / `make gui-test` | Builds / tests the in-sim panel |
 | `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, and SkyScript into `.cache/skyscript/` |
 | `make install-plugin` | Builds and installs into X-Plane (`LOCAL_XPLANE_PLUGIN_DIR=` to override the path) |

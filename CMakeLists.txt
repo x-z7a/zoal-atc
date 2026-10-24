@@ -119,8 +119,8 @@ if(ZOAL_ATC_BUILD_PLUGIN)
 
     target_include_directories(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_INCLUDE_DIR})
     target_link_libraries(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_LIBRARY})
-    # The Skyscript library ships beside the .xpl. CEF is not ours to find: the
-    # library resolves it against X-Plane's own install.
+    # The Skyscript library ships beside the .xpl. There is no browser runtime
+    # to find: X-Plane renders the panel itself.
     if(APPLE)
         set_target_properties(zoal_atc PROPERTIES
             BUILD_WITH_INSTALL_RPATH TRUE
