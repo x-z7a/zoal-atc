@@ -122,8 +122,8 @@ void raise_due_notifications(bool panel_visible) {
   skyscript_app_show_notification(g_panel, &options);
 }
 
-// Both handlers run synchronously on the X-Plane main thread, inside
-// Skyscript's own flight loop. Neither may wait on the console: the request
+// Both handlers run synchronously on the X-Plane main thread, inside the
+// browser-function call that carries the page's request. Neither may wait on the console: the request
 // returns a receipt, and the answer is posted later on console.event.
 void console_request_handler(const char *, const char *payload,
                              char **out_response, char **out_error,
