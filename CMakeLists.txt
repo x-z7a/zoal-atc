@@ -23,6 +23,17 @@ else()
 endif()
 option(ZOAL_ATC_LOCAL_STT "Transcribe push-to-talk in the plugin with whisper.cpp" ${ZOAL_ATC_LOCAL_STT_DEFAULT})
 set(ZOAL_ATC_WHISPER_SOURCE "" CACHE PATH "whisper.cpp source tree (see scripts/ensure-whisper-src.sh)")
+# Local speech: Kokoro through sherpa-onnx, so each controller position is said
+# in a voice of its own on the COM radio rather than by X-Plane's one voice.
+# Apple silicon first, where sherpa-onnx publishes the static build this links;
+# elsewhere X-Plane's own speech reads the reply, as before.
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
+    set(ZOAL_ATC_LOCAL_TTS_DEFAULT ON)
+else()
+    set(ZOAL_ATC_LOCAL_TTS_DEFAULT OFF)
+endif()
+option(ZOAL_ATC_LOCAL_TTS "Speak controller replies in the plugin with Kokoro" ${ZOAL_ATC_LOCAL_TTS_DEFAULT})
+set(ZOAL_ATC_SHERPA_ONNX "" CACHE PATH "sherpa-onnx static build (see scripts/ensure-sherpa-onnx.sh)")
 set(ATC_XPLANE_SDK "${CMAKE_CURRENT_SOURCE_DIR}/sdk" CACHE PATH "Path to the X-Plane SDK root")
 set(ZOAL_ATC_SKYSCRIPT_ROOT "" CACHE PATH "Path to the Skyscript library bundle (see scripts/ensure-skyscript-lib.sh)")
 
@@ -43,6 +54,7 @@ add_library(zoal_atc_core STATIC
     src/ptt/noop_audio_recorder.cpp
     src/ptt/push_to_talk_controller.cpp
     src/stt/transcript_frame.cpp
+    src/tts/synthesis.cpp
     src/telemetry/telemetry_frame.cpp
     src/telemetry/traffic.cpp
     src/transport/async_websocket_ptt_sink.cpp
@@ -155,6 +167,28 @@ if(ZOAL_ATC_BUILD_PLUGIN)
         target_compile_definitions(zoal_atc PRIVATE ZOAL_ATC_LOCAL_STT=1)
     endif()
 
+    if(ZOAL_ATC_LOCAL_TTS)
+        if(NOT EXISTS "${ZOAL_ATC_SHERPA_ONNX}/include/sherpa-onnx/c-api/c-api.h")
+            message(FATAL_ERROR "sherpa-onnx not found at '${ZOAL_ATC_SHERPA_ONNX}'. "
+                "Run scripts/ensure-sherpa-onnx.sh, or configure with -DZOAL_ATC_LOCAL_TTS=OFF.")
+        endif()
+        # The static libraries in link order: the C API over the core, the
+        # phonemizer and its data, and ONNX Runtime underneath everything.
+        set(_sherpa_libs
+            sherpa-onnx-c-api sherpa-onnx-core sherpa-onnx-fstfar sherpa-onnx-fst
+            sherpa-onnx-kaldifst-core kaldi-decoder-core kaldi-native-fbank-core
+            piper_phonemize espeak-ng ucd onnxruntime ssentencepiece_core kissfft-float)
+        foreach(_lib IN LISTS _sherpa_libs)
+            target_link_libraries(zoal_atc PRIVATE "${ZOAL_ATC_SHERPA_ONNX}/lib/lib${_lib}.a")
+        endforeach()
+        target_include_directories(zoal_atc PRIVATE "${ZOAL_ATC_SHERPA_ONNX}/include")
+        target_sources(zoal_atc PRIVATE src/tts/kokoro_synthesizer.cpp)
+        target_compile_definitions(zoal_atc PRIVATE ZOAL_ATC_LOCAL_TTS=1)
+        if(APPLE)
+            target_link_libraries(zoal_atc PRIVATE "-framework Foundation" "-framework CoreML")
+        endif()
+    endif()
+
     target_include_directories(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_INCLUDE_DIR})
     target_link_libraries(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_LIBRARY})
     # The Skyscript library ships beside the .xpl. There is no browser runtime
@@ -237,4 +271,5 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_gui_bridge_tests tests/gui_bridge_test.cpp)
     zoal_atc_add_test(zoal_atc_gui_notification_tests tests/gui_notification_test.cpp)
     zoal_atc_add_test(zoal_atc_local_stt_tests tests/local_stt_test.cpp)
+    zoal_atc_add_test(zoal_atc_tts_tests tests/tts_test.cpp)
 endif()

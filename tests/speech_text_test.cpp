@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string>
 
+using zoal_atc::transport::radio_text;
 using zoal_atc::transport::speech_text;
 
 namespace {
@@ -85,5 +86,14 @@ int main() {
              "visibility 2.5 altimeter 29.92.", "non-frequency decimals untouched");
 
   std::cout << "speech_text tests passed\n";
+  // A synthesiser that pauses at a comma keeps it, and still reads a
+  // frequency and a heading digit by digit.
+  require_eq(radio_text("Delta 141, turn left heading 270, contact departure 125.350."),
+             "Delta 141, turn left heading two seven zero, contact departure one two five point three five.",
+             "pauses kept for a neural voice");
+  require_eq(radio_text("contact tower;next: 118.800,ready"),
+             "contact tower; next: one one eight point eight, ready",
+             "every pause kept, words still separated");
+
   return 0;
 }

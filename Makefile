@@ -21,6 +21,14 @@ ZOAL_ATC_SKYSCRIPT_ROOT ?= $(ROOT_DIR)/.cache/skyscript/SkyScript-lib
 # archive checksum in scripts/whisper-version.txt.
 WHISPER_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/whisper-version.txt")
 ZOAL_ATC_WHISPER_SOURCE ?= $(ROOT_DIR)/.cache/whisper.cpp-$(WHISPER_VERSION)
+# sherpa-onnx, the runtime the controller's voice is synthesised with. Pinned
+# with its archive and header checksums in scripts/sherpa-onnx-version.txt.
+SHERPA_ONNX_PIN := $(shell cut -d' ' -f1,2 "$(ROOT_DIR)/scripts/sherpa-onnx-version.txt" | tr ' ' '-')
+ZOAL_ATC_SHERPA_ONNX ?= $(ROOT_DIR)/.cache/sherpa-onnx-$(SHERPA_ONNX_PIN)
+# The voices: Kokoro v0.19, eleven speakers, beside the transcription model.
+TTS_MODEL_NAME := kokoro-en-v0_19
+TTS_MODEL_SHA256 := 912804855a04745fa77a30be545b3f9a5d15c4d66db00b88cbcd4921df605ac7
+TTS_MODEL_URL := https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$(TTS_MODEL_NAME).tar.bz2
 # The transcription model, kept with X-Plane's output rather than in the plugin
 # folder, which every install replaces. The checksum is the console's own pin.
 STT_MODEL_NAME := ggml-small.en-q5_1.bin
@@ -70,7 +78,7 @@ else
 CMAKE_GENERATOR :=
 endif
 
-.PHONY: help build test plugin gui-build gui-test gate skyscript-lib whisper-src stt-model \
+.PHONY: help build test plugin gui-build gui-test gate skyscript-lib whisper-src stt-model sherpa-onnx tts-model \
 	install-plugin release-plugin archive-plugin release-all clean
 
 .DEFAULT_GOAL := help
@@ -85,6 +93,7 @@ help:
 	@echo "  gate            the pre-done gate: core tests, panel build + tests"
 	@echo "  install-plugin  build and install into X-Plane (LOCAL_XPLANE_PLUGIN_DIR=)"
 	@echo "  stt-model       install the push-to-talk transcription model beside X-Plane"
+	@echo "  tts-model       install the controller voices beside X-Plane"
 	@echo "  release-plugin  assemble the release tree in dist/zoal-atc"
 	@echo "  archive-plugin  zip release-plugin into dist/"
 	@echo "  release-all     macOS + Windows + Linux merged into one tree (macOS host, needs Docker)"
@@ -145,8 +154,29 @@ stt-model:
 		{ rm -f "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial"; echo "model download failed or did not verify" >&2; exit 1; }; \
 	fi
 
-plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) skyscript-lib whisper-src
-	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)"
+sherpa-onnx:
+ifeq ($(PLATFORM)-$(ARCH),macos-arm64)
+	ZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)" "$(ROOT_DIR)/scripts/ensure-sherpa-onnx.sh"
+endif
+
+# tts-model puts the controller voices where the plugin looks for them. A plugin
+# with no voices has X-Plane read the reply, as it always did.
+tts-model:
+	@mkdir -p "$(STT_MODEL_DIR)"
+	@if [ -f "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME)/model.onnx" ]; then \
+		echo "voices present at $(STT_MODEL_DIR)/$(TTS_MODEL_NAME)"; \
+	else \
+		echo "Downloading $(TTS_MODEL_NAME)..."; \
+		curl -fL -o "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" "$(TTS_MODEL_URL)" && \
+		[ "$$(shasum -a 256 "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" | cut -d' ' -f1)" = "$(TTS_MODEL_SHA256)" ] && \
+		tar -xjf "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" -C "$(STT_MODEL_DIR)" && \
+		rm -f "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" && \
+		echo "voices installed at $(STT_MODEL_DIR)/$(TTS_MODEL_NAME)" || \
+		{ rm -rf "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME)"; echo "voice download failed or did not verify" >&2; exit 1; }; \
+	fi
+
+plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) skyscript-lib whisper-src sherpa-onnx
+	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" -DZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)"
 	cmake --build "$(PLUGIN_BUILD_DIR)" --target zoal_atc
 
 $(SDK_SENTINEL):
