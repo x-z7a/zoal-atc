@@ -1,6 +1,5 @@
 #include "zoal_atc/transport/async_websocket_ptt_sink.hpp"
 
-#include "zoal_atc/transport/base64.hpp"
 #include "zoal_atc/transport/bounded_queue.hpp"
 
 #include <cstdint>
@@ -128,9 +127,11 @@ void AsyncWebSocketPttSink::set_transcriber(stt::Transcriber *transcriber,
   transcription_worker_ = std::thread([this] { run_transcription(); });
 }
 
-// transcribe_or_send hands a finished turn to the transcription thread, or sends
-// its audio when there is no transcriber or the queue is already full.
-void AsyncWebSocketPttSink::transcribe_or_send(const ptt::PttEvent &event) {
+// transcribe hands a finished turn to the transcription thread. A turn that
+// cannot be transcribed — no model, or four already waiting — is cancelled, so
+// the console closes the turn audio_start opened rather than waiting on it: it
+// does not transcribe, and there is nobody else to send the recording to.
+void AsyncWebSocketPttSink::transcribe(const ptt::PttEvent &event) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (transcriber_ != nullptr && !stopping_ &&
@@ -140,8 +141,7 @@ void AsyncWebSocketPttSink::transcribe_or_send(const ptt::PttEvent &event) {
       return;
     }
   }
-  send_audio_chunk(event);
-  send_audio_end(event);
+  send_audio_cancel(event.sequence);
 }
 
 // run_transcription is the recogniser's own thread. It is separate from the
@@ -181,10 +181,9 @@ void AsyncWebSocketPttSink::run_transcription() {
       send_text(stt::build_transcript_frame(session_id_, event.sequence,
                                             event.duration_ms, transcript));
     } else {
-      // Heard nothing usable here, so the console hears the recording and
-      // transcribes it itself.
-      send_audio_chunk(event);
-      send_audio_end(event);
+      // Nothing usable was heard, and the console cannot do better: close the
+      // turn.
+      send_audio_cancel(event.sequence);
     }
   }
 }
@@ -215,7 +214,7 @@ void AsyncWebSocketPttSink::process_event(const ptt::PttEvent &event) {
     send_audio_start(event);
     break;
   case ptt::PttEventType::TransmissionReady:
-    transcribe_or_send(event);
+    transcribe(event);
     break;
   case ptt::PttEventType::Cancelled:
     send_audio_cancel(event.sequence);
@@ -250,31 +249,6 @@ void AsyncWebSocketPttSink::send_audio_start(const ptt::PttEvent &event) {
             << ",\"frequency_hz\":" << event.frequency_hz;
   }
   message << "}";
-  send_text(message.str());
-}
-
-void AsyncWebSocketPttSink::send_audio_chunk(const ptt::PttEvent &event) {
-  if (event.audio.pcm16.empty()) {
-    return;
-  }
-  const auto *bytes =
-      reinterpret_cast<const std::uint8_t *>(event.audio.pcm16.data());
-  const std::size_t byte_count =
-      event.audio.pcm16.size() * sizeof(std::int16_t);
-  const std::string payload = base64_encode(bytes, byte_count);
-
-  std::ostringstream message;
-  message << "{\"type\":\"audio_chunk\",\"session_id\":\""
-          << json_escape(session_id_) << "\",\"sequence\":" << event.sequence
-          << ",\"pcm16_base64\":\"" << payload << "\"}";
-  send_text(message.str());
-}
-
-void AsyncWebSocketPttSink::send_audio_end(const ptt::PttEvent &event) {
-  std::ostringstream message;
-  message << "{\"type\":\"audio_end\",\"session_id\":\""
-          << json_escape(session_id_) << "\",\"sequence\":" << event.sequence
-          << ",\"duration_ms\":" << event.duration_ms << "}";
   send_text(message.str());
 }
 

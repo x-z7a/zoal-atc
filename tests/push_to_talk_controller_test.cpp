@@ -223,7 +223,9 @@ void base64_encodes_binary_audio_payloads() {
   require(encoded == "AQIDBA==", "base64 should encode binary audio");
 }
 
-void async_websocket_sink_sends_bounded_audio_turn() {
+// The recording never leaves the aircraft: a turn opens with audio_start and,
+// with nothing to transcribe it, is cancelled rather than uploaded.
+void async_websocket_sink_never_uploads_audio() {
   CapturingTextMessageSink transport;
   AsyncWebSocketPttSink sink(transport, "unit-test");
 
@@ -244,18 +246,15 @@ void async_websocket_sink_sends_bounded_audio_turn() {
   sink.stop();
 
   const auto messages = transport.snapshot();
-  require(messages.size() == 3, "async sink should send start, chunk, end");
+  require(messages.size() == 2, "async sink should send start and cancel");
   require(messages[0].find("\"type\":\"audio_start\"") != std::string::npos,
-          "first async message should start audio");
-  require(messages[1].find("\"type\":\"audio_chunk\"") != std::string::npos,
-          "second async message should contain audio chunk");
-  require(messages[1].find("\"pcm16_base64\":\"AQACAA==\"") !=
-              std::string::npos,
-          "audio chunk should contain little-endian pcm16 base64");
-  require(messages[2].find("\"type\":\"audio_end\"") != std::string::npos,
-          "third async message should end audio");
-  require(messages[2].find("\"duration_ms\":600") != std::string::npos,
-          "audio end should include duration");
+          "first async message should start the turn");
+  require(messages[1].find("\"type\":\"audio_cancel\"") != std::string::npos,
+          "second async message should cancel it");
+  for (const auto &message : messages) {
+    require(message.find("pcm16_base64") == std::string::npos,
+            "no audio is ever sent");
+  }
 }
 
 void async_websocket_sink_sends_raw_text() {
@@ -282,7 +281,7 @@ int main() {
   recorder_start_failure_faults_until_reset();
   recorder_stop_failure_faults();
   base64_encodes_binary_audio_payloads();
-  async_websocket_sink_sends_bounded_audio_turn();
+  async_websocket_sink_never_uploads_audio();
   async_websocket_sink_sends_raw_text();
 
   std::cout << "zoal_atc_tests: all tests passed\n";

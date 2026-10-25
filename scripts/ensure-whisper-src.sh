@@ -12,7 +12,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pin_file="${repo_root}/scripts/whisper-version.txt"
-read -r version checksum < "${pin_file}"
+read -r version checksum < <(tr -d '\r' < "${pin_file}")
 root="${ZOAL_ATC_WHISPER_SOURCE:-${repo_root}/.cache/whisper.cpp-${version}}"
 
 if [ -f "${root}/include/whisper.h" ]; then

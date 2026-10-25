@@ -117,6 +117,14 @@ jobs:
         shell: bash
         run: make test
 
+      # The models ship in every package: ~530MB fetched once per pin rather
+      # than on every tag.
+      - name: Cache models
+        uses: actions/cache@v4
+        with:
+          path: .cache/models
+          key: models-${{ hashFiles('scripts/ensure-models.sh') }}
+
       - name: Package release
         shell: bash
         env:

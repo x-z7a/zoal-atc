@@ -137,9 +137,9 @@ void transcribed_turn_is_sent_as_words() {
           "the console's prompt is used");
 }
 
-// A transcriber that cannot produce a transcript costs the turn nothing: its
-// audio goes to the console, as it always did.
-void failed_transcription_sends_the_audio() {
+// A transcriber that cannot produce a transcript closes the turn: the
+// console does not transcribe, so the recording has nowhere to go.
+void failed_transcription_cancels_the_turn() {
   Capture capture;
   FakeTranscriber transcriber;
   transcriber.fail = true;
@@ -149,16 +149,16 @@ void failed_transcription_sends_the_audio() {
     sink.set_transcriber(&transcriber, &prompt);
     sink.publish(started(4));
     sink.publish(ready(4));
-    const auto sent = wait_for(capture, 3);
-    require(sent.size() == 3, "audio_start, chunk and end");
-    require(contains(sent[1], "\"type\":\"audio_chunk\""), "the audio is sent");
-    require(contains(sent[2], "\"type\":\"audio_end\""), "and the turn closed");
+    const auto sent = wait_for(capture, 2);
+    require(sent.size() == 2, "audio_start and the cancel");
+    require(contains(sent[1], "\"type\":\"audio_cancel\""), "the turn is cancelled");
+    require(contains(sent[1], "\"sequence\":4"), "the same turn");
   }
 }
 
-// Without a transcriber nothing changes, and a start with no radio read sends
-// the shipped audio_start exactly.
-void without_a_transcriber_the_audio_goes_as_before() {
+// Without a transcriber the turn is cancelled too, and a start with no radio
+// read sends the shipped audio_start exactly.
+void without_a_transcriber_the_turn_is_cancelled() {
   Capture capture;
   {
     AsyncWebSocketPttSink sink(capture, "session-1");
@@ -166,9 +166,10 @@ void without_a_transcriber_the_audio_goes_as_before() {
     start.frequency_hz = 0;
     sink.publish(start);
     sink.publish(ready(5));
-    const auto sent = wait_for(capture, 3);
-    require(sent.size() == 3, "audio_start, chunk and end");
+    const auto sent = wait_for(capture, 2);
+    require(sent.size() == 2, "audio_start and the cancel");
     require(!contains(sent[0], "frequency_hz"), "no radio, no field");
+    require(contains(sent[1], "\"type\":\"audio_cancel\""), "the turn is cancelled");
   }
 }
 
@@ -197,8 +198,8 @@ void the_console_prompt_is_read() {
 
 int main() {
   transcribed_turn_is_sent_as_words();
-  failed_transcription_sends_the_audio();
-  without_a_transcriber_the_audio_goes_as_before();
+  failed_transcription_cancels_the_turn();
+  without_a_transcriber_the_turn_is_cancelled();
   silence_is_reported_as_silence();
   the_console_prompt_is_read();
   std::cout << "local stt tests passed\n";

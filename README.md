@@ -122,73 +122,52 @@ otherwise anyone who can reach it can stream audio in and hear the ATC replies.
 Note that over `ws://` the token crosses the network in cleartext: it stops
 opportunistic scanning of an open endpoint, but it is not a substitute for TLS.
 
-## Audio transport
+## Push-to-talk
 
-The plugin is a WebSocket client. It reconnects lazily when a PTT event needs to
-be sent and emits a bounded audio turn:
+The plugin is a WebSocket client. A push-to-talk turn is heard in the cockpit
+and only its words leave the aircraft:
 
-- `audio_start`: `session_id`, `sequence`, `sample_rate_hz`, `channels`, `format`
-- `audio_chunk`: base64-encoded `pcm_s16le`
-- `audio_end`: `duration_ms`
-- `audio_cancel`: short/faulted PTT turn; the console discards the stream
+- `audio_start`: `session_id`, `sequence`, `sample_rate_hz`, `channels`,
+  `format`, and `transmit_com` and `frequency_hz` read from the radio the instant
+  the button goes down, so the console knows which channel the pilot keyed
+- `transcript`: the words, their timing, the confidence and the model
+- `audio_cancel`: a short or faulted turn, or one that could not be transcribed
 
-One chunk is sent when PTT is released. JSON/base64 serialization and WebSocket
-I/O run on an async worker so the X-Plane command and flight-loop callbacks only
-enqueue PTT events. The protocol already accepts multiple chunks, so live
-chunking can land without changing the console API.
+whisper.cpp (pinned in `scripts/whisper-version.txt`) transcribes on its own
+thread — Metal on macOS, the CPU elsewhere — so the X-Plane command and
+flight-loop callbacks only enqueue the turn. The console sends an `stt_context`
+with the prompt to transcribe with (callsign, stations, places, runways, route),
+which is what turns "C21" back into "AC21". The hello declares `local_stt` once
+the model has loaded. The recording never leaves the aircraft: a turn that
+cannot be transcribed is cancelled, because the console does not transcribe.
 
-`audio_start` also carries `transmit_com` and `frequency_hz`, read from the
-radio the instant the button goes down, so the console knows exactly which
-channel the pilot keyed rather than guessing from telemetry.
+## Controller voices
 
-### Transcribing in the cockpit
+Every reply is said by Kokoro v0.19 through sherpa-onnx (pinned in
+`scripts/sherpa-onnx-version.txt`), in the voice of the position sending it.
+The console names a `voice` on every `atc_reply`, stable per station, so Ground
+and Tower sound like two people; the plugin maps it onto Kokoro's eleven
+speakers. Synthesis starts the moment a reply arrives, on its own thread, a
+sentence at a time, so the first sentence of a long clearance is ready while
+the rest is still being made. Each sentence is shaped into what a VHF receiver
+passes, 300 to 3,000 Hz with a little compression, and plays on the audio bus of
+the COM radio tuned to the channel the controller said it on (`frequency_hz`),
+so Tower on COM2 comes out of COM2 and that radio's volume knob controls it.
+With both radios on the channel, or neither, it is the one the pilot has
+selected.
 
-On macOS the plugin is built with whisper.cpp (the release and settings the
-console uses, pinned in `scripts/whisper-version.txt`) and transcribes
-push-to-talk itself, on its own thread with Metal: about a fifth of a second per
-transmission once warm. It then sends a `transcript` frame — the words, their
-timing, the confidence and the model — in place of `audio_chunk`/`audio_end`,
-and the recording never leaves the aircraft. The console sends an
-`stt_context` with the prompt to transcribe with (callsign, stations, places,
-runways, route), which is what turns "C21" back into "AC21".
+Nothing else in the cockpit speaks. The `speak_ack` is sent when the audio has
+actually played, with `ok:true`; a reply whose voices are not loaded, whose
+synthesis failed or took more than twelve seconds to start, or which the radio
+would not play is acknowledged `ok:false`, so the console knows the pilot did
+not hear it.
 
-It needs the model, which lives beside X-Plane rather than in the plugin folder
-that every install replaces:
+## Models
 
-```sh
-make stt-model    # X-Plane/Output/zoal-atc/models/ggml-small.en-q5_1.bin, checksum-verified
-```
-
-The hello declares `local_stt` only when the model is there. Without it, or for
-any turn the recogniser cannot produce, the audio goes to the console and is
-transcribed there exactly as before.
-
-### Controller voices
-
-On Apple silicon the plugin is also built with Kokoro v0.19 through sherpa-onnx
-(a static build pinned in `scripts/sherpa-onnx-version.txt`) and says each reply
-itself, on the COM1 radio, rather than through X-Plane's one speech voice. The
-console names a `voice` on every `atc_reply`, stable per station, so Ground and
-Tower sound like two people; the plugin maps it onto Kokoro's eleven speakers.
-Synthesis starts the moment a reply arrives, on its own thread, a sentence at a
-time: the first sentence of a long clearance is ready in about three seconds and
-the rest are ready before it ends. Each sentence is shaped into what a VHF
-receiver passes, 300 to 3,000 Hz with a little compression, and plays on
-the audio bus of the COM radio tuned to the channel the controller said it on
-(the console names it as `frequency_hz`), so Tower on COM2 comes out of COM2
-and that radio's own volume knob controls it. With both radios on the channel,
-or neither, it is the one the pilot has selected. The
-`speak_ack` waits for the real length of the audio rather than an estimate.
-
-The voices live beside the transcription model:
-
-```sh
-make tts-model    # X-Plane/Output/zoal-atc/models/kokoro-en-v0_19, checksum-verified (~330 MB)
-```
-
-Without them, if a sentence cannot be synthesised before any of it was said, or
-if the first sentence is not ready within twelve seconds, X-Plane reads the
-reply as before.
+Both models ship inside the plugin folder, under `models/` — about 530MB, of
+which Kokoro's voices are 350MB. `make install-plugin` and the release targets
+fetch them once into `.cache/models` (checksums pinned in
+`scripts/ensure-models.sh`) and copy them in; `make models` fetches them alone.
 
 ## Build
 
@@ -206,8 +185,7 @@ make gate       # core tests + panel build + panel tests — the pre-done gate
 | `make gui-build` / `make gui-test` | Builds / tests the in-sim panel |
 | `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, SkyScript into `.cache/skyscript/`, whisper.cpp into `.cache/whisper.cpp-*`, and sherpa-onnx into `.cache/sherpa-onnx-*` |
 | `make install-plugin` | Builds and installs into X-Plane (`LOCAL_XPLANE_PLUGIN_DIR=` to override the path) |
-| `make stt-model` | Installs the push-to-talk transcription model beside X-Plane (`STT_MODEL_DIR=` to override) |
-| `make tts-model` | Installs the controller voices beside X-Plane (`STT_MODEL_DIR=` to override) |
+| `make models` | Fetches the transcription model and the controller voices into `.cache/models` |
 | `make release-plugin` / `make archive-plugin` | Assembles / zips the release tree in `dist/` |
 | `make release-all` | macOS + Windows + Linux merged into one tree (macOS host, needs Docker and `brew install mingw-w64`) |
 

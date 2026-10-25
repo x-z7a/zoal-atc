@@ -19,7 +19,7 @@ struct TranscriptWord {
 
 // Transcript is what the recogniser heard in one push-to-talk turn: evidence,
 // never interpretation. ok is false when it could not be produced at all, and
-// the turn's audio is then sent to the console to transcribe instead.
+// the turn is then cancelled.
 struct Transcript {
   bool ok = false;
   std::string error;
@@ -69,7 +69,7 @@ private:
 };
 
 // build_transcript_frame is the transcript frame that closes a turn the
-// aircraft transcribed itself, in place of audio_chunk and audio_end. Text is
+// aircraft transcribed, after its audio_start. Text is
 // last, because it is the free text.
 std::string build_transcript_frame(const std::string &session_id,
                                    std::uint64_t sequence,
