@@ -17,6 +17,11 @@ namespace zoal_atc::transport {
 // individual digit words for standard ATC cadence.
 std::string speech_text(std::string_view reply);
 
+// radio_text is the same reading for a synthesiser that pauses at a comma
+// rather than saying it: frequencies and headings digit by digit, and the
+// punctuation kept, because it is where a controller breathes.
+std::string radio_text(std::string_view reply);
+
 }  // namespace zoal_atc::transport
 
 #endif  // ZOAL_ATC_TRANSPORT_SPEECH_TEXT_HPP
