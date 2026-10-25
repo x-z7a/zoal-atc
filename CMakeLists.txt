@@ -12,28 +12,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ZOAL_ATC_BUILD_TESTS "Build SDK-free unit tests" ON)
 option(ZOAL_ATC_BUILD_PLUGIN "Build the X-Plane plugin module" OFF)
-# Local transcription: whisper.cpp built into the plugin, so push-to-talk is
-# transcribed in the cockpit and the words go to the console in place of the
-# recording. macOS first, where Metal makes it a fraction of a second; elsewhere
-# the plugin sends the audio and the console transcribes, as before.
-if(APPLE)
-    set(ZOAL_ATC_LOCAL_STT_DEFAULT ON)
-else()
-    set(ZOAL_ATC_LOCAL_STT_DEFAULT OFF)
-endif()
-option(ZOAL_ATC_LOCAL_STT "Transcribe push-to-talk in the plugin with whisper.cpp" ${ZOAL_ATC_LOCAL_STT_DEFAULT})
+# The plugin hears the pilot with whisper.cpp and speaks the controllers with
+# Kokoro through sherpa-onnx, on every platform. Neither is optional: the
+# console no longer transcribes audio, and nothing else in the cockpit speaks,
+# so a plugin without either is one the pilot cannot use.
 set(ZOAL_ATC_WHISPER_SOURCE "" CACHE PATH "whisper.cpp source tree (see scripts/ensure-whisper-src.sh)")
-# Local speech: Kokoro through sherpa-onnx, so each controller position is said
-# in a voice of its own on the COM radio rather than by X-Plane's one voice.
-# Apple silicon first, where sherpa-onnx publishes the static build this links;
-# elsewhere X-Plane's own speech reads the reply, as before.
-if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
-    set(ZOAL_ATC_LOCAL_TTS_DEFAULT ON)
-else()
-    set(ZOAL_ATC_LOCAL_TTS_DEFAULT OFF)
-endif()
-option(ZOAL_ATC_LOCAL_TTS "Speak controller replies in the plugin with Kokoro" ${ZOAL_ATC_LOCAL_TTS_DEFAULT})
-set(ZOAL_ATC_SHERPA_ONNX "" CACHE PATH "sherpa-onnx static build (see scripts/ensure-sherpa-onnx.sh)")
+set(ZOAL_ATC_SHERPA_ONNX "" CACHE PATH "sherpa-onnx build (see scripts/ensure-sherpa-onnx.sh)")
 set(ATC_XPLANE_SDK "${CMAKE_CURRENT_SOURCE_DIR}/sdk" CACHE PATH "Path to the X-Plane SDK root")
 set(ZOAL_ATC_SKYSCRIPT_ROOT "" CACHE PATH "Path to the Skyscript library bundle (see scripts/ensure-skyscript-lib.sh)")
 
@@ -141,39 +125,42 @@ if(ZOAL_ATC_BUILD_PLUGIN)
 
     target_link_libraries(zoal_atc PRIVATE ${ATC_XPLANE_LIBRARIES})
 
-    if(ZOAL_ATC_LOCAL_STT)
-        if(NOT EXISTS "${ZOAL_ATC_WHISPER_SOURCE}/include/whisper.h")
-            message(FATAL_ERROR "whisper.cpp source not found at '${ZOAL_ATC_WHISPER_SOURCE}'. "
-                "Run scripts/ensure-whisper-src.sh, or configure with -DZOAL_ATC_LOCAL_STT=OFF.")
-        endif()
-        # The same release and build the console's transcriber uses: static, no
-        # examples, and on macOS Metal with its shaders embedded so nothing but
-        # the .xpl has to ship. Portable rather than tuned to the build machine,
-        # because the plugin runs on other people's.
-        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-        set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-        set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-        set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
-        set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
-        if(APPLE)
-            set(GGML_METAL ON CACHE BOOL "" FORCE)
-            set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "" FORCE)
-            set(GGML_BLAS ON CACHE BOOL "" FORCE)
-            set(GGML_BLAS_VENDOR "Apple" CACHE STRING "" FORCE)
-        endif()
-        add_subdirectory("${ZOAL_ATC_WHISPER_SOURCE}" "${CMAKE_BINARY_DIR}/whisper" EXCLUDE_FROM_ALL)
-        target_sources(zoal_atc PRIVATE src/stt/whisper_transcriber.cpp)
-        target_link_libraries(zoal_atc PRIVATE whisper)
-        target_compile_definitions(zoal_atc PRIVATE ZOAL_ATC_LOCAL_STT=1)
+    if(NOT EXISTS "${ZOAL_ATC_WHISPER_SOURCE}/include/whisper.h")
+        message(FATAL_ERROR "whisper.cpp source not found at '${ZOAL_ATC_WHISPER_SOURCE}'. "
+            "Run scripts/ensure-whisper-src.sh.")
     endif()
+    # The same whisper.cpp release the console's transcriber used: static, no
+    # examples, portable rather than tuned to the build machine because the
+    # plugin runs on other people's. On macOS Metal with its shaders embedded;
+    # elsewhere the CPU, without OpenMP so there is no runtime to ship with it.
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+    set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+    if(APPLE)
+        set(GGML_METAL ON CACHE BOOL "" FORCE)
+        set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "" FORCE)
+        set(GGML_BLAS ON CACHE BOOL "" FORCE)
+        set(GGML_BLAS_VENDOR "Apple" CACHE STRING "" FORCE)
+    else()
+        set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+    endif()
+    # Static, but linked into a shared module, so position-independent.
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+    add_subdirectory("${ZOAL_ATC_WHISPER_SOURCE}" "${CMAKE_BINARY_DIR}/whisper" EXCLUDE_FROM_ALL)
+    target_sources(zoal_atc PRIVATE src/stt/whisper_transcriber.cpp)
+    target_link_libraries(zoal_atc PRIVATE whisper)
 
-    if(ZOAL_ATC_LOCAL_TTS)
-        if(NOT EXISTS "${ZOAL_ATC_SHERPA_ONNX}/include/sherpa-onnx/c-api/c-api.h")
-            message(FATAL_ERROR "sherpa-onnx not found at '${ZOAL_ATC_SHERPA_ONNX}'. "
-                "Run scripts/ensure-sherpa-onnx.sh, or configure with -DZOAL_ATC_LOCAL_TTS=OFF.")
-        endif()
-        # The static libraries in link order: the C API over the core, the
-        # phonemizer and its data, and ONNX Runtime underneath everything.
+    if(NOT EXISTS "${ZOAL_ATC_SHERPA_ONNX}/include/sherpa-onnx/c-api/c-api.h")
+        message(FATAL_ERROR "sherpa-onnx not found at '${ZOAL_ATC_SHERPA_ONNX}'. "
+            "Run scripts/ensure-sherpa-onnx.sh.")
+    endif()
+    target_include_directories(zoal_atc PRIVATE "${ZOAL_ATC_SHERPA_ONNX}/include")
+    target_sources(zoal_atc PRIVATE src/tts/kokoro_synthesizer.cpp)
+    if(APPLE)
+        # Static, in link order: the C API over the core, the phonemizer and
+        # its data, and ONNX Runtime underneath everything.
         set(_sherpa_libs
             sherpa-onnx-c-api sherpa-onnx-core sherpa-onnx-fstfar sherpa-onnx-fst
             sherpa-onnx-kaldifst-core kaldi-decoder-core kaldi-native-fbank-core
@@ -181,13 +168,31 @@ if(ZOAL_ATC_BUILD_PLUGIN)
         foreach(_lib IN LISTS _sherpa_libs)
             target_link_libraries(zoal_atc PRIVATE "${ZOAL_ATC_SHERPA_ONNX}/lib/lib${_lib}.a")
         endforeach()
-        target_include_directories(zoal_atc PRIVATE "${ZOAL_ATC_SHERPA_ONNX}/include")
-        target_sources(zoal_atc PRIVATE src/tts/kokoro_synthesizer.cpp)
-        target_compile_definitions(zoal_atc PRIVATE ZOAL_ATC_LOCAL_TTS=1)
-        if(APPLE)
-            target_link_libraries(zoal_atc PRIVATE "-framework Foundation" "-framework CoreML")
-        endif()
+        target_link_libraries(zoal_atc PRIVATE "-framework Foundation" "-framework CoreML")
+        set(ZOAL_ATC_SHERPA_RUNTIME "")
+    elseif(WIN32)
+        # The published MSVC build of the C API, which is a C ABI MinGW can
+        # call. Its runtime is statically linked, so the DLLs need nothing but
+        # each other, and they ship beside the .xpl where Windows finds them.
+        target_link_libraries(zoal_atc PRIVATE "${ZOAL_ATC_SHERPA_ONNX}/lib/sherpa-onnx-c-api.lib")
+        set(ZOAL_ATC_SHERPA_RUNTIME
+            "${ZOAL_ATC_SHERPA_ONNX}/lib/sherpa-onnx-c-api.dll"
+            "${ZOAL_ATC_SHERPA_ONNX}/lib/onnxruntime.dll"
+            "${ZOAL_ATC_SHERPA_ONNX}/lib/onnxruntime_providers_shared.dll")
+    else()
+        # The published shared build; it finds ONNX Runtime by $ORIGIN, as the
+        # .xpl finds it.
+        target_link_libraries(zoal_atc PRIVATE "${ZOAL_ATC_SHERPA_ONNX}/lib/libsherpa-onnx-c-api.so")
+        set(ZOAL_ATC_SHERPA_RUNTIME
+            "${ZOAL_ATC_SHERPA_ONNX}/lib/libsherpa-onnx-c-api.so"
+            "${ZOAL_ATC_SHERPA_ONNX}/lib/libonnxruntime.so")
     endif()
+    # The runtime libraries land beside the built .xpl, where packaging picks
+    # them up with it.
+    foreach(_runtime IN LISTS ZOAL_ATC_SHERPA_RUNTIME)
+        add_custom_command(TARGET zoal_atc POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_runtime}" "$<TARGET_FILE_DIR:zoal_atc>")
+    endforeach()
 
     target_include_directories(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_INCLUDE_DIR})
     target_link_libraries(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_LIBRARY})

@@ -70,9 +70,7 @@ std::string expand_word(const std::string &word, bool is_heading_value) {
 
 }  // namespace
 
-namespace {
-
-std::string normalize(std::string_view reply, bool keep_pauses) {
+std::string radio_text(std::string_view reply) {
   std::string out;
   out.reserve(reply.size());
   std::string word;
@@ -99,11 +97,11 @@ std::string normalize(std::string_view reply, bool keep_pauses) {
   };
 
   for (const char c : reply) {
-    // Punctuation the synth would read as a word ("comma", "semicolon") becomes
-    // a word gap so adjacent words stay separated without being run together.
+    // A pause is kept where it was written, with a gap after it so the words
+    // on either side are never run together.
     if (c == ',' || c == ';' || c == ':') {
       flush_word();
-      if (keep_pauses && !out.empty()) {
+      if (!out.empty()) {
         out.push_back(c);
       }
       pending_space = !out.empty();
@@ -120,10 +118,5 @@ std::string normalize(std::string_view reply, bool keep_pauses) {
   return out;
 }
 
-}  // namespace
-
-std::string speech_text(std::string_view reply) { return normalize(reply, false); }
-
-std::string radio_text(std::string_view reply) { return normalize(reply, true); }
 
 }  // namespace zoal_atc::transport
