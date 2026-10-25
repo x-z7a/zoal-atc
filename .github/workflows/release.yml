@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: make test
 
-      # The models ship in every package: ~530MB fetched once per pin rather
+      # The models ship in every package: ~560MB fetched once per pin rather
       # than on every tag.
       - name: Cache models
         uses: actions/cache@v4

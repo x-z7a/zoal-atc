@@ -101,7 +101,7 @@ std::unique_ptr<zoal_atc::stt::Transcriber> g_transcriber;
 std::unique_ptr<zoal_atc::tts::SynthesisQueue> g_synthesis;
 // Both models ship inside the plugin folder, under models/.
 constexpr const char *kSttModelName = "ggml-small.en-q5_1.bin";
-constexpr const char *kTtsModelName = "kokoro-en-v0_19";
+constexpr const char *kTtsModelName = "kokoro-multi-lang-v1_0";
 // How long a reply waits for its first sentence before it is given up as not
 // delivered. Synthesis is a second or two; this is for a model that hung.
 constexpr std::uint64_t kSynthesisDeadlineMs = 12000;

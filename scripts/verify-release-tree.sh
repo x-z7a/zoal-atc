@@ -77,10 +77,12 @@ for runtime in "${speech_runtime[@]+"${speech_runtime[@]}"}"; do
 done
 # What the plugin hears and speaks with. Without them it can do neither.
 require_file "models/ggml-small.en-q5_1.bin"
-require_file "models/kokoro-en-v0_19/model.onnx"
-require_file "models/kokoro-en-v0_19/voices.bin"
-require_file "models/kokoro-en-v0_19/tokens.txt"
-require_dir "models/kokoro-en-v0_19/espeak-ng-data"
+require_file "models/kokoro-multi-lang-v1_0/model.onnx"
+require_file "models/kokoro-multi-lang-v1_0/voices.bin"
+require_file "models/kokoro-multi-lang-v1_0/tokens.txt"
+require_dir "models/kokoro-multi-lang-v1_0/espeak-ng-data"
+require_file "models/kokoro-multi-lang-v1_0/lexicon-us-en.txt"
+require_file "models/kokoro-multi-lang-v1_0/lexicon-gb-en.txt"
 # The panel is a real page, not a placeholder directory. Since phase 24 the
 # bundler emits exactly these two files from one entry point, so the manifest is
 # the whole panel rather than most of it: the old layout also shipped bridge.js,
