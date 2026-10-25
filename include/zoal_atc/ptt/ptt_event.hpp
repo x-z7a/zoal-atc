@@ -41,6 +41,11 @@ struct PttEvent {
   PttIgnoreReason ignore_reason = PttIgnoreReason::ReleaseWithoutBegin;
   AudioBuffer audio;
   std::string message;
+  // The radio the pilot keyed, read when the button went down: 1 or 2, and the
+  // frequency in Hz. Zero when it was not read, and the console then stamps the
+  // freshest telemetry it holds instead.
+  int transmit_com = 0;
+  std::uint64_t frequency_hz = 0;
 };
 
 class PttEventSink {

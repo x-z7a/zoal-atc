@@ -12,6 +12,17 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ZOAL_ATC_BUILD_TESTS "Build SDK-free unit tests" ON)
 option(ZOAL_ATC_BUILD_PLUGIN "Build the X-Plane plugin module" OFF)
+# Local transcription: whisper.cpp built into the plugin, so push-to-talk is
+# transcribed in the cockpit and the words go to the console in place of the
+# recording. macOS first, where Metal makes it a fraction of a second; elsewhere
+# the plugin sends the audio and the console transcribes, as before.
+if(APPLE)
+    set(ZOAL_ATC_LOCAL_STT_DEFAULT ON)
+else()
+    set(ZOAL_ATC_LOCAL_STT_DEFAULT OFF)
+endif()
+option(ZOAL_ATC_LOCAL_STT "Transcribe push-to-talk in the plugin with whisper.cpp" ${ZOAL_ATC_LOCAL_STT_DEFAULT})
+set(ZOAL_ATC_WHISPER_SOURCE "" CACHE PATH "whisper.cpp source tree (see scripts/ensure-whisper-src.sh)")
 set(ATC_XPLANE_SDK "${CMAKE_CURRENT_SOURCE_DIR}/sdk" CACHE PATH "Path to the X-Plane SDK root")
 set(ZOAL_ATC_SKYSCRIPT_ROOT "" CACHE PATH "Path to the Skyscript library bundle (see scripts/ensure-skyscript-lib.sh)")
 
@@ -31,6 +42,7 @@ add_library(zoal_atc_core STATIC
     src/navdata/navdata_service.cpp
     src/ptt/noop_audio_recorder.cpp
     src/ptt/push_to_talk_controller.cpp
+    src/stt/transcript_frame.cpp
     src/telemetry/telemetry_frame.cpp
     src/telemetry/traffic.cpp
     src/transport/async_websocket_ptt_sink.cpp
@@ -117,6 +129,32 @@ if(ZOAL_ATC_BUILD_PLUGIN)
 
     target_link_libraries(zoal_atc PRIVATE ${ATC_XPLANE_LIBRARIES})
 
+    if(ZOAL_ATC_LOCAL_STT)
+        if(NOT EXISTS "${ZOAL_ATC_WHISPER_SOURCE}/include/whisper.h")
+            message(FATAL_ERROR "whisper.cpp source not found at '${ZOAL_ATC_WHISPER_SOURCE}'. "
+                "Run scripts/ensure-whisper-src.sh, or configure with -DZOAL_ATC_LOCAL_STT=OFF.")
+        endif()
+        # The same release and build the console's transcriber uses: static, no
+        # examples, and on macOS Metal with its shaders embedded so nothing but
+        # the .xpl has to ship. Portable rather than tuned to the build machine,
+        # because the plugin runs on other people's.
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+        set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+        set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+        set(GGML_NATIVE OFF CACHE BOOL "" FORCE)
+        if(APPLE)
+            set(GGML_METAL ON CACHE BOOL "" FORCE)
+            set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "" FORCE)
+            set(GGML_BLAS ON CACHE BOOL "" FORCE)
+            set(GGML_BLAS_VENDOR "Apple" CACHE STRING "" FORCE)
+        endif()
+        add_subdirectory("${ZOAL_ATC_WHISPER_SOURCE}" "${CMAKE_BINARY_DIR}/whisper" EXCLUDE_FROM_ALL)
+        target_sources(zoal_atc PRIVATE src/stt/whisper_transcriber.cpp)
+        target_link_libraries(zoal_atc PRIVATE whisper)
+        target_compile_definitions(zoal_atc PRIVATE ZOAL_ATC_LOCAL_STT=1)
+    endif()
+
     target_include_directories(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_INCLUDE_DIR})
     target_link_libraries(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_LIBRARY})
     # The Skyscript library ships beside the .xpl. There is no browser runtime
@@ -198,4 +236,5 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_gui_frames_tests tests/gui_frames_test.cpp)
     zoal_atc_add_test(zoal_atc_gui_bridge_tests tests/gui_bridge_test.cpp)
     zoal_atc_add_test(zoal_atc_gui_notification_tests tests/gui_notification_test.cpp)
+    zoal_atc_add_test(zoal_atc_local_stt_tests tests/local_stt_test.cpp)
 endif()
