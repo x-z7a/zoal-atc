@@ -88,6 +88,23 @@ int main() {
   require(tts::speaker_for(12, 11, 5) == 0, "a larger pool wraps");
   require(tts::speaker_for(3, 0, 5) == 0, "no speakers at all is speaker zero");
 
+  // A reply comes out of the radio tuned to the channel it was said on.
+  {
+    const std::uint64_t ground = 121'900'000, tower = 118'700'000, atis = 135'000'000;
+    require(tts::receiving_com(ground, ground, atis, 2) == 1,
+            "Ground on COM1 is heard on COM1 while COM2 is selected");
+    require(tts::receiving_com(tower, ground, tower, 1) == 2,
+            "Tower on COM2 is heard on COM2 while COM1 is selected");
+    require(tts::receiving_com(tower, tower, tower, 2) == 2,
+            "both tuned there: the selected one");
+    require(tts::receiving_com(tower, tower, tower, 0) == 1,
+            "both tuned there, selection unknown: COM1");
+    require(tts::receiving_com(ground, tower, atis, 2) == 2,
+            "retuned since: the radio being listened to");
+    require(tts::receiving_com(0, ground, tower, 2) == 2,
+            "an older console names no channel: the selected radio");
+  }
+
   // A clearance is said a sentence at a time, and the short pieces go with
   // their neighbours rather than being said alone.
   {

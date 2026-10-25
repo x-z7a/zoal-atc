@@ -151,6 +151,9 @@ struct ATCReplyMessage {
   // voice is the console's voice for the station sending this, numbered from
   // one; zero is the default.
   std::uint64_t voice = 0;
+  // frequency_hz is the channel the controller said it on; zero from a
+  // console that does not name one.
+  std::uint64_t frequency_hz = 0;
   std::uint64_t queued_at_ms = 0;
   // speech is the reply being synthesised in that voice, started the moment
   // it arrived so it is ready by the time the frequency is free. Empty when
@@ -193,6 +196,9 @@ struct ActiveSpeech {
   std::size_t next_sentence = 0;
   std::uint64_t sentence_ends_at_ms = 0;
   FMOD_CHANNEL *channel = nullptr;
+  // The radio it comes out of, chosen as the first sentence starts so one
+  // transmission is never split between two receivers.
+  XPLMAudioBus bus = xplm_AudioRadioCom1;
 };
 
 SpeechCallState g_last_speech_call;
@@ -639,6 +645,7 @@ std::optional<ATCReplyMessage> parse_atc_reply(const std::string &payload) {
   reply.speak = json_bool_field(payload, "speak").value_or(false);
   reply.generation = json_uint_field(payload, "generation").value_or(0);
   reply.voice = json_uint_field(payload, "voice").value_or(0);
+  reply.frequency_hz = json_uint_field(payload, "frequency_hz").value_or(0);
   return reply;
 }
 
@@ -790,16 +797,17 @@ void speak_with_xplane(ATCReplyMessage reply, SpeechDeliveryInfo speech,
   log_line(speech_log.str());
 }
 
-// play_sentence puts one synthesised sentence on the COM1 radio. The buffer
+// play_sentence puts one synthesised sentence on a COM radio. The buffer
 // is the mixer's until it says it is finished with it, so the audio is kept
 // alive by a reference the completion callback lets go of.
-FMOD_CHANNEL *play_sentence(std::shared_ptr<const zoal_atc::tts::Audio> audio) {
+FMOD_CHANNEL *play_sentence(std::shared_ptr<const zoal_atc::tts::Audio> audio,
+                            XPLMAudioBus bus) {
   auto *held = new std::shared_ptr<const zoal_atc::tts::Audio>(audio);
   FMOD_CHANNEL *channel = XPLMPlayPCMOnBus(
       const_cast<std::int16_t *>(audio->pcm.data()),
       static_cast<std::uint32_t>(audio->pcm.size() * sizeof(std::int16_t)),
       FMOD_SOUND_FORMAT_PCM16, audio->sample_rate_hz, 1, 0,
-      xplm_AudioRadioCom1,
+      bus,
       [](void *refcon, FMOD_RESULT) {
         delete static_cast<std::shared_ptr<const zoal_atc::tts::Audio> *>(refcon);
       },
@@ -808,6 +816,20 @@ FMOD_CHANNEL *play_sentence(std::shared_ptr<const zoal_atc::tts::Audio> audio) {
     delete held;
   }
   return channel;
+}
+
+// Defined with the datarefs below: what each COM is tuned to, in Hz, and
+// which one the pilot has selected (0 when unknown).
+std::uint64_t tuned_com_hz(int com);
+int selected_com();
+
+// receiving_bus is the audio bus of the COM radio tuned to the channel a
+// reply was said on, read now, on the main thread, from the radios as they
+// are set.
+XPLMAudioBus receiving_bus(std::uint64_t channel_hz) {
+  const int com = zoal_atc::tts::receiving_com(
+      channel_hz, tuned_com_hz(1), tuned_com_hz(2), selected_com());
+  return com == 2 ? xplm_AudioRadioCom2 : xplm_AudioRadioCom1;
 }
 
 // advance_synthesized_speech moves the reply on the air along: the next
@@ -824,7 +846,10 @@ void advance_synthesized_speech(std::uint64_t now) {
   }
   const auto &speech = *active.reply.speech;
   if (auto audio = zoal_atc::tts::SynthesisQueue::shared(speech, active.next_sentence)) {
-    FMOD_CHANNEL *channel = play_sentence(audio);
+    if (active.next_sentence == 0) {
+      active.bus = receiving_bus(active.reply.frequency_hz);
+    }
+    FMOD_CHANNEL *channel = play_sentence(audio, active.bus);
     if (channel == nullptr && active.next_sentence == 0) {
       log_line("speech gen=" + std::to_string(active.reply.generation) +
                " could not be played on the radio; X-Plane reads it");
@@ -1289,6 +1314,15 @@ int active_com_from_selection(int selection) {
   default:
     return 0;
   }
+}
+
+std::uint64_t tuned_com_hz(int com) {
+  const int khz = read_i(com == 2 ? g_datarefs.com2_khz : g_datarefs.com1_khz);
+  return khz > 0 ? static_cast<std::uint64_t>(khz) * 1000U : 0U;
+}
+
+int selected_com() {
+  return active_com_from_selection(read_i(g_datarefs.audio_com_selection));
 }
 
 XPLMDataRef radio_tune_dataref(const zoal_atc::telemetry::RadioTuneCommand &cmd) {

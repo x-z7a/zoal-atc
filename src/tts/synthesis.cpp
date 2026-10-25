@@ -87,6 +87,23 @@ int speaker_for(std::uint64_t voice, int speakers, int default_speaker) {
   return static_cast<int>((voice - 1) % static_cast<std::uint64_t>(speakers));
 }
 
+int receiving_com(std::uint64_t channel_hz, std::uint64_t com1_hz,
+                  std::uint64_t com2_hz, int selected_com) {
+  const int selected = selected_com == 2 ? 2 : 1;
+  if (channel_hz == 0) {
+    return selected;
+  }
+  const bool on1 = com1_hz == channel_hz;
+  const bool on2 = com2_hz == channel_hz;
+  if (on1 && !on2) {
+    return 1;
+  }
+  if (on2 && !on1) {
+    return 2;
+  }
+  return selected;
+}
+
 std::vector<std::string> sentences(const std::string &text) {
   std::vector<std::string> out;
   std::string current;
