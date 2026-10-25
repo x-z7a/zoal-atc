@@ -19,7 +19,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pin_file="${repo_root}/scripts/sherpa-onnx-version.txt"
 
-pin() { awk -v key="$1" '$1 == key { print $2 }' "${pin_file}"; }
+pin() { tr -d '\r' < "${pin_file}" | awk -v key="$1" '$1 == key { print $2 }'; }
 
 version="$(pin version)"
 header_sum="$(pin header)"

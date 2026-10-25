@@ -10,7 +10,7 @@ skyscript_root="${ZOAL_ATC_SKYSCRIPT_ROOT:-${repo_root}/.cache/skyscript/SkyScri
 whisper_version="$(cut -d' ' -f1 "${repo_root}/scripts/whisper-version.txt")"
 whisper_source="${ZOAL_ATC_WHISPER_SOURCE:-${repo_root}/.cache/whisper.cpp-${whisper_version}}"
 sherpa_flavour=win-x64-shared-MT-Release-lib
-sherpa_version="$(awk '$1 == "version" { print $2 }' "${repo_root}/scripts/sherpa-onnx-version.txt")"
+sherpa_version="$(tr -d '\r' < "${repo_root}/scripts/sherpa-onnx-version.txt" | awk '$1 == "version" { print $2 }')"
 sherpa_root="${repo_root}/.cache/sherpa-onnx-${sherpa_version}-${sherpa_flavour}"
 
 if [ "$(uname -s)" != "Darwin" ]; then

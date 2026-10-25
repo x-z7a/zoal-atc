@@ -24,7 +24,7 @@ ZOAL_ATC_WHISPER_SOURCE ?= $(ROOT_DIR)/.cache/whisper.cpp-$(WHISPER_VERSION)
 # sherpa-onnx, the runtime the controllers' voices are synthesised with, in
 # the flavour this machine builds. Pinned with its archive and header checksums
 # in scripts/sherpa-onnx-version.txt.
-SHERPA_ONNX_VERSION := $(shell awk '$$1 == "version" { print $$2 }' "$(ROOT_DIR)/scripts/sherpa-onnx-version.txt")
+SHERPA_ONNX_VERSION := $(shell tr -d '\r' < "$(ROOT_DIR)/scripts/sherpa-onnx-version.txt" | awk '$$1 == "version" { print $$2 }')
 # The two models every plugin ships with, inside its own folder. Pinned in
 # scripts/ensure-models.sh and downloaded once.
 ZOAL_ATC_MODELS ?= $(ROOT_DIR)/.cache/models
