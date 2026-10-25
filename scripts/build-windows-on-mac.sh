@@ -7,6 +7,11 @@ plugin_build_dir="${repo_root}/build-plugin-windows"
 sdk_dir="${repo_root}/sdk"
 miniaudio_dir="${repo_root}/vendor/miniaudio"
 skyscript_root="${ZOAL_ATC_SKYSCRIPT_ROOT:-${repo_root}/.cache/skyscript/SkyScript-lib}"
+whisper_version="$(cut -d' ' -f1 "${repo_root}/scripts/whisper-version.txt")"
+whisper_source="${ZOAL_ATC_WHISPER_SOURCE:-${repo_root}/.cache/whisper.cpp-${whisper_version}}"
+sherpa_flavour=win-x64-shared-MT-Release-lib
+sherpa_version="$(tr -d '\r' < "${repo_root}/scripts/sherpa-onnx-version.txt" | awk '$1 == "version" { print $2 }')"
+sherpa_root="${repo_root}/.cache/sherpa-onnx-${sherpa_version}-${sherpa_flavour}"
 
 if [ "$(uname -s)" != "Darwin" ]; then
   echo "build-windows-on-mac.sh must be run on macOS" >&2
@@ -43,12 +48,17 @@ ZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
   ZOAL_ATC_SKYSCRIPT_PLATFORM=win_x64 \
   "${repo_root}/scripts/ensure-skyscript-lib.sh"
 
+echo "==> Ensuring whisper.cpp and the Windows speech runtime"
+ZOAL_ATC_WHISPER_SOURCE="${whisper_source}" "${repo_root}/scripts/ensure-whisper-src.sh"
+ZOAL_ATC_SHERPA_ONNX="${sherpa_root}" "${repo_root}/scripts/ensure-sherpa-onnx.sh" "${sherpa_flavour}"
+
 echo "==> Cross-building the Windows x64 X-Plane plugin"
 cmake \
   -S "${repo_root}" \
   -B "${plugin_build_dir}" \
   -DCMAKE_SYSTEM_NAME=Windows \
   -DCMAKE_SYSTEM_PROCESSOR=x86_64 \
+  -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
   -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
   -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres \
   -DCMAKE_BUILD_TYPE=Release \
@@ -56,7 +66,9 @@ cmake \
   -DZOAL_ATC_BUILD_TESTS=OFF \
   -DATC_XPLANE_SDK="${sdk_dir}" \
   -DATC_MINIAUDIO_INCLUDE_DIR="${miniaudio_dir}" \
-  -DZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}"
+  -DZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
+  -DZOAL_ATC_WHISPER_SOURCE="${whisper_source}" \
+  -DZOAL_ATC_SHERPA_ONNX="${sherpa_root}"
 cmake --build "${plugin_build_dir}" --parallel --target zoal_atc
 
 plugin_output="${plugin_build_dir}/zoal_atc.xpl"
@@ -70,5 +82,10 @@ echo "==> Collecting Windows artifacts"
 cmake -E rm -rf "${output_dir}"
 cmake -E make_directory "${output_dir}/win_x64"
 cmake -E copy "${plugin_output}" "${output_dir}/win_x64/zoal-atc.xpl"
+# The speech runtime the build left beside the .xpl; package-release.sh picks
+# it up from there.
+for runtime in sherpa-onnx-c-api.dll onnxruntime.dll onnxruntime_providers_shared.dll; do
+  cmake -E copy "${plugin_build_dir}/${runtime}" "${output_dir}/win_x64/${runtime}"
+done
 
 echo "Windows x64 build complete: ${output_dir}"

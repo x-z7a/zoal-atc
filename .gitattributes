@@ -1,0 +1,6 @@
+# Scripts and the pins they read run under bash on every platform, Windows
+# included, where a checkout would otherwise give them CRLF: a pinned checksum
+# then ends in a carriage return and never matches the archive it pins.
+*.sh text eol=lf
+scripts/*.txt text eol=lf
+Makefile text eol=lf

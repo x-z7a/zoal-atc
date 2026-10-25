@@ -11,9 +11,10 @@ set -euo pipefail
 #
 # CEF is deliberately absent: since Skyscript v0.5.0 the library resolves it
 # against X-Plane's own install, so a release that shipped one would be sending
-# ~200MB that is never loaded. The Whisper model is absent for the same class of
-# reason - the console is hosted, and nothing under the plugin folder ever read
-# the model.
+# ~200MB that is never loaded.
+#
+# The models are present on every platform: the plugin hears the pilot with
+# whisper and speaks the controllers with Kokoro, and nothing else does either.
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
   echo "usage: verify-release-tree.sh <release-dir> [platform-dir]" >&2
@@ -35,10 +36,17 @@ if [ -z "${platform_dir}" ]; then
   esac
 fi
 
+speech_runtime=()
 case "${platform_dir}" in
   mac_x64) skyscript_library="libSkyScriptLib.dylib" ;;
-  lin_x64) skyscript_library="libSkyScriptLib.so" ;;
-  win_x64) skyscript_library="SkyScriptLib.dll" ;;
+  lin_x64)
+    skyscript_library="libSkyScriptLib.so"
+    speech_runtime=(libsherpa-onnx-c-api.so libonnxruntime.so)
+    ;;
+  win_x64)
+    skyscript_library="SkyScriptLib.dll"
+    speech_runtime=(sherpa-onnx-c-api.dll onnxruntime.dll onnxruntime_providers_shared.dll)
+    ;;
   *)
     echo "Unsupported platform directory: ${platform_dir}" >&2
     exit 1
@@ -64,6 +72,15 @@ require_dir() {
 # --- the manifest ------------------------------------------------------------
 require_file "${platform_dir}/zoal-atc.xpl"
 require_file "${platform_dir}/${skyscript_library}"
+for runtime in "${speech_runtime[@]+"${speech_runtime[@]}"}"; do
+  require_file "${platform_dir}/${runtime}"
+done
+# What the plugin hears and speaks with. Without them it can do neither.
+require_file "models/ggml-small.en-q5_1.bin"
+require_file "models/kokoro-en-v0_19/model.onnx"
+require_file "models/kokoro-en-v0_19/voices.bin"
+require_file "models/kokoro-en-v0_19/tokens.txt"
+require_dir "models/kokoro-en-v0_19/espeak-ng-data"
 # The panel is a real page, not a placeholder directory. Since phase 24 the
 # bundler emits exactly these two files from one entry point, so the manifest is
 # the whole panel rather than most of it: the old layout also shipped bridge.js,
@@ -83,6 +100,7 @@ require_file "assets/icons/x-circle.svg"
 # having turned the sound off.
 require_file "assets/notify.pcm"
 require_file "licenses/skyscript/LICENSE"
+require_file "licenses/THIRD-PARTY.txt"
 
 # --- things that must NOT be there -------------------------------------------
 if [ -e "${release_dir}/${platform_dir}/cef" ] ||

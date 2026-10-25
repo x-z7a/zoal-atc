@@ -4,19 +4,42 @@ set -euo pipefail
 # Provision sherpa-onnx, which the plugin speaks the controller's words with.
 #
 # The plugin says each transmission in the voice of the position sending it,
-# synthesised with Kokoro on the pilot's own machine. sherpa-onnx is the
-# runtime: a static build of it and of ONNX Runtime, linked into the .xpl so
-# nothing else has to ship. Its release archive carries the libraries but not
-# the C header, so the header is fetched from the same tag. Both are pinned by
-# checksum in scripts/sherpa-onnx-version.txt, and both are downloads rather
-# than ours to commit, so they live in .cache beside whisper.cpp.
+# synthesised with Kokoro on the pilot's own machine, on every platform: there
+# is no other voice to fall back to. sherpa-onnx is the runtime. On macOS it is
+# a static build linked into the .xpl; on Windows and Linux it is the published
+# shared build of its C API and ONNX Runtime, shipped beside the .xpl, because
+# the static builds there are MSVC's and not linkable from MinGW. The release
+# archives carry libraries but not the C header, so the header is fetched from
+# the same tag. Everything is pinned by checksum in
+# scripts/sherpa-onnx-version.txt.
+#
+# Usage: ensure-sherpa-onnx.sh [flavour]   (default: this machine's)
+# Prints nothing on success when already present.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pin_file="${repo_root}/scripts/sherpa-onnx-version.txt"
-read -r version flavour archive_sum header_sum < "${pin_file}"
+
+pin() { tr -d '\r' < "${pin_file}" | awk -v key="$1" '$1 == key { print $2 }'; }
+
+version="$(pin version)"
+header_sum="$(pin header)"
+flavour="${1:-${ZOAL_ATC_SHERPA_FLAVOUR:-}}"
+if [ -z "${flavour}" ]; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) flavour=osx-arm64-static-lib ;;
+    Linux-x86_64) flavour=linux-x64-shared-lib ;;
+    MINGW*|MSYS*|CYGWIN*) flavour=win-x64-shared-MT-Release-lib ;;
+    *) echo "no pinned sherpa-onnx build for $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+  esac
+fi
+archive_sum="$(pin "${flavour}")"
+if [ -z "${archive_sum}" ]; then
+  echo "no pin for sherpa-onnx flavour ${flavour} in ${pin_file}" >&2
+  exit 1
+fi
 root="${ZOAL_ATC_SHERPA_ONNX:-${repo_root}/.cache/sherpa-onnx-${version}-${flavour}}"
 
-if [ -f "${root}/include/sherpa-onnx/c-api/c-api.h" ] && [ -f "${root}/lib/libsherpa-onnx-c-api.a" ]; then
+if [ -f "${root}/include/sherpa-onnx/c-api/c-api.h" ] && [ -d "${root}/lib" ]; then
   exit 0
 fi
 
@@ -53,4 +76,4 @@ mv "${work}/c-api.h" "${work}/src/${name}/include/sherpa-onnx/c-api/c-api.h"
 mkdir -p "$(dirname "${root}")"
 rm -rf "${root}"
 mv "${work}/src/${name}" "${root}"
-echo "sherpa-onnx ${version} at ${root}"
+echo "sherpa-onnx ${version} ${flavour} at ${root}"

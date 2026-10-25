@@ -40,13 +40,14 @@ public:
   void stop();
 
   // How many finished turns may wait to be transcribed. One more than this and
-  // the turn's audio is sent to the console to transcribe instead: a pilot
-  // keying up faster than the recogniser keeps up is still heard.
+  // the turn is cancelled: a pilot keying up five times before the first is
+  // transcribed has said something else since.
   static constexpr std::size_t kMaxQueuedTranscriptions = 4;
 
   // set_transcriber makes this sink transcribe finished turns in the cockpit
-  // and send the words in place of the audio. Both must outlive the sink. A
-  // turn the transcriber cannot produce is sent as audio, as it always was.
+  // and send the words. Both must outlive the sink. A turn the transcriber
+  // cannot produce, or any turn without one, is cancelled: the recording
+  // never leaves the aircraft.
   void set_transcriber(stt::Transcriber *transcriber,
                        const stt::PromptHolder *prompt);
 
@@ -71,10 +72,8 @@ private:
   void process_event(const ptt::PttEvent &event);
   void send_text(const std::string &payload);
   void send_audio_start(const ptt::PttEvent &event);
-  void send_audio_chunk(const ptt::PttEvent &event);
-  void send_audio_end(const ptt::PttEvent &event);
   void send_audio_cancel(std::uint64_t sequence);
-  void transcribe_or_send(const ptt::PttEvent &event);
+  void transcribe(const ptt::PttEvent &event);
   void run_transcription();
 
   TextMessageSink &sink_;

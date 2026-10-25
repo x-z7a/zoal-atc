@@ -21,21 +21,13 @@ ZOAL_ATC_SKYSCRIPT_ROOT ?= $(ROOT_DIR)/.cache/skyscript/SkyScript-lib
 # archive checksum in scripts/whisper-version.txt.
 WHISPER_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/whisper-version.txt")
 ZOAL_ATC_WHISPER_SOURCE ?= $(ROOT_DIR)/.cache/whisper.cpp-$(WHISPER_VERSION)
-# sherpa-onnx, the runtime the controller's voice is synthesised with. Pinned
-# with its archive and header checksums in scripts/sherpa-onnx-version.txt.
-SHERPA_ONNX_PIN := $(shell cut -d' ' -f1,2 "$(ROOT_DIR)/scripts/sherpa-onnx-version.txt" | tr ' ' '-')
-ZOAL_ATC_SHERPA_ONNX ?= $(ROOT_DIR)/.cache/sherpa-onnx-$(SHERPA_ONNX_PIN)
-# The voices: Kokoro v0.19, eleven speakers, beside the transcription model.
-TTS_MODEL_NAME := kokoro-en-v0_19
-TTS_MODEL_SHA256 := 912804855a04745fa77a30be545b3f9a5d15c4d66db00b88cbcd4921df605ac7
-TTS_MODEL_URL := https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/$(TTS_MODEL_NAME).tar.bz2
-# The transcription model, kept with X-Plane's output rather than in the plugin
-# folder, which every install replaces. The checksum is the console's own pin.
-STT_MODEL_NAME := ggml-small.en-q5_1.bin
-STT_MODEL_SHA256 := bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30
-STT_MODEL_URL := https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$(STT_MODEL_NAME)
-XPLANE_ROOT ?= $(abspath $(LOCAL_XPLANE_PLUGIN_DIR)/../../..)
-STT_MODEL_DIR ?= $(XPLANE_ROOT)/Output/zoal-atc/models
+# sherpa-onnx, the runtime the controllers' voices are synthesised with, in
+# the flavour this machine builds. Pinned with its archive and header checksums
+# in scripts/sherpa-onnx-version.txt.
+SHERPA_ONNX_VERSION := $(shell tr -d '\r' < "$(ROOT_DIR)/scripts/sherpa-onnx-version.txt" | awk '$$1 == "version" { print $$2 }')
+# The two models every plugin ships with, inside its own folder. Pinned in
+# scripts/ensure-models.sh and downloaded once.
+ZOAL_ATC_MODELS ?= $(ROOT_DIR)/.cache/models
 LOCAL_XPLANE_PLUGIN_DIR ?= $(HOME)/X-Plane 12/Resources/plugins/zoal-atc
 
 SDK_VERSION ?= 430
@@ -68,6 +60,15 @@ else
 	ARCH := x64
 endif
 
+ifeq ($(PLATFORM),macos)
+SHERPA_ONNX_FLAVOUR ?= osx-arm64-static-lib
+else ifeq ($(PLATFORM),windows)
+SHERPA_ONNX_FLAVOUR ?= win-x64-shared-MT-Release-lib
+else
+SHERPA_ONNX_FLAVOUR ?= linux-x64-shared-lib
+endif
+ZOAL_ATC_SHERPA_ONNX ?= $(ROOT_DIR)/.cache/sherpa-onnx-$(SHERPA_ONNX_VERSION)-$(SHERPA_ONNX_FLAVOUR)
+
 # On Windows the default CMake generator is Visual Studio (multi-config), which
 # ignores -DCMAKE_BUILD_TYPE and places outputs in a <Config>/ subdirectory.
 # Force MinGW Makefiles (a single-config generator) so the plugin lands at
@@ -78,7 +79,7 @@ else
 CMAKE_GENERATOR :=
 endif
 
-.PHONY: help build test plugin gui-build gui-test gate skyscript-lib whisper-src stt-model sherpa-onnx tts-model \
+.PHONY: help build test plugin gui-build gui-test gate skyscript-lib whisper-src sherpa-onnx models \
 	install-plugin release-plugin archive-plugin release-all clean
 
 .DEFAULT_GOAL := help
@@ -92,8 +93,7 @@ help:
 	@echo "  gui-test        run the in-sim panel's unit tests"
 	@echo "  gate            the pre-done gate: core tests, panel build + tests"
 	@echo "  install-plugin  build and install into X-Plane (LOCAL_XPLANE_PLUGIN_DIR=)"
-	@echo "  stt-model       install the push-to-talk transcription model beside X-Plane"
-	@echo "  tts-model       install the controller voices beside X-Plane"
+	@echo "  models          fetch the transcription model and the controller voices"
 	@echo "  release-plugin  assemble the release tree in dist/zoal-atc"
 	@echo "  archive-plugin  zip release-plugin into dist/"
 	@echo "  release-all     macOS + Windows + Linux merged into one tree (macOS host, needs Docker)"
@@ -138,42 +138,13 @@ skyscript-lib:
 whisper-src:
 	ZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" "$(ROOT_DIR)/scripts/ensure-whisper-src.sh"
 
-# stt-model puts the transcription model where the plugin looks for it. A plugin
-# with no model sends the audio and the console transcribes, as it always did.
-stt-model:
-	@mkdir -p "$(STT_MODEL_DIR)"
-	@if [ -f "$(STT_MODEL_DIR)/$(STT_MODEL_NAME)" ] && \
-		[ "$$(shasum -a 256 "$(STT_MODEL_DIR)/$(STT_MODEL_NAME)" | cut -d' ' -f1)" = "$(STT_MODEL_SHA256)" ]; then \
-		echo "model present at $(STT_MODEL_DIR)/$(STT_MODEL_NAME)"; \
-	else \
-		echo "Downloading $(STT_MODEL_NAME)..."; \
-		curl -fL -o "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial" "$(STT_MODEL_URL)" && \
-		[ "$$(shasum -a 256 "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial" | cut -d' ' -f1)" = "$(STT_MODEL_SHA256)" ] && \
-		mv "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial" "$(STT_MODEL_DIR)/$(STT_MODEL_NAME)" && \
-		echo "model installed at $(STT_MODEL_DIR)/$(STT_MODEL_NAME)" || \
-		{ rm -f "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial"; echo "model download failed or did not verify" >&2; exit 1; }; \
-	fi
-
 sherpa-onnx:
-ifeq ($(PLATFORM)-$(ARCH),macos-arm64)
-	ZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)" "$(ROOT_DIR)/scripts/ensure-sherpa-onnx.sh"
-endif
+	ZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)" "$(ROOT_DIR)/scripts/ensure-sherpa-onnx.sh" $(SHERPA_ONNX_FLAVOUR)
 
-# tts-model puts the controller voices where the plugin looks for them. A plugin
-# with no voices has X-Plane read the reply, as it always did.
-tts-model:
-	@mkdir -p "$(STT_MODEL_DIR)"
-	@if [ -f "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME)/model.onnx" ]; then \
-		echo "voices present at $(STT_MODEL_DIR)/$(TTS_MODEL_NAME)"; \
-	else \
-		echo "Downloading $(TTS_MODEL_NAME)..."; \
-		curl -fL -o "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" "$(TTS_MODEL_URL)" && \
-		[ "$$(shasum -a 256 "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" | cut -d' ' -f1)" = "$(TTS_MODEL_SHA256)" ] && \
-		tar -xjf "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" -C "$(STT_MODEL_DIR)" && \
-		rm -f "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" && \
-		echo "voices installed at $(STT_MODEL_DIR)/$(TTS_MODEL_NAME)" || \
-		{ rm -rf "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME).tar.bz2.partial" "$(STT_MODEL_DIR)/$(TTS_MODEL_NAME)"; echo "voice download failed or did not verify" >&2; exit 1; }; \
-	fi
+# models fetches what ships inside the plugin folder: whisper's model, which
+# hears the pilot, and Kokoro's voices, which are the controllers.
+models:
+	ZOAL_ATC_MODELS="$(ZOAL_ATC_MODELS)" "$(ROOT_DIR)/scripts/ensure-models.sh"
 
 plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) skyscript-lib whisper-src sherpa-onnx
 	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" -DZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)"
@@ -196,7 +167,7 @@ $(MINIAUDIO_SENTINEL):
 # assembled and verified by the same two scripts that guard the shipped
 # artifact, so what you fly is what ships.
 
-install-plugin: plugin gui-build
+install-plugin: plugin gui-build models
 	@plugins_dir="$$(dirname "$(LOCAL_XPLANE_PLUGIN_DIR)")"; \
 	if [ ! -d "$$plugins_dir" ]; then \
 		echo "no X-Plane plugins folder at $$plugins_dir" >&2; \
@@ -204,13 +175,13 @@ install-plugin: plugin gui-build
 		exit 1; \
 	fi
 	rm -rf "$(LOCAL_XPLANE_PLUGIN_DIR)"
-	./scripts/package-release.sh "$(PLUGIN_PLATFORM_DIR)" "$(PLUGIN_XPL)" "$(LOCAL_XPLANE_PLUGIN_DIR)"
+	ZOAL_ATC_MODELS="$(ZOAL_ATC_MODELS)" ./scripts/package-release.sh "$(PLUGIN_PLATFORM_DIR)" "$(PLUGIN_XPL)" "$(LOCAL_XPLANE_PLUGIN_DIR)"
 	./scripts/verify-release-tree.sh "$(LOCAL_XPLANE_PLUGIN_DIR)" "$(PLUGIN_PLATFORM_DIR)"
 	@echo "installed into $(LOCAL_XPLANE_PLUGIN_DIR)"
 
-release-plugin: plugin gui-build
+release-plugin: plugin gui-build models
 	rm -rf "$(RELEASE_DIR)"
-	./scripts/package-release.sh "$(PLUGIN_PLATFORM_DIR)" "$(PLUGIN_XPL)" "$(RELEASE_DIR)"
+	ZOAL_ATC_MODELS="$(ZOAL_ATC_MODELS)" ./scripts/package-release.sh "$(PLUGIN_PLATFORM_DIR)" "$(PLUGIN_XPL)" "$(RELEASE_DIR)"
 	./scripts/verify-release-tree.sh "$(RELEASE_DIR)" "$(PLUGIN_PLATFORM_DIR)"
 
 # cmake -E tar is the archiver because cmake is already a hard dependency on all
