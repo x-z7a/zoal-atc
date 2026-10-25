@@ -30,29 +30,30 @@ KokoroSynthesizer::KokoroSynthesizer(std::string model_dir)
     : model_dir_(std::move(model_dir)) {}
 
 KokoroSynthesizer::~KokoroSynthesizer() {
-  if (tts_ != nullptr) {
-    SherpaOnnxDestroyOfflineTts(tts_);
+  for (Engine *engine : {&american_, &british_}) {
+    if (engine->tts != nullptr) {
+      SherpaOnnxDestroyOfflineTts(engine->tts);
+    }
   }
 }
 
 bool KokoroSynthesizer::installed(const std::string &model_dir) {
   const std::filesystem::path dir(model_dir);
   return file(dir / "model.onnx") && file(dir / "voices.bin") &&
-         file(dir / "tokens.txt") && file(dir / "espeak-ng-data");
+         file(dir / "tokens.txt") && file(dir / "espeak-ng-data") &&
+         file(dir / "lexicon-us-en.txt") && file(dir / "lexicon-gb-en.txt");
 }
 
-bool KokoroSynthesizer::load_locked() {
-  if (tts_ != nullptr) {
-    return true;
-  }
-  if (load_failed_) {
-    return false;
+const SherpaOnnxOfflineTts *KokoroSynthesizer::load_locked(Engine &engine) {
+  if (engine.tts != nullptr || engine.load_failed) {
+    return engine.tts;
   }
   const std::filesystem::path dir(model_dir_);
   const std::string model = (dir / "model.onnx").string();
   const std::string voices = (dir / "voices.bin").string();
   const std::string tokens = (dir / "tokens.txt").string();
   const std::string data = (dir / "espeak-ng-data").string();
+  const std::string lexicon = (dir / engine.lexicon).string();
 
   SherpaOnnxOfflineTtsConfig config;
   std::memset(&config, 0, sizeof(config));
@@ -60,18 +61,21 @@ bool KokoroSynthesizer::load_locked() {
   config.model.kokoro.voices = voices.c_str();
   config.model.kokoro.tokens = tokens.c_str();
   config.model.kokoro.data_dir = data.c_str();
+  config.model.kokoro.lexicon = lexicon.c_str();
+  config.model.kokoro.lang = engine.lang;
   config.model.kokoro.length_scale = 1.0f;
   config.model.num_threads = kThreads;
   config.model.provider = "cpu";
   config.max_num_sentences = 1;
-  tts_ = SherpaOnnxCreateOfflineTts(&config);
-  load_failed_ = tts_ == nullptr;
-  return tts_ != nullptr;
+  engine.tts = SherpaOnnxCreateOfflineTts(&config);
+  engine.load_failed = engine.tts == nullptr;
+  return engine.tts;
 }
 
 void KokoroSynthesizer::warm() {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (!load_locked()) {
+  const SherpaOnnxOfflineTts *tts = load_locked(american_);
+  if (tts == nullptr) {
     return;
   }
   // The first generation pays for graph setup; say one word nobody hears.
@@ -81,7 +85,7 @@ void KokoroSynthesizer::warm() {
   gen.speed = kSpeed;
   gen.silence_scale = kSilenceScale;
   if (const auto *audio = SherpaOnnxOfflineTtsGenerateWithConfig(
-          tts_, "Roger.", &gen, nullptr, nullptr)) {
+          tts, "Roger.", &gen, nullptr, nullptr)) {
     SherpaOnnxDestroyOfflineTtsGeneratedAudio(audio);
   }
 }
@@ -89,17 +93,22 @@ void KokoroSynthesizer::warm() {
 Audio KokoroSynthesizer::synthesize(const std::string &text, int speaker) {
   std::lock_guard<std::mutex> lock(mutex_);
   Audio out;
-  if (text.empty() || !load_locked()) {
+  if (text.empty()) {
     return out;
   }
-  const int count = SherpaOnnxOfflineTtsNumSpeakers(tts_);
+  const int sid = std::clamp(speaker, 0, kSpeakers - 1);
+  const SherpaOnnxOfflineTts *tts =
+      load_locked(sid >= kFirstBritish ? british_ : american_);
+  if (tts == nullptr) {
+    return out;
+  }
   SherpaOnnxGenerationConfig gen;
   std::memset(&gen, 0, sizeof(gen));
-  gen.sid = count > 0 ? std::clamp(speaker, 0, count - 1) : 0;
+  gen.sid = sid;
   gen.speed = kSpeed;
   gen.silence_scale = kSilenceScale;
   const SherpaOnnxGeneratedAudio *audio = SherpaOnnxOfflineTtsGenerateWithConfig(
-      tts_, text.c_str(), &gen, nullptr, nullptr);
+      tts, text.c_str(), &gen, nullptr, nullptr);
   if (audio == nullptr) {
     return out;
   }

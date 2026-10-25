@@ -143,11 +143,13 @@ cannot be transcribed is cancelled, because the console does not transcribe.
 
 ## Controller voices
 
-Every reply is said by Kokoro v0.19 through sherpa-onnx (pinned in
+Every reply is said by Kokoro v1.0 through sherpa-onnx (pinned in
 `scripts/sherpa-onnx-version.txt`), in the voice of the position sending it.
 The console names a `voice` on every `atc_reply`, stable per station, so Ground
-and Tower sound like two people; the plugin maps it onto Kokoro's eleven
-speakers. Synthesis starts the moment a reply arrives, on its own thread, a
+and Tower sound like two people. Voice n is Kokoro speaker n-1 among its
+English voices: 1-19 American, 21-28 British (20, `am_santa`, is never used).
+The console chooses from the accent of the field's country, and a British voice
+is spoken with the British lexicon, loaded only the first time one is needed. Synthesis starts the moment a reply arrives, on its own thread, a
 sentence at a time, so the first sentence of a long clearance is ready while
 the rest is still being made. Each sentence is shaped into what a VHF receiver
 passes, 300 to 3,000 Hz with a little compression, and plays on the audio bus of
@@ -164,8 +166,8 @@ not hear it.
 
 ## Models
 
-Both models ship inside the plugin folder, under `models/` — about 530MB, of
-which Kokoro's voices are 350MB. `make install-plugin` and the release targets
+Both models ship inside the plugin folder, under `models/` — about 560MB, of
+which Kokoro's model, voices and English lexicons are 380MB. `make install-plugin` and the release targets
 fetch them once into `.cache/models` (checksums pinned in
 `scripts/ensure-models.sh`) and copy them in; `make models` fetches them alone.
 

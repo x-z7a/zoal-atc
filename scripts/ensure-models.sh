@@ -15,8 +15,8 @@ stt_name=ggml-small.en-q5_1.bin
 stt_sum=bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30
 stt_url="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${stt_name}"
 
-tts_name=kokoro-en-v0_19
-tts_sum=912804855a04745fa77a30be545b3f9a5d15c4d66db00b88cbcd4921df605ac7
+tts_name=kokoro-multi-lang-v1_0
+tts_sum=c5f7e2d2caf082bc1d20fb70334a61d99d20b484500aad32e7cf84c128ea3298
 tts_url="https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/${tts_name}.tar.bz2"
 
 sum() {
@@ -52,6 +52,10 @@ if [ "$(cat "${root}/${tts_name}/.archive-sha256" 2>/dev/null || true)" != "${tt
     exit 1
   fi
   tar -xjf "${work}/${tts_name}.tar.bz2" -C "${work}"
+  # English only: the Chinese lexicon, its text-normalisation rules and its
+  # word dictionary are a quarter of what is not the model, and nothing here
+  # speaks Chinese.
+  rm -rf "${work}/${tts_name}/dict" "${work}/${tts_name}/lexicon-zh.txt" "${work}/${tts_name}/"*-zh.fst
   rm -rf "${root:?}/${tts_name}"
   mv "${work}/${tts_name}" "${root}/${tts_name}"
   echo "${tts_sum}" > "${root}/${tts_name}/.archive-sha256"

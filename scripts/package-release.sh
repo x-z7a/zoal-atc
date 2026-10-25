@@ -6,7 +6,7 @@ set -euo pipefail
 # The plugin, the panel app, the Skyscript runtime and the two models always go
 # in. The models are whisper's, which hears the pilot now that the console no
 # longer transcribes, and Kokoro's voices, which are the controllers now that
-# nothing else in the cockpit speaks; together about 530MB, and a plugin
+# nothing else in the cockpit speaks; together about 560MB, and a plugin
 # without either cannot be used. On Windows and Linux the speech runtime's
 # shared libraries sit beside the .xpl, which is where the build leaves them.
 #
@@ -47,7 +47,7 @@ models_dir="${ZOAL_ATC_MODELS:-${repo_root}/.cache/models}"
 "${repo_root}/scripts/ensure-models.sh"
 cmake -E make_directory "${release_dir}/models"
 cmake -E copy "${models_dir}/ggml-small.en-q5_1.bin" "${release_dir}/models/ggml-small.en-q5_1.bin"
-cmake -E copy_directory "${models_dir}/kokoro-en-v0_19" "${release_dir}/models/kokoro-en-v0_19"
+cmake -E copy_directory "${models_dir}/kokoro-multi-lang-v1_0" "${release_dir}/models/kokoro-multi-lang-v1_0"
 cmake -E make_directory "${release_dir}/licenses"
 cmake -E copy "${repo_root}/licenses-third-party/THIRD-PARTY.txt" "${release_dir}/licenses/THIRD-PARTY.txt"
 cmake -E copy_directory "${repo_root}/gui/zoal-atc/dist" "${release_dir}/apps/zoal-atc"
