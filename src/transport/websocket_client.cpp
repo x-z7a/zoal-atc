@@ -392,6 +392,13 @@ WebSocketStatus WebSocketClient::send_hello_locked() {
   if (!endpoint_.simbrief_id.empty()) {
     frame += ",\"simbrief_id\":\"" + endpoint_.simbrief_id + "\"";
   }
+  if (!endpoint_.capabilities.empty()) {
+    frame += ",\"capabilities\":[";
+    for (std::size_t i = 0; i < endpoint_.capabilities.size(); ++i) {
+      frame += (i == 0 ? "\"" : ",\"") + endpoint_.capabilities[i] + "\"";
+    }
+    frame += "]";
+  }
   frame += "}";
   return send_text_locked(frame);
 }

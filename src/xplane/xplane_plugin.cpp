@@ -3,6 +3,10 @@
 #include "zoal_atc/gui/skyscript_panel.hpp"
 #include "zoal_atc/ptt/miniaudio_audio_recorder.hpp"
 #include "zoal_atc/ptt/push_to_talk_controller.hpp"
+#include "zoal_atc/stt/transcriber.hpp"
+#ifdef ZOAL_ATC_LOCAL_STT
+#include "zoal_atc/stt/whisper_transcriber.hpp"
+#endif
 #include "zoal_atc/telemetry/telemetry_frame.hpp"
 #include "zoal_atc/transport/async_websocket_ptt_sink.hpp"
 #include "zoal_atc/transport/endpoint_config.hpp"
@@ -26,6 +30,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -84,6 +89,15 @@ std::unique_ptr<WebSocketClient> g_websocket;
 std::unique_ptr<AsyncWebSocketPttSink> g_transport_sink;
 std::unique_ptr<PttEventSink> g_sink;
 std::unique_ptr<PushToTalkController> g_ptt;
+// The prompt the console sent for transcribing this flight's push-to-talk, and
+// the transcriber that uses it when the plugin was built with one and the model
+// is installed. Without either the turn's audio goes to the console.
+zoal_atc::stt::PromptHolder g_stt_prompt;
+std::unique_ptr<zoal_atc::stt::Transcriber> g_transcriber;
+// Where `make stt-model` installs the model: with X-Plane's output, because the
+// plugin folder is replaced by every install.
+constexpr const char *kSttModelRelativePath =
+    "Output/zoal-atc/models/ggml-small.en-q5_1.bin";
 std::atomic_bool g_reply_receiver_stopping{false};
 std::thread g_reply_receiver_thread;
 std::mutex g_reply_mutex;
@@ -833,6 +847,10 @@ void reply_receiver_loop() {
     // GUI frames are queued, never delivered from here: Skyscript is pumped on
     // the main thread and this is not it.
     if (g_gui_bridge.on_socket_frame(payload, monotonic_ms())) {
+      continue;
+    }
+    if (auto prompt = zoal_atc::stt::parse_stt_context(payload)) {
+      g_stt_prompt.set(std::move(*prompt));
       continue;
     }
     auto reply = parse_atc_reply(payload);
@@ -1618,6 +1636,19 @@ public:
   explicit XPlanePttSink(PttEventSink &delegate) : delegate_(delegate) {}
 
   void publish(PttEvent event) override {
+    if (event.type == PttEventType::Started) {
+      // Read here, on the main thread, the instant the button went down: the
+      // channel the pilot is talking to is this one, whatever they retune to
+      // before the console has heard them.
+      const int com =
+          active_com_from_selection(read_i(g_datarefs.audio_com_selection));
+      const int khz =
+          read_i(com == 2 ? g_datarefs.com2_khz : g_datarefs.com1_khz);
+      if (com != 0 && khz > 0) {
+        event.transmit_com = com;
+        event.frequency_hz = static_cast<std::uint64_t>(khz) * 1000U;
+      }
+    }
     char buffer[512] = {};
     switch (event.type) {
     case PttEventType::Started:
@@ -1753,6 +1784,22 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   const std::string endpoint_description =
       g_console_label +
       (endpoint.auth_token.empty() ? " (no token)" : " (token set)");
+#ifdef ZOAL_ATC_LOCAL_STT
+  {
+    // Declared only when the model is here, so the console sends a client
+    // that cannot transcribe nothing it cannot use.
+    const std::string model = std::string(system_path) + kSttModelRelativePath;
+    std::error_code missing;
+    if (std::filesystem::is_regular_file(model, missing)) {
+      g_transcriber = std::make_unique<zoal_atc::stt::WhisperTranscriber>(model);
+      endpoint.capabilities.push_back("local_stt");
+      log_line("push-to-talk is transcribed in the cockpit with " + model);
+    } else {
+      log_line("no transcription model at " + model +
+               "; push-to-talk audio goes to the console (make stt-model)");
+    }
+  }
+#endif
   g_websocket = std::make_unique<WebSocketClient>(std::move(endpoint));
   // Installed once the socket exists, because saving a token re-dials it.
   g_gui_bridge.set_local_action(handle_local_gui_action);
@@ -1761,6 +1808,9 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
           *g_websocket, frame_session_id(), [](const std::string &reason) {
             log_line("websocket send failed: " + reason);
           });
+  if (g_transcriber) {
+    g_transport_sink->set_transcriber(g_transcriber.get(), &g_stt_prompt);
+  }
   g_sink = std::make_unique<XPlanePttSink>(*g_transport_sink);
 
   // Dataref sampling + navdata sender (the second design input's edge half).
@@ -1816,7 +1866,8 @@ PLUGIN_API void XPluginStop() {
   g_navdata_worker.reset(); // joins the worker before the sink goes away
   g_active_speech.reset();
   g_last_speech_call = SpeechCallState{};
-  g_transport_sink.reset();
+  g_transport_sink.reset(); // joins the transcription thread first
+  g_transcriber.reset();
   stop_reply_receiver();
   g_websocket.reset();
   g_recorder.reset();

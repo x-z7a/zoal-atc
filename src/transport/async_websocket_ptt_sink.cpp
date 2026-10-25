@@ -108,8 +108,84 @@ void AsyncWebSocketPttSink::stop() {
     stopping_ = true;
   }
   cv_.notify_one();
+  transcription_cv_.notify_one();
   if (worker_.joinable()) {
     worker_.join();
+  }
+  if (transcription_worker_.joinable()) {
+    transcription_worker_.join();
+  }
+}
+
+void AsyncWebSocketPttSink::set_transcriber(stt::Transcriber *transcriber,
+                                            const stt::PromptHolder *prompt) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (transcriber_ != nullptr || transcriber == nullptr) {
+    return;
+  }
+  transcriber_ = transcriber;
+  prompt_ = prompt;
+  transcription_worker_ = std::thread([this] { run_transcription(); });
+}
+
+// transcribe_or_send hands a finished turn to the transcription thread, or sends
+// its audio when there is no transcriber or the queue is already full.
+void AsyncWebSocketPttSink::transcribe_or_send(const ptt::PttEvent &event) {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (transcriber_ != nullptr && !stopping_ &&
+        transcriptions_.size() < kMaxQueuedTranscriptions) {
+      transcriptions_.push_back(event);
+      transcription_cv_.notify_one();
+      return;
+    }
+  }
+  send_audio_chunk(event);
+  send_audio_end(event);
+}
+
+// run_transcription is the recogniser's own thread. It is separate from the
+// socket worker because a turn takes the recogniser a fraction of a second to
+// several seconds, and telemetry queued behind it would go stale.
+void AsyncWebSocketPttSink::run_transcription() {
+  {
+    stt::Transcriber *transcriber = nullptr;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      transcriber = transcriber_;
+    }
+    if (transcriber != nullptr) {
+      transcriber->warm();
+    }
+  }
+  for (;;) {
+    ptt::PttEvent event;
+    stt::Transcriber *transcriber = nullptr;
+    const stt::PromptHolder *prompt = nullptr;
+    {
+      std::unique_lock<std::mutex> lock(mutex_);
+      transcription_cv_.wait(
+          lock, [this] { return stopping_ || !transcriptions_.empty(); });
+      if (transcriptions_.empty()) {
+        return;
+      }
+      event = std::move(transcriptions_.front());
+      transcriptions_.pop_front();
+      transcriber = transcriber_;
+      prompt = prompt_;
+    }
+    const std::string context = prompt != nullptr ? prompt->get() : std::string();
+    const stt::Transcript transcript = transcriber->transcribe(
+        event.audio.pcm16, event.audio.sample_rate_hz, context);
+    if (transcript.ok) {
+      send_text(stt::build_transcript_frame(session_id_, event.sequence,
+                                            event.duration_ms, transcript));
+    } else {
+      // Heard nothing usable here, so the console hears the recording and
+      // transcribes it itself.
+      send_audio_chunk(event);
+      send_audio_end(event);
+    }
   }
 }
 
@@ -136,11 +212,10 @@ void AsyncWebSocketPttSink::run() {
 void AsyncWebSocketPttSink::process_event(const ptt::PttEvent &event) {
   switch (event.type) {
   case ptt::PttEventType::Started:
-    send_audio_start(event.sequence);
+    send_audio_start(event);
     break;
   case ptt::PttEventType::TransmissionReady:
-    send_audio_chunk(event);
-    send_audio_end(event);
+    transcribe_or_send(event);
     break;
   case ptt::PttEventType::Cancelled:
     send_audio_cancel(event.sequence);
@@ -162,12 +237,19 @@ void AsyncWebSocketPttSink::send_text(const std::string &payload) {
   }
 }
 
-void AsyncWebSocketPttSink::send_audio_start(std::uint64_t sequence) {
+void AsyncWebSocketPttSink::send_audio_start(const ptt::PttEvent &event) {
   std::ostringstream message;
   message << "{\"type\":\"audio_start\",\"session_id\":\""
-          << json_escape(session_id_) << "\",\"sequence\":" << sequence
+          << json_escape(session_id_) << "\",\"sequence\":" << event.sequence
           << ",\"sample_rate_hz\":16000,\"channels\":1,"
-             "\"format\":\"pcm_s16le\"}";
+             "\"format\":\"pcm_s16le\"";
+  if (event.frequency_hz != 0) {
+    // The radio read when the button went down, which the console believes
+    // over its own stamp from telemetry.
+    message << ",\"transmit_com\":" << event.transmit_com
+            << ",\"frequency_hz\":" << event.frequency_hz;
+  }
+  message << "}";
   send_text(message.str());
 }
 

@@ -17,6 +17,17 @@ NPM ?= npm
 # opt-out, because a configuration nobody builds is a configuration nobody
 # tests, and the plugin it produces has no GUI at all.
 ZOAL_ATC_SKYSCRIPT_ROOT ?= $(ROOT_DIR)/.cache/skyscript/SkyScript-lib
+# whisper.cpp, for transcribing push-to-talk in the cockpit. Pinned with its
+# archive checksum in scripts/whisper-version.txt.
+WHISPER_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/whisper-version.txt")
+ZOAL_ATC_WHISPER_SOURCE ?= $(ROOT_DIR)/.cache/whisper.cpp-$(WHISPER_VERSION)
+# The transcription model, kept with X-Plane's output rather than in the plugin
+# folder, which every install replaces. The checksum is the console's own pin.
+STT_MODEL_NAME := ggml-small.en-q5_1.bin
+STT_MODEL_SHA256 := bfdff4894dcb76bbf647d56263ea2a96645423f1669176f4844a1bf8e478ad30
+STT_MODEL_URL := https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$(STT_MODEL_NAME)
+XPLANE_ROOT ?= $(abspath $(LOCAL_XPLANE_PLUGIN_DIR)/../../..)
+STT_MODEL_DIR ?= $(XPLANE_ROOT)/Output/zoal-atc/models
 LOCAL_XPLANE_PLUGIN_DIR ?= $(HOME)/X-Plane 12/Resources/plugins/zoal-atc
 
 SDK_VERSION ?= 430
@@ -59,7 +70,7 @@ else
 CMAKE_GENERATOR :=
 endif
 
-.PHONY: help build test plugin gui-build gui-test gate skyscript-lib \
+.PHONY: help build test plugin gui-build gui-test gate skyscript-lib whisper-src stt-model \
 	install-plugin release-plugin archive-plugin release-all clean
 
 .DEFAULT_GOAL := help
@@ -73,6 +84,7 @@ help:
 	@echo "  gui-test        run the in-sim panel's unit tests"
 	@echo "  gate            the pre-done gate: core tests, panel build + tests"
 	@echo "  install-plugin  build and install into X-Plane (LOCAL_XPLANE_PLUGIN_DIR=)"
+	@echo "  stt-model       install the push-to-talk transcription model beside X-Plane"
 	@echo "  release-plugin  assemble the release tree in dist/zoal-atc"
 	@echo "  archive-plugin  zip release-plugin into dist/"
 	@echo "  release-all     macOS + Windows + Linux merged into one tree (macOS host, needs Docker)"
@@ -114,8 +126,27 @@ skyscript-lib:
 # The .xpl. The two sentinel prerequisites fetch the X-Plane SDK and miniaudio
 # once; skyscript-lib re-checks the pinned Skyscript on every build because the
 # pin can move under a tree that already has one.
-plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) skyscript-lib
-	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)"
+whisper-src:
+	ZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" "$(ROOT_DIR)/scripts/ensure-whisper-src.sh"
+
+# stt-model puts the transcription model where the plugin looks for it. A plugin
+# with no model sends the audio and the console transcribes, as it always did.
+stt-model:
+	@mkdir -p "$(STT_MODEL_DIR)"
+	@if [ -f "$(STT_MODEL_DIR)/$(STT_MODEL_NAME)" ] && \
+		[ "$$(shasum -a 256 "$(STT_MODEL_DIR)/$(STT_MODEL_NAME)" | cut -d' ' -f1)" = "$(STT_MODEL_SHA256)" ]; then \
+		echo "model present at $(STT_MODEL_DIR)/$(STT_MODEL_NAME)"; \
+	else \
+		echo "Downloading $(STT_MODEL_NAME)..."; \
+		curl -fL -o "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial" "$(STT_MODEL_URL)" && \
+		[ "$$(shasum -a 256 "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial" | cut -d' ' -f1)" = "$(STT_MODEL_SHA256)" ] && \
+		mv "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial" "$(STT_MODEL_DIR)/$(STT_MODEL_NAME)" && \
+		echo "model installed at $(STT_MODEL_DIR)/$(STT_MODEL_NAME)" || \
+		{ rm -f "$(STT_MODEL_DIR)/$(STT_MODEL_NAME).partial"; echo "model download failed or did not verify" >&2; exit 1; }; \
+	fi
+
+plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) skyscript-lib whisper-src
+	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)"
 	cmake --build "$(PLUGIN_BUILD_DIR)" --target zoal_atc
 
 $(SDK_SENTINEL):

@@ -137,6 +137,32 @@ I/O run on an async worker so the X-Plane command and flight-loop callbacks only
 enqueue PTT events. The protocol already accepts multiple chunks, so live
 chunking can land without changing the console API.
 
+`audio_start` also carries `transmit_com` and `frequency_hz`, read from the
+radio the instant the button goes down, so the console knows exactly which
+channel the pilot keyed rather than guessing from telemetry.
+
+### Transcribing in the cockpit
+
+On macOS the plugin is built with whisper.cpp (the release and settings the
+console uses, pinned in `scripts/whisper-version.txt`) and transcribes
+push-to-talk itself, on its own thread with Metal: about a fifth of a second per
+transmission once warm. It then sends a `transcript` frame — the words, their
+timing, the confidence and the model — in place of `audio_chunk`/`audio_end`,
+and the recording never leaves the aircraft. The console sends an
+`stt_context` with the prompt to transcribe with (callsign, stations, places,
+runways, route), which is what turns "C21" back into "AC21".
+
+It needs the model, which lives beside X-Plane rather than in the plugin folder
+that every install replaces:
+
+```sh
+make stt-model    # X-Plane/Output/zoal-atc/models/ggml-small.en-q5_1.bin, checksum-verified
+```
+
+The hello declares `local_stt` only when the model is there. Without it, or for
+any turn the recogniser cannot produce, the audio goes to the console and is
+transcribed there exactly as before.
+
 ## Build
 
 Requires **CMake ≥ 3.24**, a **C++17 toolchain** (MinGW on Windows), **Node 20+**
@@ -151,8 +177,9 @@ make gate       # core tests + panel build + panel tests — the pre-done gate
 | --- | --- |
 | `make test` | Builds and runs the SDK-free C++ core tests (no SDK, no SkyScript) |
 | `make gui-build` / `make gui-test` | Builds / tests the in-sim panel |
-| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, and SkyScript into `.cache/skyscript/` |
+| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, SkyScript into `.cache/skyscript/`, and whisper.cpp into `.cache/whisper.cpp-*` |
 | `make install-plugin` | Builds and installs into X-Plane (`LOCAL_XPLANE_PLUGIN_DIR=` to override the path) |
+| `make stt-model` | Installs the push-to-talk transcription model beside X-Plane (`STT_MODEL_DIR=` to override) |
 | `make release-plugin` / `make archive-plugin` | Assembles / zips the release tree in `dist/` |
 | `make release-all` | macOS + Windows + Linux merged into one tree (macOS host, needs Docker and `brew install mingw-w64`) |
 

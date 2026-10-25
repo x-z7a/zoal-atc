@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <string_view>
 #include <utility>
 
@@ -41,6 +42,10 @@ struct WebSocketEndpoint {
   // (phase22 M11); empty simply means no flight plan, which the arrival chain
   // already tolerates.
   std::string simbrief_id;
+  // Capabilities this client declares in its hello beyond the shipped
+  // protocol: "local_stt" when it transcribes push-to-talk itself. Each is a
+  // plain token, character-fenced like client_id.
+  std::vector<std::string> capabilities;
 };
 
 struct WebSocketStatus {
