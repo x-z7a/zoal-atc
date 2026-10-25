@@ -174,7 +174,10 @@ Synthesis starts the moment a reply arrives, on its own thread, a sentence at a
 time: the first sentence of a long clearance is ready in about three seconds and
 the rest are ready before it ends. Each sentence is shaped into what a VHF
 receiver passes, 300 to 3,000 Hz with a little compression, and plays on
-X-Plane's COM1 audio bus, so the radio's own volume knob controls it. The
+the audio bus of the COM radio tuned to the channel the controller said it on
+(the console names it as `frequency_hz`), so Tower on COM2 comes out of COM2
+and that radio's own volume knob controls it. With both radios on the channel,
+or neither, it is the one the pilot has selected. The
 `speak_ack` waits for the real length of the audio rather than an estimate.
 
 The voices live beside the transcription model:

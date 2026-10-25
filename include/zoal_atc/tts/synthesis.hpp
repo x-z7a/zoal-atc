@@ -48,6 +48,15 @@ public:
 // all, and gets the default.
 int speaker_for(std::uint64_t voice, int speakers, int default_speaker);
 
+// receiving_com is the radio a transmission on channel_hz comes out of: the
+// COM tuned to it, as a real receiver would. With both tuned there it is the
+// one the pilot has selected; with neither — a reply from a console that does
+// not name its channel, or a pilot who retuned in the second it took to
+// arrive — it is the selected radio, because that is the one being listened
+// to. Returns 1 or 2. selected_com is 1, 2, or 0 when unknown.
+int receiving_com(std::uint64_t channel_hz, std::uint64_t com1_hz,
+                  std::uint64_t com2_hz, int selected_com);
+
 // sentences splits a transmission where a controller would draw breath, so the
 // first sentence can be on the air while the rest is still being synthesised.
 // A short trailing fragment is kept with the sentence before it.
