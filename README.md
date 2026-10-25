@@ -163,6 +163,30 @@ The hello declares `local_stt` only when the model is there. Without it, or for
 any turn the recogniser cannot produce, the audio goes to the console and is
 transcribed there exactly as before.
 
+### Controller voices
+
+On Apple silicon the plugin is also built with Kokoro v0.19 through sherpa-onnx
+(a static build pinned in `scripts/sherpa-onnx-version.txt`) and says each reply
+itself, on the COM1 radio, rather than through X-Plane's one speech voice. The
+console names a `voice` on every `atc_reply`, stable per station, so Ground and
+Tower sound like two people; the plugin maps it onto Kokoro's eleven speakers.
+Synthesis starts the moment a reply arrives, on its own thread, a sentence at a
+time: the first sentence of a long clearance is ready in about three seconds and
+the rest are ready before it ends. Each sentence is shaped into what a VHF
+receiver passes, 300 to 3,000 Hz with a little compression, and plays on
+X-Plane's COM1 audio bus, so the radio's own volume knob controls it. The
+`speak_ack` waits for the real length of the audio rather than an estimate.
+
+The voices live beside the transcription model:
+
+```sh
+make tts-model    # X-Plane/Output/zoal-atc/models/kokoro-en-v0_19, checksum-verified (~330 MB)
+```
+
+Without them, if a sentence cannot be synthesised before any of it was said, or
+if the first sentence is not ready within twelve seconds, X-Plane reads the
+reply as before.
+
 ## Build
 
 Requires **CMake ≥ 3.24**, a **C++17 toolchain** (MinGW on Windows), **Node 20+**
@@ -177,9 +201,10 @@ make gate       # core tests + panel build + panel tests — the pre-done gate
 | --- | --- |
 | `make test` | Builds and runs the SDK-free C++ core tests (no SDK, no SkyScript) |
 | `make gui-build` / `make gui-test` | Builds / tests the in-sim panel |
-| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, SkyScript into `.cache/skyscript/`, and whisper.cpp into `.cache/whisper.cpp-*` |
+| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, SkyScript into `.cache/skyscript/`, whisper.cpp into `.cache/whisper.cpp-*`, and sherpa-onnx into `.cache/sherpa-onnx-*` |
 | `make install-plugin` | Builds and installs into X-Plane (`LOCAL_XPLANE_PLUGIN_DIR=` to override the path) |
 | `make stt-model` | Installs the push-to-talk transcription model beside X-Plane (`STT_MODEL_DIR=` to override) |
+| `make tts-model` | Installs the controller voices beside X-Plane (`STT_MODEL_DIR=` to override) |
 | `make release-plugin` / `make archive-plugin` | Assembles / zips the release tree in `dist/` |
 | `make release-all` | macOS + Windows + Linux merged into one tree (macOS host, needs Docker and `brew install mingw-w64`) |
 

@@ -8,6 +8,10 @@
 #include "zoal_atc/stt/whisper_transcriber.hpp"
 #endif
 #include "zoal_atc/telemetry/telemetry_frame.hpp"
+#include "zoal_atc/tts/synthesis.hpp"
+#ifdef ZOAL_ATC_LOCAL_TTS
+#include "zoal_atc/tts/kokoro_synthesizer.hpp"
+#endif
 #include "zoal_atc/transport/async_websocket_ptt_sink.hpp"
 #include "zoal_atc/transport/endpoint_config.hpp"
 #include "zoal_atc/transport/json_util.hpp"
@@ -19,6 +23,7 @@
 #include <XPLMPlugin.h>
 #include <XPLMProcessing.h>
 #include <XPLMScenery.h>
+#include <XPLMSound.h>
 #include <XPLMUtilities.h>
 
 #include <atomic>
@@ -94,6 +99,16 @@ std::unique_ptr<PushToTalkController> g_ptt;
 // is installed. Without either the turn's audio goes to the console.
 zoal_atc::stt::PromptHolder g_stt_prompt;
 std::unique_ptr<zoal_atc::stt::Transcriber> g_transcriber;
+// The controller's voices, when the plugin was built with them and they are
+// installed. Without them X-Plane's own speech reads every reply.
+std::unique_ptr<zoal_atc::tts::SynthesisQueue> g_synthesis;
+constexpr const char *kTtsModelRelativePath =
+    "Output/zoal-atc/models/kokoro-en-v0_19";
+// How long a reply waits for its first sentence before X-Plane reads it
+// instead. Synthesis is a second or two; this is for a model that hung.
+constexpr std::uint64_t kSynthesisDeadlineMs = 12000;
+// The breath between two sentences of one transmission.
+constexpr std::uint64_t kSentenceGapMs = 120;
 // Where `make stt-model` installs the model: with X-Plane's output, because the
 // plugin folder is replaced by every install.
 constexpr const char *kSttModelRelativePath =
@@ -133,7 +148,14 @@ struct ATCReplyMessage {
   std::string text;
   bool speak = false;
   std::uint64_t generation = 0;
+  // voice is the console's voice for the station sending this, numbered from
+  // one; zero is the default.
+  std::uint64_t voice = 0;
   std::uint64_t queued_at_ms = 0;
+  // speech is the reply being synthesised in that voice, started the moment
+  // it arrived so it is ready by the time the frequency is free. Empty when
+  // the plugin has no voices, and X-Plane reads the reply instead.
+  std::shared_ptr<zoal_atc::tts::Speech> speech;
 };
 
 std::deque<ATCReplyMessage> g_reply_queue;
@@ -149,6 +171,7 @@ struct SpeechCallState {
 };
 
 struct SpeechDeliveryInfo {
+  std::string speech_api = "XPLMSpeakString";
   bool api_called = false;
   bool possible_overlap = false;
   std::string ack_basis = "api_not_invoked";
@@ -165,6 +188,11 @@ struct ActiveSpeech {
   SpeechDeliveryInfo delivery;
   std::uint64_t started_at_ms = 0;
   std::uint64_t acknowledge_at_ms = 0;
+  // A synthesised reply plays a sentence at a time on the COM radio: the next
+  // one to play, when the one on the air ends, and its channel.
+  std::size_t next_sentence = 0;
+  std::uint64_t sentence_ends_at_ms = 0;
+  FMOD_CHANNEL *channel = nullptr;
 };
 
 SpeechCallState g_last_speech_call;
@@ -610,13 +638,21 @@ std::optional<ATCReplyMessage> parse_atc_reply(const std::string &payload) {
   reply.text = *text;
   reply.speak = json_bool_field(payload, "speak").value_or(false);
   reply.generation = json_uint_field(payload, "generation").value_or(0);
+  reply.voice = json_uint_field(payload, "voice").value_or(0);
   return reply;
 }
 
 using zoal_atc::transport::json_escape;
 
+bool urgent_speech(const ATCReplyMessage &reply);
+
 void queue_atc_reply(ATCReplyMessage reply) {
   reply.queued_at_ms = monotonic_ms();
+  if (g_synthesis && reply.speak && !reply.text.empty()) {
+    reply.speech = g_synthesis->submit(
+        zoal_atc::transport::radio_text(reply.text), reply.voice,
+        urgent_speech(reply));
+  }
   std::lock_guard<std::mutex> lock(g_reply_mutex);
   constexpr std::size_t kMaxQueuedReplies = 16;
   if (g_reply_queue.size() >= kMaxQueuedReplies) {
@@ -658,7 +694,7 @@ void send_speak_ack(const ATCReplyMessage &reply, bool ok,
   message << "{\"type\":\"speak_ack\",\"session_id\":\""
           << json_escape(reply.session_id) << "\",\"generation\":"
           << reply.generation << ",\"ok\":" << (ok ? "true" : "false")
-          << ",\"speech_api\":\"XPLMSpeakString\""
+          << ",\"speech_api\":\"" << json_escape(speech.speech_api) << "\""
           << ",\"speech_api_called\":"
           << (speech.api_called ? "true" : "false")
           << ",\"ack_basis\":\"" << json_escape(speech.ack_basis)
@@ -683,6 +719,9 @@ void finish_active_speech(std::uint64_t now, bool ok,
   }
   ActiveSpeech active = std::move(*g_active_speech);
   g_active_speech.reset();
+  if (active.channel != nullptr && now < active.sentence_ends_at_ms) {
+    XPLMStopAudio(active.channel);
+  }
   active.delivery.ack_basis = ack_basis;
   if (now >= active.started_at_ms) {
     active.delivery.speech_elapsed_ms = now - active.started_at_ms;
@@ -699,26 +738,11 @@ void finish_active_speech(std::uint64_t now, bool ok,
   send_speak_ack(active.reply, ok, active.delivery);
 }
 
-void start_atc_reply(ATCReplyMessage reply, std::uint64_t process_at_ms) {
-  std::ostringstream log;
-  log << "ATC reply";
-  if (!reply.category.empty()) {
-    log << " category=" << reply.category;
-  }
-  log << " gen=" << reply.generation << ": " << reply.text;
-  log_line(log.str());
-
-  const bool ok = !reply.text.empty();
-  SpeechDeliveryInfo speech;
-  if (reply.queued_at_ms > 0 && process_at_ms >= reply.queued_at_ms) {
-    speech.plugin_queue_ms = process_at_ms - reply.queued_at_ms;
-  }
-  if (!ok || !reply.speak) {
-    speech.ack_basis = ok ? "speech_not_requested" : "empty_text";
-    send_speak_ack(reply, ok, speech);
-    return;
-  }
-
+// speak_with_xplane reads a reply with X-Plane's own voice: when the plugin
+// has no voices of its own, or synthesis failed.
+void speak_with_xplane(ATCReplyMessage reply, SpeechDeliveryInfo speech,
+                       std::uint64_t process_at_ms) {
+  speech.speech_api = "XPLMSpeakString";
   // reply.text keeps its punctuation for display/logging; the synth reads
   // commas etc. aloud ("... Quebec comma"), so voice a sanitized form.
   const std::string spoken_text =
@@ -766,6 +790,119 @@ void start_atc_reply(ATCReplyMessage reply, std::uint64_t process_at_ms) {
   log_line(speech_log.str());
 }
 
+// play_sentence puts one synthesised sentence on the COM1 radio. The buffer
+// is the mixer's until it says it is finished with it, so the audio is kept
+// alive by a reference the completion callback lets go of.
+FMOD_CHANNEL *play_sentence(std::shared_ptr<const zoal_atc::tts::Audio> audio) {
+  auto *held = new std::shared_ptr<const zoal_atc::tts::Audio>(audio);
+  FMOD_CHANNEL *channel = XPLMPlayPCMOnBus(
+      const_cast<std::int16_t *>(audio->pcm.data()),
+      static_cast<std::uint32_t>(audio->pcm.size() * sizeof(std::int16_t)),
+      FMOD_SOUND_FORMAT_PCM16, audio->sample_rate_hz, 1, 0,
+      xplm_AudioRadioCom1,
+      [](void *refcon, FMOD_RESULT) {
+        delete static_cast<std::shared_ptr<const zoal_atc::tts::Audio> *>(refcon);
+      },
+      held);
+  if (channel == nullptr) {
+    delete held;
+  }
+  return channel;
+}
+
+// advance_synthesized_speech moves the reply on the air along: the next
+// sentence when the last one ends, the acknowledgement when the whole
+// transmission has been heard, and X-Plane's voice when synthesis failed
+// before a word of it was said.
+void advance_synthesized_speech(std::uint64_t now) {
+  if (!g_active_speech.has_value() || !g_active_speech->reply.speech) {
+    return;
+  }
+  ActiveSpeech &active = *g_active_speech;
+  if (now < active.sentence_ends_at_ms) {
+    return;
+  }
+  const auto &speech = *active.reply.speech;
+  if (auto audio = zoal_atc::tts::SynthesisQueue::shared(speech, active.next_sentence)) {
+    FMOD_CHANNEL *channel = play_sentence(audio);
+    if (channel == nullptr && active.next_sentence == 0) {
+      log_line("speech gen=" + std::to_string(active.reply.generation) +
+               " could not be played on the radio; X-Plane reads it");
+      ATCReplyMessage reply = std::move(active.reply);
+      SpeechDeliveryInfo delivery = active.delivery;
+      g_active_speech.reset();
+      reply.speech.reset();
+      speak_with_xplane(std::move(reply), delivery, now);
+      return;
+    }
+    active.channel = channel;
+    const std::uint64_t duration = audio->duration_ms();
+    active.delivery.estimated_duration_ms += duration;
+    active.sentence_ends_at_ms = now + duration + kSentenceGapMs;
+    ++active.next_sentence;
+    return;
+  }
+  if (speech.finished()) {
+    if (active.next_sentence == 0) {
+      log_line("speech gen=" + std::to_string(active.reply.generation) +
+               " was not synthesised; X-Plane reads it");
+      ATCReplyMessage reply = std::move(active.reply);
+      SpeechDeliveryInfo delivery = active.delivery;
+      g_active_speech.reset();
+      reply.speech.reset();
+      speak_with_xplane(std::move(reply), delivery, now);
+      return;
+    }
+    // Every sentence has been heard; the last one ended at sentence_ends_at_ms.
+    const bool ok = !speech.failed();
+    finish_active_speech(now, ok,
+                         ok ? "synthesized_playback_elapsed"
+                            : "synthesis_failed_partway");
+    return;
+  }
+  if (active.next_sentence == 0 && now >= active.started_at_ms + kSynthesisDeadlineMs) {
+    log_line("speech gen=" + std::to_string(active.reply.generation) +
+             " not synthesised in time; X-Plane reads it");
+    ATCReplyMessage reply = std::move(active.reply);
+    SpeechDeliveryInfo delivery = active.delivery;
+    g_active_speech.reset();
+    reply.speech.reset();
+    speak_with_xplane(std::move(reply), delivery, now);
+  }
+}
+
+void start_atc_reply(ATCReplyMessage reply, std::uint64_t process_at_ms) {
+  std::ostringstream log;
+  log << "ATC reply";
+  if (!reply.category.empty()) {
+    log << " category=" << reply.category;
+  }
+  log << " gen=" << reply.generation << ": " << reply.text;
+  log_line(log.str());
+
+  const bool ok = !reply.text.empty();
+  SpeechDeliveryInfo speech;
+  if (reply.queued_at_ms > 0 && process_at_ms >= reply.queued_at_ms) {
+    speech.plugin_queue_ms = process_at_ms - reply.queued_at_ms;
+  }
+  if (!ok || !reply.speak) {
+    speech.ack_basis = ok ? "speech_not_requested" : "empty_text";
+    send_speak_ack(reply, ok, speech);
+    return;
+  }
+
+  if (reply.speech) {
+    speech.speech_api = "kokoro";
+    speech.api_called = true;
+    speech.ack_basis = "synthesis_pending";
+    g_active_speech = ActiveSpeech{std::move(reply), speech, process_at_ms,
+                                   std::numeric_limits<std::uint64_t>::max()};
+    advance_synthesized_speech(process_at_ms);
+    return;
+  }
+  speak_with_xplane(std::move(reply), speech, process_at_ms);
+}
+
 void process_atc_replies() {
   const std::uint64_t now = monotonic_ms();
 
@@ -778,7 +915,12 @@ void process_atc_replies() {
       start_atc_reply(std::move(*urgent), now);
       return;
     }
-    if (now < g_active_speech->acknowledge_at_ms) {
+    if (g_active_speech->reply.speech) {
+      advance_synthesized_speech(now);
+      if (g_active_speech.has_value()) {
+        return;
+      }
+    } else if (now < g_active_speech->acknowledge_at_ms) {
       return;
     }
     // XPLMSpeakString provides no completion signal. Reaching the conservative
@@ -1800,6 +1942,20 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     }
   }
 #endif
+#ifdef ZOAL_ATC_LOCAL_TTS
+  {
+    const std::string voices = std::string(system_path) + kTtsModelRelativePath;
+    if (zoal_atc::tts::KokoroSynthesizer::installed(voices)) {
+      g_synthesis = std::make_unique<zoal_atc::tts::SynthesisQueue>(
+          std::make_unique<zoal_atc::tts::KokoroSynthesizer>(voices),
+          zoal_atc::tts::KokoroSynthesizer::kDefaultSpeaker);
+      log_line("controllers speak on COM1 in their own voices from " + voices);
+    } else {
+      log_line("no controller voices at " + voices +
+               "; X-Plane reads replies (make tts-model)");
+    }
+  }
+#endif
   g_websocket = std::make_unique<WebSocketClient>(std::move(endpoint));
   // Installed once the socket exists, because saving a token re-dials it.
   g_gui_bridge.set_local_action(handle_local_gui_action);
@@ -1864,8 +2020,12 @@ PLUGIN_API void XPluginStop() {
   g_ptt.reset();
   g_sink.reset();
   g_navdata_worker.reset(); // joins the worker before the sink goes away
+  if (g_active_speech.has_value() && g_active_speech->channel != nullptr) {
+    XPLMStopAudio(g_active_speech->channel);
+  }
   g_active_speech.reset();
   g_last_speech_call = SpeechCallState{};
+  g_synthesis.reset(); // joins the synthesis thread
   g_transport_sink.reset(); // joins the transcription thread first
   g_transcriber.reset();
   stop_reply_receiver();

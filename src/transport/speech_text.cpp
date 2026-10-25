@@ -70,7 +70,9 @@ std::string expand_word(const std::string &word, bool is_heading_value) {
 
 }  // namespace
 
-std::string speech_text(std::string_view reply) {
+namespace {
+
+std::string normalize(std::string_view reply, bool keep_pauses) {
   std::string out;
   out.reserve(reply.size());
   std::string word;
@@ -101,6 +103,9 @@ std::string speech_text(std::string_view reply) {
     // a word gap so adjacent words stay separated without being run together.
     if (c == ',' || c == ';' || c == ':') {
       flush_word();
+      if (keep_pauses && !out.empty()) {
+        out.push_back(c);
+      }
       pending_space = !out.empty();
       continue;
     }
@@ -114,5 +119,11 @@ std::string speech_text(std::string_view reply) {
   flush_word();
   return out;
 }
+
+}  // namespace
+
+std::string speech_text(std::string_view reply) { return normalize(reply, false); }
+
+std::string radio_text(std::string_view reply) { return normalize(reply, true); }
 
 }  // namespace zoal_atc::transport
