@@ -984,6 +984,7 @@ struct TelemetryDatarefs {
   XPLMDataRef groundspeed_mps = nullptr;
   XPLMDataRef indicated_airspeed_kias = nullptr;
   XPLMDataRef vh_ind_fpm = nullptr;
+  XPLMDataRef pressure_altitude_ft = nullptr;
   XPLMDataRef true_psi = nullptr;
   XPLMDataRef onground_any = nullptr;
   XPLMDataRef com1_khz = nullptr;
@@ -1043,6 +1044,8 @@ struct TelemetryDatarefs {
     indicated_airspeed_kias =
         XPLMFindDataRef("sim/flightmodel/position/indicated_airspeed");
     vh_ind_fpm = XPLMFindDataRef("sim/flightmodel/position/vh_ind_fpm");
+    pressure_altitude_ft =
+        XPLMFindDataRef("sim/flightmodel2/position/pressure_altitude");
     true_psi = XPLMFindDataRef("sim/flightmodel/position/true_psi");
     onground_any = XPLMFindDataRef("sim/flightmodel/failures/onground_any");
     com1_khz =
@@ -1400,6 +1403,11 @@ TelemetrySnapshot sample_telemetry() {
   s.latitude_deg = read_d(g_datarefs.latitude);
   s.longitude_deg = read_d(g_datarefs.longitude);
   s.altitude_ft_msl = tel::meters_to_feet(read_d(g_datarefs.elevation_m));
+  // Already in feet: the altitude a Mode C transponder reports.
+  if (g_datarefs.pressure_altitude_ft != nullptr) {
+    s.has_pressure_altitude = true;
+    s.pressure_altitude_ft = read_f(g_datarefs.pressure_altitude_ft);
+  }
   s.height_agl_ft = tel::meters_to_feet(read_f(g_datarefs.y_agl_m));
   s.groundspeed_kts = tel::mps_to_knots(read_f(g_datarefs.groundspeed_mps));
   // indicated_airspeed is already in knots (KIAS) — no conversion.

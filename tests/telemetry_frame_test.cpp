@@ -35,6 +35,8 @@ TelemetrySnapshot sample_snapshot() {
   s.height_agl_ft = 0.5;
   s.groundspeed_kts = 3.1;
   s.indicated_airspeed_kts = 2.4;
+  s.has_pressure_altitude = true;
+  s.pressure_altitude_ft = 37998.5;
   s.vertical_speed_fpm = -640.0;
   s.heading_true_deg = 310.0;
   s.on_ground = true;
@@ -76,6 +78,7 @@ void frame_matches_wire_contract() {
   require_contains(frame, "\"icao_type\":\"SR22\"", "ownship type");
   require_contains(frame, "\"mode_s\":31", "ownship Mode S");
   require_contains(frame, "\"indicated_airspeed_kts\":2.4", "indicated airspeed");
+  require_contains(frame, "\"pressure_altitude_ft\":37998.5", "pressure altitude");
   require_contains(frame, "\"vertical_speed_fpm\":-640", "vertical speed");
   require_contains(frame, "\"com1_freq_mhz\":118.6", "com1");
   require_contains(frame, "\"active_com\":1", "active com");
