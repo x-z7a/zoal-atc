@@ -18,7 +18,11 @@ std::string build_telemetry_frame(const TelemetrySnapshot &s,
 
   out << "\"latitude_deg\":" << json_number(s.latitude_deg)
       << ",\"longitude_deg\":" << json_number(s.longitude_deg)
-      << ",\"altitude_ft_msl\":" << json_number(s.altitude_ft_msl)
+      << ",\"altitude_ft_msl\":" << json_number(s.altitude_ft_msl);
+  if (s.has_pressure_altitude) {
+    out << ",\"pressure_altitude_ft\":" << json_number(s.pressure_altitude_ft);
+  }
+  out
       << ",\"height_agl_ft\":" << json_number(s.height_agl_ft)
       << ",\"groundspeed_kts\":" << json_number(s.groundspeed_kts)
       << ",\"indicated_airspeed_kts\":" << json_number(s.indicated_airspeed_kts)

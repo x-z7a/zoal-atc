@@ -26,6 +26,13 @@ struct TelemetrySnapshot {
   double latitude_deg = 0;
   double longitude_deg = 0;
   double altitude_ft_msl = 0;
+  // Pressure altitude: what the altimeter reads set to 29.92 and what a Mode C
+  // transponder reports. At a flight level it is the altitude ATC compares
+  // with the assigned level; the geometric altitude above differs from it by
+  // the day's pressure and temperature, and at FL380 on a cold day by 300 feet.
+  // Sent only when the simulator provides it.
+  bool has_pressure_altitude = false;
+  double pressure_altitude_ft = 0;
   double height_agl_ft = 0;
   double groundspeed_kts = 0;
   double indicated_airspeed_kts = 0;
