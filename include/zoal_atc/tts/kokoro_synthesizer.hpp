@@ -11,14 +11,15 @@ struct SherpaOnnxOfflineTts;
 namespace zoal_atc::tts {
 
 // KokoroSynthesizer speaks with Kokoro v1.0 through sherpa-onnx, on the
-// pilot's own machine, in its English voices only: nineteen American and eight
-// British, so the positions at a field and the centres around it each sound
-// like somebody different.
+// pilot's own machine, in the voice catalogue (voice_catalogue.hpp): the
+// model's own speakers and the blends made from them, so the positions at a
+// field and the centres around it each sound like somebody different, and a
+// controller in Paris or Rome sounds like one.
 //
-// The console numbers voices from one, and voice n is speaker n-1: 1-20 are
-// American (af_alloy … am_santa) and 21-28 British (bf_alice … bm_lewis). The
-// console never asks for am_santa, the Santa Claus voice, nor for any of the
-// model's other languages.
+// The console numbers voices from one, and voice n is catalogue entry n-1.
+// With the catalogue prepared there are as many as it holds; without it — a
+// plugin folder it could not write to — the model's stock table is used and
+// the twenty-eight English speakers are all there are, as before.
 //
 // A British voice is spoken with the British lexicon and espeak's own English,
 // which is British ("en"; there is no "en-gb" voice), and
@@ -32,23 +33,21 @@ namespace zoal_atc::tts {
 // rather than the plugin.
 class KokoroSynthesizer final : public Synthesizer {
 public:
-  // kSpeakers is how many English voices there are, known before the model
-  // loads because the console's voice is mapped onto it as the reply arrives.
-  static constexpr int kSpeakers = 28;
-  // kFirstBritish is the first British speaker; everything before it is
-  // American.
-  static constexpr int kFirstBritish = 20;
+  // kEnglishSpeakers is how many voices there are without the catalogue: the
+  // stock table's American and British speakers.
+  static constexpr int kEnglishSpeakers = 28;
   // kDefaultSpeaker is the voice for a reply that names none: am_michael.
   static constexpr int kDefaultSpeaker = 16;
 
-  explicit KokoroSynthesizer(std::string model_dir);
+  // catalogue says prepare_catalogue made model_dir ready for the catalogue.
+  KokoroSynthesizer(std::string model_dir, bool catalogue);
   ~KokoroSynthesizer() override;
 
   KokoroSynthesizer(const KokoroSynthesizer &) = delete;
   KokoroSynthesizer &operator=(const KokoroSynthesizer &) = delete;
 
   Audio synthesize(const std::string &text, int speaker) override;
-  int speakers() const override { return kSpeakers; }
+  int speakers() const override { return speakers_; }
   void warm() override;
 
   // installed reports whether model_dir holds everything Kokoro needs.
@@ -65,6 +64,8 @@ private:
   const SherpaOnnxOfflineTts *load_locked(Engine &engine);
 
   std::string model_dir_;
+  bool catalogue_;
+  int speakers_;
   std::mutex mutex_;
   Engine american_{"lexicon-us-en.txt", "en-us"};
   Engine british_{"lexicon-gb-en.txt", "en"};
