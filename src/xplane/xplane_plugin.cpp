@@ -9,6 +9,7 @@
 #include "zoal_atc/telemetry/telemetry_frame.hpp"
 #include "zoal_atc/tts/synthesis.hpp"
 #include "zoal_atc/tts/kokoro_synthesizer.hpp"
+#include "zoal_atc/tts/voice_catalogue.hpp"
 #include "zoal_atc/transport/async_websocket_ptt_sink.hpp"
 #include "zoal_atc/transport/endpoint_config.hpp"
 #include "zoal_atc/transport/json_util.hpp"
@@ -102,6 +103,10 @@ std::unique_ptr<zoal_atc::tts::SynthesisQueue> g_synthesis;
 // Both models ship inside the plugin folder, under models/.
 constexpr const char *kSttModelName = "ggml-small.en-q5_1.bin";
 constexpr const char *kTtsModelName = "kokoro-multi-lang-v1_0";
+// The capability that tells the console this cockpit speaks the voice
+// catalogue, so it may name any voice in it. A console never sends a number
+// past the stock English voices to a client that did not declare it.
+constexpr const char *kVoiceCatalogueCapability = "voice_catalogue_2";
 // How long a reply waits for its first sentence before it is given up as not
 // delivered. Synthesis is a second or two; this is for a model that hung.
 constexpr std::uint64_t kSynthesisDeadlineMs = 12000;
@@ -1875,8 +1880,19 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
 
     const std::string voices = zoal_atc::gui::join_path(models, kTtsModelName);
     if (zoal_atc::tts::KokoroSynthesizer::installed(voices)) {
+      // The catalogue is made here, before the hello, because the hello is
+      // where the console learns it may ask for it. A folder it cannot be
+      // made in keeps the stock English voices, and says so.
+      std::string why;
+      const bool catalogue = zoal_atc::tts::prepare_catalogue(voices, &why);
+      if (catalogue) {
+        endpoint.capabilities.push_back(kVoiceCatalogueCapability);
+      } else {
+        log_line("the voice catalogue could not be prepared (" + why +
+                 "); controllers speak in the stock English voices");
+      }
       g_synthesis = std::make_unique<zoal_atc::tts::SynthesisQueue>(
-          std::make_unique<zoal_atc::tts::KokoroSynthesizer>(voices),
+          std::make_unique<zoal_atc::tts::KokoroSynthesizer>(voices, catalogue),
           zoal_atc::tts::KokoroSynthesizer::kDefaultSpeaker);
       log_line("controllers speak in their own voices from " + voices);
     } else {

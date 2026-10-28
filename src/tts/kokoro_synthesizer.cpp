@@ -1,5 +1,7 @@
 #include "zoal_atc/tts/kokoro_synthesizer.hpp"
 
+#include "zoal_atc/tts/voice_catalogue.hpp"
+
 #include <sherpa-onnx/c-api/c-api.h>
 
 #include <algorithm>
@@ -15,8 +17,8 @@ namespace {
 // Four threads: measured at 2.9 s for 15.5 s of speech on six, and X-Plane is
 // using the rest of the machine.
 constexpr int kThreads = 4;
-// Controllers speak briskly, and the pauses between phrases are short.
-constexpr float kSpeed = 1.1f;
+// The pauses between phrases are short. How fast each voice talks is its own,
+// in the catalogue.
 constexpr float kSilenceScale = 0.2f;
 
 bool file(const std::filesystem::path &path) {
@@ -26,8 +28,10 @@ bool file(const std::filesystem::path &path) {
 
 }  // namespace
 
-KokoroSynthesizer::KokoroSynthesizer(std::string model_dir)
-    : model_dir_(std::move(model_dir)) {}
+KokoroSynthesizer::KokoroSynthesizer(std::string model_dir, bool catalogue)
+    : model_dir_(std::move(model_dir)),
+      catalogue_(catalogue),
+      speakers_(catalogue ? static_cast<int>(voice_catalogue().size()) : kEnglishSpeakers) {}
 
 KokoroSynthesizer::~KokoroSynthesizer() {
   for (Engine *engine : {&american_, &british_}) {
@@ -50,10 +54,18 @@ const SherpaOnnxOfflineTts *KokoroSynthesizer::load_locked(Engine &engine) {
   }
   const std::filesystem::path dir(model_dir_);
   const std::string model = (dir / "model.onnx").string();
-  const std::string voices = (dir / "voices.bin").string();
+  const std::string voices =
+      (dir / (catalogue_ ? kCatalogueVoicesFile : "voices.bin")).string();
   const std::string tokens = (dir / "tokens.txt").string();
   const std::string data = (dir / "espeak-ng-data").string();
-  const std::string lexicon = (dir / engine.lexicon).string();
+  // Kokoro's own lexicon, and the controller's words it lacks where they were
+  // written: a word in neither is left out of the speech.
+  std::string lexicon = (dir / engine.lexicon).string();
+  const std::filesystem::path aviation =
+      dir / aviation_lexicon_file(engine.lang == std::string("en") ? Lexicon::British : Lexicon::American);
+  if (file(aviation)) {
+    lexicon += "," + aviation.string();
+  }
 
   SherpaOnnxOfflineTtsConfig config;
   std::memset(&config, 0, sizeof(config));
@@ -82,7 +94,7 @@ void KokoroSynthesizer::warm() {
   SherpaOnnxGenerationConfig gen;
   std::memset(&gen, 0, sizeof(gen));
   gen.sid = kDefaultSpeaker;
-  gen.speed = kSpeed;
+  gen.speed = voice_catalogue()[kDefaultSpeaker].speed;
   gen.silence_scale = kSilenceScale;
   if (const auto *audio = SherpaOnnxOfflineTtsGenerateWithConfig(
           tts, "Roger.", &gen, nullptr, nullptr)) {
@@ -96,16 +108,17 @@ Audio KokoroSynthesizer::synthesize(const std::string &text, int speaker) {
   if (text.empty()) {
     return out;
   }
-  const int sid = std::clamp(speaker, 0, kSpeakers - 1);
+  const int sid = std::clamp(speaker, 0, speakers_ - 1);
+  const CatalogueVoice &voice = voice_catalogue()[static_cast<std::size_t>(sid)];
   const SherpaOnnxOfflineTts *tts =
-      load_locked(sid >= kFirstBritish ? british_ : american_);
+      load_locked(voice.lexicon == Lexicon::British ? british_ : american_);
   if (tts == nullptr) {
     return out;
   }
   SherpaOnnxGenerationConfig gen;
   std::memset(&gen, 0, sizeof(gen));
   gen.sid = sid;
-  gen.speed = kSpeed;
+  gen.speed = voice.speed;
   gen.silence_scale = kSilenceScale;
   const SherpaOnnxGeneratedAudio *audio = SherpaOnnxOfflineTtsGenerateWithConfig(
       tts, text.c_str(), &gen, nullptr, nullptr);
