@@ -146,10 +146,27 @@ cannot be transcribed is cancelled, because the console does not transcribe.
 Every reply is said by Kokoro v1.0 through sherpa-onnx (pinned in
 `scripts/sherpa-onnx-version.txt`), in the voice of the position sending it.
 The console names a `voice` on every `atc_reply`, stable per station, so Ground
-and Tower sound like two people. Voice n is Kokoro speaker n-1 among its
-English voices: 1-19 American, 21-28 British (20, `am_santa`, is never used).
-The console chooses from the accent of the field's country, and a British voice
-is spoken with the British lexicon, loaded only the first time one is needed. Synthesis starts the moment a reply arrives, on its own thread, a
+and Tower sound like two people. Voice n is entry n-1 of the voice catalogue
+(`src/tts/voice_catalogue_table.inc`): 1-54 are Kokoro's own speakers in the
+model's order — American, British, and the Spanish, French, Hindi, Italian,
+Japanese, Portuguese and Mandarin speakers, who speak English with their accent
+— and 55 onward are blends of two of them, for the accents Kokoro has few
+voices for. The console chooses from the accent of the field's country; British
+and Indian English are spoken with the British lexicon, loaded only the first
+time one is needed.
+
+The catalogue is made on the pilot's machine the first time the plugin starts,
+from the bundled model: the blended table is written beside the stock one as
+`voices-zoal.bin`, and `model.onnx` is given the catalogue's speaker count by
+appending one metadata entry, because sherpa-onnx refuses a table of a size the
+model does not declare. Nothing extra is downloaded. Only then does the hello
+declare `voice_catalogue_2`, and a console sends a voice past 28 only to a
+client that declared it. Each voice speaks at its own speed, measured so all of
+them keep a controller's pace (about 205 words a minute), and words Kokoro's
+lexicons lack — "niner", "ILS", "RNAV", "VOR" — are added in
+`lexicon-aviation-*.txt`, since a word in no lexicon is left out of the speech.
+`scripts/voice-catalogue.py` regenerates the table, the speeds and the
+aviation lexicon. Synthesis starts the moment a reply arrives, on its own thread, a
 sentence at a time, so the first sentence of a long clearance is ready while
 the rest is still being made. Each sentence is shaped into what a VHF receiver
 passes, 300 to 3,000 Hz with a little compression, and plays on the audio bus of
