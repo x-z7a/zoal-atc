@@ -249,7 +249,7 @@ describe("the panel", () => {
   });
 
   describe("tuning", () => {
-    it("sends the frequency and target the console expects", async () => {
+    it("asks the plugin to tune COM1's active frequency", async () => {
       await mountReady();
       connected();
 
@@ -260,12 +260,27 @@ describe("the panel", () => {
         expect(host.requests.some((request) => request.action === "tune_radio")).toBe(true);
       });
       const tune = host.requests.find((request) => request.action === "tune_radio");
-      expect(tune?.payload).toEqual({mhz: 118.8, target: "active"});
+      expect(tune?.payload).toEqual({mhz: 118.8, com: 1, target: "active"});
     });
 
-    // The panel is a command source, not the decider. When the console refuses,
+    // The plugin turns the knob, so a console that has gone away is no reason
+    // the radio cannot be tuned -- it may be exactly how the pilot finds it again.
+    it("still tunes while the console is unreachable", async () => {
+      await mountReady();
+      host.emitStatus({connected: false, subscribed: false});
+
+      await userEvent.type(screen.getByLabelText("Tune COM1"), "121.900");
+      await userEvent.click(screen.getByRole("button", {name: "Tune"}));
+
+      await waitFor(() => {
+        const tune = host.requests.find((request) => request.action === "tune_radio");
+        expect(tune?.payload).toEqual({mhz: 121.9, com: 1, target: "active"});
+      });
+    });
+
+    // The panel is a command source, not the decider. When the plugin refuses,
     // its words are what the pilot sees.
-    it("shows the console's refusal verbatim", async () => {
+    it("shows the plugin's refusal verbatim", async () => {
       await mountReady();
       connected();
 
@@ -273,10 +288,13 @@ describe("the panel", () => {
       await userEvent.click(screen.getByRole("button", {name: "Tune"}));
 
       await waitFor(() => expect(host.lastRequestId).toBeGreaterThan(0));
-      host.failRequest(host.lastRequestId, "frequency 999.999 is outside the VHF band");
+      host.failRequest(
+        host.lastRequestId,
+        "frequency 999.999 is outside the COM band (118.000-136.975)",
+      );
 
       expect(
-        await screen.findByText("frequency 999.999 is outside the VHF band"),
+        await screen.findByText("frequency 999.999 is outside the COM band (118.000-136.975)"),
       ).toBeInTheDocument();
     });
   });

@@ -51,7 +51,7 @@ export function Composer({disabled = false, onSend, onTune}: Props) {
           disabled={disabled}
           onChange={(event) => setFrequency(event.target.value)}
         />
-        <button type="submit" disabled={disabled}>
+        <button type="submit" className="btn tonal" disabled={disabled}>
           Tune
         </button>
       </form>
@@ -66,7 +66,7 @@ export function Composer({disabled = false, onSend, onTune}: Props) {
           disabled={disabled}
           onChange={(event) => setText(event.target.value)}
         />
-        <button type="submit" disabled={disabled}>
+        <button type="submit" className="btn btn-filled" disabled={disabled}>
           Send
         </button>
       </form>

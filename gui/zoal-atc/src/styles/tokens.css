@@ -1,61 +1,105 @@
-/* Every colour the panel uses, named once.
+/* The panel's theme: Materialize's Material 3 colour roles, retuned for a glass
+ * cockpit.
  *
- * The previous stylesheet had no custom properties at all -- the same handful of
- * hex literals were repeated down the file, so changing one meant finding all of
- * them. The values here are exactly those literals: this is an extraction, not a
- * restyle. A visual pass comes later, and these are the handles it will pull. */
-:root {
+ * Materialize draws every component from the --md-sys-color-* roles, so this
+ * file is the whole theme: set the roles once and buttons, cards, chips, tabs,
+ * switches and tables all follow. The palette borrows avionics conventions a
+ * pilot already reads without thinking -- cyan for what you can select, green
+ * for what is active, amber for caution, magenta for the route -- on the
+ * near-black of a display that has to sit beside a night cockpit.
+ *
+ * The selector is deliberately heavier than Materialize's own :root[theme=dark]
+ * and prefers-color-scheme blocks, so this palette wins however the host
+ * resolves its colour scheme. The panel is dark-only, like the panel it sits in. */
+:root,
+:root[theme],
+:root[theme="dark"] {
   color-scheme: dark;
 
+  --md-sys-color-primary: #43c6e3;
+  --md-sys-color-on-primary: #00262f;
+  --md-sys-color-primary-container: #0f3944;
+  --md-sys-color-on-primary-container: #b3eefb;
+  --md-sys-color-secondary: #6fdc8c;
+  --md-sys-color-on-secondary: #002910;
+  --md-sys-color-secondary-container: #17392a;
+  --md-sys-color-on-secondary-container: #b4f3c4;
+  --md-sys-color-tertiary: #e47bdc;
+  --md-sys-color-on-tertiary: #3a0036;
+  --md-sys-color-tertiary-container: #3d1a3a;
+  --md-sys-color-on-tertiary-container: #f8c8f1;
+  --md-sys-color-error: #ff8f86;
+  --md-sys-color-on-error: #410002;
+  --md-sys-color-error-container: #3d1513;
+  --md-sys-color-on-error-container: #ffdad5;
+  --md-sys-color-background: #090d12;
+  --md-sys-color-on-background: #e1e7ed;
+  --md-sys-color-surface: #10161d;
+  --md-sys-color-on-surface: #e1e7ed;
+  --md-sys-color-surface-variant: #18202a;
+  --md-sys-color-on-surface-variant: #8d9cad;
+  --md-sys-color-outline: #3a4757;
+  --md-sys-color-outline-variant: #222c37;
+  --md-sys-color-inverse-surface: #e1e7ed;
+  --md-sys-color-inverse-on-surface: #10161d;
+  --md-sys-color-inverse-primary: #006879;
+  --md-sys-color-shadow: #000000;
+  --md-sys-color-scrim: #000000;
+  /* No tint: Material's tinted elevation turns every card faintly blue, and an
+     instrument panel is grey glass, not branded glass. */
+  --md-sys-color-surface-tint: #10161d;
+
+  /* Flatter and tighter than Material's defaults. A display bezel has corners;
+     a phone app has pills. */
+  --btn-height: 32px;
+  --btn-padding: 14px;
+  --btn-border-radius: 3px;
+  --btn-font-size: 12px;
+  --mw-chip-height: 22px;
+  --mw-chip-font-size: 11px;
+  --mw-chip-padding: 8px;
+
   --font-sans:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  /* Every number a pilot reads -- frequencies, altitudes, squawks -- is set in
+     a monospace with tabular figures, so 118.800 and 121.900 line up digit for
+     digit and a changing value never jitters its neighbours. */
+  --font-readout: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* Surfaces, darkest to lightest. */
-  --bg: #111418;
-  --surface-sunken: #12171c;
-  --surface: #171c22;
-  --surface-comm: #1c222a;
-  --surface-raised: #232b33;
+  /* The panel's own names for the roles above, so the stylesheet says what a
+     colour is for rather than which Material slot it borrowed. */
+  --bg: var(--md-sys-color-background);
+  --surface-sunken: #070a0e;
+  --surface: var(--md-sys-color-surface);
+  --surface-raised: var(--md-sys-color-surface-variant);
+  --surface-comm: #141c25;
 
-  --border: #2e3741;
-  --border-strong: #3c4651;
+  --border: var(--md-sys-color-outline-variant);
+  --border-strong: var(--md-sys-color-outline);
 
-  /* Text, brightest to dimmest. */
-  --text: #eef2f5;
-  --text-input: #e6edf3;
-  --text-status: #d8e1e8;
-  --text-feed: #ccd6df;
-  --text-pilot: #c9d4de;
-  --text-dim: #95a5b5;
+  --text: var(--md-sys-color-on-surface);
+  --text-dim: var(--md-sys-color-on-surface-variant);
+  --text-feed: #c4cfda;
 
-  /* Roles. ATC and pilot are distinguishable at a glance, on purpose. */
-  --accent: #6fb3e0;
-  --accent-pilot: #8fce9b;
+  --accent: var(--md-sys-color-primary);
+  --active: var(--md-sys-color-secondary);
+  --route: var(--md-sys-color-tertiary);
+  --warn: #f2b33d;
+  --warn-surface: #2a1f0b;
+  --danger: var(--md-sys-color-error);
 
-  /* This cockpit's own bubble, sitting on the right the way a messaging app
-     puts you on the right. Tinted rather than filled: a solid block of colour
-     at this size is louder than the radio deserves. */
-  --pilot-bubble: #1b2c26;
-  --pilot-bubble-border: #2f5344;
+  /* This cockpit's own bubble. Tinted rather than filled: a solid block of
+     colour at this size is louder than the radio deserves. */
+  --pilot-bubble: #10261d;
+  --pilot-bubble-border: #235440;
 
   /* One seat should not look like another. Approach handing you to Tower is a
      change of person, and the colour says so before the words do. */
-  --delivery: #c9a2e0;
-  --surface-seat: #efd784;
-  --tower: #8fbce0;
-  --warn: #efd784;
-  --warn-surface: #241f16;
-  --danger: #efa0a0;
+  --delivery: #c7a4f0;
+  --surface-seat: #f2cf6b;
+  --tower: #7fb8f0;
 
-  --ok-border: #35795f;
-  --ok-surface: #17372d;
-  --ok-text: #8ee2bd;
-
-  --waiting-border: #806f33;
-  --waiting-surface: #382f16;
-  --waiting-text: #efd784;
-
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 8px;
+  --radius-sm: 2px;
+  --radius: 3px;
+  --radius-lg: 4px;
 }

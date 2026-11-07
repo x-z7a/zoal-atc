@@ -254,6 +254,41 @@ void radio_tune_frame_parses() {
           "out-of-band frequency is rejected");
 }
 
+// The panel's tune box is answered by the plugin, which writes the dataref
+// itself. COM1 active is the default because that is what the box says.
+void panel_tune_request_parses() {
+  const auto plain = parse_panel_tune_request(R"({"mhz":118.8})");
+  require(plain.command.valid && plain.error.empty(), "a bare mhz is valid");
+  require(plain.command.com == 1 && plain.command.target == "active",
+          "the panel tunes COM1 active by default");
+  require(com_mhz_to_hz833(plain.command.frequency_mhz) == 118800,
+          "118.8 becomes the 118800 the dataref wants");
+
+  const auto standby = parse_panel_tune_request(
+      R"({"mhz":121.725,"com":2,"target":"standby"})");
+  require(standby.command.valid && standby.command.com == 2 &&
+              standby.command.target == "standby",
+          "COM and target are honoured when given");
+
+  const auto out_of_band = parse_panel_tune_request(R"({"mhz":999.999})");
+  require(!out_of_band.command.valid, "an out-of-band frequency is refused");
+  require(out_of_band.error.find("999.999") != std::string::npos &&
+              out_of_band.error.find("118.000-136.975") != std::string::npos,
+          "the refusal names the frequency and the band");
+
+  require(!parse_panel_tune_request("{}").command.valid,
+          "a request with no frequency is refused");
+  require(!parse_panel_tune_request(R"({"mhz":118.8,"com":3})").command.valid,
+          "there is no COM3");
+  require(!parse_panel_tune_request(R"({"mhz":118.8,"target":"nav"})")
+               .command.valid,
+          "an unknown target is refused");
+
+  const std::string answer = build_panel_tune_answer(plain.command);
+  require(answer == R"({"tuned":true,"mhz":118.800,"com":1,"target":"active"})",
+          "the answer echoes what was written: " + answer);
+}
+
 int main() {
   frame_matches_wire_contract();
   empty_snapshot_renders();
@@ -263,6 +298,7 @@ int main() {
   query_frame_parses();
   query_result_frame_builds();
   radio_tune_frame_parses();
+  panel_tune_request_parses();
   unit_conversions_are_correct();
   json_helpers_escape_and_format();
   std::cout << "zoal_atc_telemetry_tests: all tests passed\n";

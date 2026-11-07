@@ -2,8 +2,7 @@ import {render, screen, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {describe, expect, it, vi} from "vitest";
 
-import type {BayRow, CommLogEntry} from "../bridge/views";
-import {BayTable, groupByFacility} from "./BayTable";
+import type {CommLogEntry} from "../bridge/views";
 import {CommLog} from "./CommLog";
 import {ErrorText} from "./ErrorText";
 import {FieldRow} from "./FieldRow";
@@ -259,99 +258,5 @@ describe("FieldRow", () => {
     render(<FieldRow label="Tune COM1" submitLabel="Tune" disabled onSubmit={() => {}} />);
 
     expect(screen.getByRole("button", {name: "Tune"})).toBeDisabled();
-  });
-});
-
-describe("BayTable", () => {
-  function row(overrides: Partial<BayRow> = {}): BayRow {
-    return {flightId: "flight-1", callsign: "GABCD", ...overrides};
-  }
-
-  it("says so plainly when nobody is connected", () => {
-    render(<BayTable rows={[]} />);
-
-    expect(screen.getByText("No aircraft connected.")).toBeInTheDocument();
-  });
-
-  it("shows what the next controller would need to know", () => {
-    render(
-      <BayTable
-        rows={[
-          row({
-            lifecycle: "taxi_out",
-            service: "ground",
-            airport: "CYOW",
-            frequencyMhz: 121.9,
-            onGround: true,
-            hasTelemetry: true,
-            telemetryAgeSeconds: 1.4,
-          }),
-        ]}
-      />,
-    );
-
-    expect(screen.getByText("GABCD")).toBeInTheDocument();
-    expect(screen.getByText("taxi_out")).toBeInTheDocument();
-    expect(screen.getByText("121.900")).toBeInTheDocument();
-    expect(screen.getByText("on ground")).toBeInTheDocument();
-    expect(screen.getByText("1s")).toBeInTheDocument();
-  });
-
-  // The two ways a turn sits unfinished, plus authority the traffic picture
-  // cannot show.
-  it("lists what is outstanding", () => {
-    render(
-      <BayTable
-        rows={[row({readbackPending: true, awaitingDelivery: true, heldRunway: "07"})]}
-      />,
-    );
-
-    expect(screen.getByText("readback, delivery, rwy 07")).toBeInTheDocument();
-  });
-
-  // A row that stops ageing is a connection that has gone away without saying
-  // so, and no feed at all must not read as a fresh zero.
-  it("distinguishes no feed from a fresh one", () => {
-    render(<BayTable rows={[row({hasTelemetry: false, telemetryAgeSeconds: 0})]} />);
-
-    expect(screen.getByText("no feed")).toBeInTheDocument();
-  });
-});
-
-describe("BayTable facility grouping", () => {
-  function row(overrides: Partial<BayRow> = {}): BayRow {
-    return {flightId: "flight-1", callsign: "GABCD", ...overrides};
-  }
-
-  it("groups aircraft by the field working them", () => {
-    const groups = groupByFacility([
-      row({flightId: "a", facility: "CYOW"}),
-      row({flightId: "b", facility: "EGLL"}),
-      row({flightId: "c", facility: "CYOW"}),
-    ]);
-    expect(groups.map(([facility, rows]) => [facility, rows.length])).toEqual([
-      ["CYOW", 2],
-      ["EGLL", 1],
-    ]);
-  });
-
-  // The facility is the field whose positions own the aircraft. airport is
-  // whatever own-ship is nearest to, which for most of a flight is somewhere it
-  // is only passing over -- usable as a fallback, never a substitute.
-  it("falls back to the nearest field when no facility has resolved", () => {
-    const groups = groupByFacility([row({flightId: "a", airport: "CYHM"})]);
-    expect(groups[0][0]).toBe("CYHM");
-  });
-
-  // A console working one field gains nothing from a header saying so.
-  it("names the facility only when more than one is being worked", () => {
-    const one = render(<BayTable rows={[row({facility: "CYOW"})]} />);
-    expect(one.container.querySelector(".bay-facility")).toBeNull();
-    one.unmount();
-
-    const two = render(
-      <BayTable rows={[row({flightId: "a", facility: "CYOW"}), row({flightId: "b", facility: "EGLL"})]} />,
-    );
-    expect(two.container.querySelectorAll(".bay-facility")).toHaveLength(2);
   });
 });

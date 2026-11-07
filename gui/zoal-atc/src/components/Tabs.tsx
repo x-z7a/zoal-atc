@@ -17,7 +17,7 @@ type Props = {
 // yoke in one hand, and a control that can only be reached by clicking exactly
 // on it is harder to use than one that responds to a key.
 export function Tabs({tabs, active, onSelect}: Props) {
-  function onKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+  function onKeyDown(event: KeyboardEvent<HTMLUListElement>): void {
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (step === 0) {
       return;
@@ -31,26 +31,27 @@ export function Tabs({tabs, active, onSelect}: Props) {
   }
 
   return (
-    <div className="tabs" role="tablist" aria-label="Panel sections" onKeyDown={onKeyDown}>
+    <ul className="tabs" role="tablist" aria-label="Panel sections" onKeyDown={onKeyDown}>
       {tabs.map((tab) => {
         const selected = tab.id === active;
         return (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            id={`tab-${tab.id}`}
-            aria-selected={selected}
-            aria-controls={`panel-${tab.id}`}
-            tabIndex={selected ? 0 : -1}
-            className={`tab ${selected ? "tab-active" : ""}`}
-            onClick={() => onSelect(tab.id)}
-          >
-            {tab.label}
-          </button>
+          <li key={tab.id} className="tab" role="presentation">
+            <button
+              type="button"
+              role="tab"
+              id={`tab-${tab.id}`}
+              aria-selected={selected}
+              aria-controls={`panel-${tab.id}`}
+              tabIndex={selected ? 0 : -1}
+              className={selected ? "active" : undefined}
+              onClick={() => onSelect(tab.id)}
+            >
+              {tab.label}
+            </button>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
@@ -63,9 +64,8 @@ type PanelProps = {
 // Only the active panel is mounted.
 //
 // That is the answer to the objection phase 23 raised about React in a CEF
-// window drawing inside the sim's frame budget: the expensive views -- the raw
-// session JSON, the bay table, the debug tail -- render nothing at all while
-// the pilot is on Home.
+// window drawing inside the sim's frame budget: a tab the pilot is not looking
+// at renders nothing at all.
 export function TabPanel({id, active, children}: PanelProps) {
   if (id !== active) {
     return null;

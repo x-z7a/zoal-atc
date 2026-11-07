@@ -45,10 +45,11 @@ yourself, see *Console endpoint* below.
   **console-controlled**: the plugin decodes the `telemetry_control` frame and
   samples at the commanded interval, falling back to a local policy when no
   command has arrived or the connection drops.
-- **Navdata.** Hash-first sending of scoped `apt.dat` blocks, CIFP, airspace and
-  VRP data, answering `navdata_*_request`, plus METAR.
+- **Weather.** The newest METAR from X-Plane's real-weather download, sent on
+  airport change, on reconnect and every ten minutes. Navdata (airports,
+  procedures, airspace, fixes) is the console's job; the plugin ships none.
 - **The in-sim panel.** A React + TypeScript app hosted by SkyScript in an X-Plane browser window, with
-  Home, Settings and Debug tabs. The panel never talks to the console directly —
+  Home and Settings tabs. The panel never talks to the console directly —
   everything goes through the plugin's socket over the `console.request` /
   `console.event` bridge, so credentials stay out of the page.
 - **Notifications.** The plugin raises a toast from its cached `atc_reply` so it

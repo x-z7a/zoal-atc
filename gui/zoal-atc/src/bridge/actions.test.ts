@@ -12,7 +12,8 @@ import {ALL_ACTIONS, ALL_LOCAL_ACTIONS} from "./actions";
 // LOCAL_ACTIONS: a pilot's SimBrief ID and their notification preference belong
 // to the person in the cockpit rather than to a facility, the plugin's config
 // file already holds the ID, and answering them locally keeps them working
-// while the console is unreachable.
+// while the console is unreachable. tune_radio followed for the same reason:
+// the plugin turns the pilot's own COM knob by writing the dataref.
 //
 // If this test fails, the fix is not to update the literal below. It is to
 // check whether the Go list moved too.
@@ -28,7 +29,6 @@ describe("the action contract with the console", () => {
       "status",
       "submit_text",
       "traffic",
-      "tune_radio",
     ]);
   });
 

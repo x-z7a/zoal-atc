@@ -61,7 +61,7 @@ std::optional<GuiEvent> parse_gui_event(const std::string &frame);
 // is_gui_frame reports whether a console frame belongs to the GUI at all. The
 // receiver loop routes on this rather than on a successful parse, so a
 // malformed gui_* frame is dropped by the GUI instead of falling through to the
-// telemetry and navdata parsers behind it.
+// telemetry and radio parsers behind it.
 bool is_gui_frame(const std::string &frame);
 
 // PanelRequest is the console.request envelope the panel's JavaScript posts.

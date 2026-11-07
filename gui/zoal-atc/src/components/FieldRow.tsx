@@ -76,13 +76,14 @@ export function FieldRow({
         // this row -- a save that is not coming back -- is what went wrong.
         <button
           type="button"
+          className="btn outlined"
           aria-pressed={revealed}
           onClick={() => setRevealed((shown) => !shown)}
         >
           {revealed ? "Hide" : "Show"}
         </button>
       ) : null}
-      <button type="submit" disabled={disabled}>
+      <button type="submit" className="btn tonal" disabled={disabled}>
         {submitLabel}
       </button>
     </form>

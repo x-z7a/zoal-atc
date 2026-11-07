@@ -166,6 +166,56 @@ RadioTuneCommand parse_radio_tune_command(const std::string &json) {
   return command;
 }
 
+PanelTune parse_panel_tune_request(const std::string &payload_json) {
+  PanelTune tune;
+  const auto mhz = transport::json_number_field(payload_json, "mhz");
+  if (!mhz.has_value() || !std::isfinite(*mhz)) {
+    tune.error = "no frequency to tune";
+    return tune;
+  }
+  if (*mhz < 118.0 || *mhz > 136.975) {
+    std::ostringstream message;
+    message.setf(std::ios::fixed);
+    message.precision(3);
+    message << "frequency " << *mhz
+            << " is outside the COM band (118.000-136.975)";
+    tune.error = message.str();
+    return tune;
+  }
+  int com = 1;
+  if (const auto requested = transport::json_uint_field(payload_json, "com")) {
+    if (*requested != 1 && *requested != 2) {
+      tune.error = "there is no COM" + std::to_string(*requested);
+      return tune;
+    }
+    com = static_cast<int>(*requested);
+  }
+  std::string target = "active";
+  if (const auto requested =
+          transport::json_string_field(payload_json, "target")) {
+    if (*requested != "active" && *requested != "standby") {
+      tune.error = "tune target must be active or standby";
+      return tune;
+    }
+    target = *requested;
+  }
+  tune.command.valid = true;
+  tune.command.frequency_mhz = *mhz;
+  tune.command.com = com;
+  tune.command.target = target;
+  return tune;
+}
+
+std::string build_panel_tune_answer(const RadioTuneCommand &command) {
+  std::ostringstream out;
+  out.setf(std::ios::fixed);
+  out.precision(3);
+  out << "{\"tuned\":true,\"mhz\":" << command.frequency_mhz
+      << ",\"com\":" << command.com << ",\"target\":\""
+      << command.target << "\"}";
+  return out.str();
+}
+
 std::string build_telemetry_query_result(
     std::uint64_t query_id,
     const std::vector<std::pair<std::string, double>> &values) {

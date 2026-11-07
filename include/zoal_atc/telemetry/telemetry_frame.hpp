@@ -54,7 +54,7 @@ struct TelemetrySnapshot {
   double com2_standby_mhz = 0;
   int active_com = 0;
 
-  // Airport (nearest-field lookup; static detail arrives via navdata frames)
+  // Airport (nearest-field lookup; static detail is the console's own navdata)
   std::string airport_id;
   std::string airport_name;
 
@@ -171,6 +171,23 @@ struct RadioTuneCommand {
 
 // parse_radio_tune_command decodes a `radio_tune` frame.
 RadioTuneCommand parse_radio_tune_command(const std::string &json);
+
+// PanelTune is the panel's own tune_radio request, answered by the plugin: it
+// writes the radio dataref itself rather than asking the console to. The
+// payload is {mhz, com?, target?}; com defaults to 1 and target to "active",
+// because the panel's tune box is labelled COM1 and means the frequency you
+// talk on. On a refusal `command.valid` is false and `error` says why, in
+// words the panel shows the pilot as-is.
+struct PanelTune {
+  RadioTuneCommand command;
+  std::string error;
+};
+
+PanelTune parse_panel_tune_request(const std::string &payload_json);
+
+// build_panel_tune_answer renders the payload the panel receives once the
+// dataref is written: {"tuned":true,"mhz":118.8,"com":1,"target":"active"}.
+std::string build_panel_tune_answer(const RadioTuneCommand &command);
 
 // build_telemetry_query_result renders the answer frame for query_id: a
 // `telemetry_query_result` carrying the sampled value of each readable dataref.

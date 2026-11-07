@@ -15,13 +15,13 @@ type Props = {
 // every pixel they take is a line of conversation nobody can see.
 export function Tile({label, value, detail, action}: Props) {
   return (
-    <article className="tile">
+    <article className="card tile">
       <span className="label">
         {label}
         {action ? (
           <button
             type="button"
-            className="tile-action"
+            className="btn text tile-action"
             onClick={action.onClick}
             disabled={action.disabled}
           >
