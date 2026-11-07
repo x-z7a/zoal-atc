@@ -1,12 +1,9 @@
-/* The panel's look, carried across from the pre-React stylesheet unchanged.
+/* The panel's layout, on top of Materialize.
  *
- * Only the colour literals moved (into tokens.css); every size, weight and rule
- * is the one that shipped. A visual pass is deliberately out of scope here --
- * the point of phase 24 is to make one cheap, not to guess at it. */
-
-* {
-  box-sizing: border-box;
-}
+ * Materialize supplies the components -- .card, .btn, .chip, .tabs, .switch,
+ * table -- and tokens.css colours them. What lives here is what a framework
+ * cannot know: a 620px window inside a sim, a radio log that has to own the
+ * height, and readouts that are read at a glance in turbulence. */
 
 :root {
   font-family: var(--font-sans);
@@ -19,6 +16,14 @@ body {
   min-width: 640px;
   min-height: 480px;
   background: var(--bg);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+code {
+  font-family: var(--font-readout);
+  font-size: 0.92em;
+  color: var(--accent);
 }
 
 /* The panel is exactly the window and never taller: the conversation scrolls,
@@ -29,19 +34,20 @@ body {
   overflow: hidden;
   height: 100vh;
   flex-direction: column;
-  gap: 10px;
-  padding: 12px 14px 14px;
+  gap: 8px;
+  padding: 10px 12px 12px;
 }
 
 /* ---- Mast ---------------------------------------------------------------- */
 
 .mast {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 2px 2px 8px;
   border-bottom: 1px solid var(--border);
-  padding-bottom: 8px;
 }
 
 .eyebrow,
@@ -52,48 +58,82 @@ body {
   margin: 0;
   color: var(--text-dim);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-h1 {
+.eyebrow {
+  font-family: var(--font-readout);
+  letter-spacing: 0.04em;
+}
+
+/* Materialize sizes h1 for a landing page. This one is a bezel caption. */
+.mast h1 {
   margin: 1px 0 0;
-  font-size: 19px;
-  font-weight: 700;
-  letter-spacing: 0;
+  color: var(--text);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
 }
 
 .status-stack {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
-.status {
+/* A Materialize chip with an annunciator light in front of it: green steady
+   when the link is up, amber when it is not -- the same two colours as the
+   caution panel this sits beside. */
+.chip.status {
+  gap: 6px;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  padding: 3px 8px;
-  color: var(--text-status);
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: var(--font-readout);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: default;
+}
+
+.chip.status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.chip.status:hover,
+.chip.status:focus {
+  background: var(--surface-sunken);
+  color: var(--text);
 }
 
 .status-ready {
-  border-color: var(--ok-border);
-  background: var(--ok-surface);
-  color: var(--ok-text);
+  border-color: color-mix(in srgb, var(--active) 45%, transparent);
+}
+
+.status-ready::before {
+  background: var(--active);
+  box-shadow: 0 0 6px var(--active);
 }
 
 .status-waiting {
-  border-color: var(--waiting-border);
-  background: var(--waiting-surface);
-  color: var(--waiting-text);
+  border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  color: var(--warn);
 }
 
-/* ---- Tiles and panels ---------------------------------------------------- */
+.status-waiting::before {
+  background: var(--warn);
+}
+
+/* ---- Readout tiles ------------------------------------------------------- */
 
 /* Six readouts across when the window is wide, folding to three and then two as
    it narrows. They are a glance, not the content: the radio below them is what
@@ -105,26 +145,33 @@ h1 {
   gap: 6px;
 }
 
-.tile,
-.feed {
+/* Cards, but instrument cards: hairline bezel, no lift. Elevation shadows read
+   as a phone UI; an avionics display is flat glass behind a frame. */
+.card.tile,
+.card.feed {
+  margin: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
+  box-shadow: none;
 }
 
 .tile {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   padding: 6px 9px 7px;
 }
 
 .tile strong {
   overflow: hidden;
+  color: var(--active);
+  font-family: var(--font-readout);
   font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -134,44 +181,34 @@ h1 {
 .tile-detail {
   overflow: hidden;
   color: var(--text-dim);
+  font-family: var(--font-readout);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: 600;
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 /* The one obvious thing to do with a readout, sitting on its label line so it
-   costs no height. */
-.tile-action {
-  padding: 0;
-  border: none;
+   costs no height. A Materialize text button, shrunk to the label's size. */
+.btn.text.tile-action {
+  height: 16px;
   margin-left: auto;
-  background: none;
-  color: var(--accent);
-  font: inherit;
+  padding: 0 4px;
   font-size: 10px;
   font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  cursor: pointer;
 }
 
-.tile-action:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
-.tile-action:disabled {
-  color: var(--text-dim);
-  cursor: default;
-}
+/* ---- Radio --------------------------------------------------------------- */
 
 .feed {
   display: flex;
   min-height: 0;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
+  padding: 8px 10px 10px;
 }
 
 /* The radio takes everything the readouts and the mast leave. */
@@ -184,30 +221,27 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
 }
 
-.feed p {
-  margin: 0;
-  color: var(--text-feed);
-  font-size: 17px;
-  line-height: 1.45;
-}
-
-.pulse {
-  width: 10px;
-  height: 10px;
+/* The receive light. */
+.radio-led {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
+  background: var(--active);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--active) 15%, transparent);
+}
+
+.console-unreachable .radio-led {
   background: var(--warn);
-  box-shadow: 0 0 0 4px rgb(239 215 132 / 14%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 15%, transparent);
 }
 
 @media (max-width: 760px) {
   .panel {
-    padding: 10px;
-  }
-
-  .status-stack {
-    justify-content: flex-end;
+    padding: 8px;
   }
 }
 
@@ -261,44 +295,50 @@ h1 {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 4px;
-  font-size: 11px;
+  padding: 0 2px;
+  font-family: var(--font-readout);
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
-/* One seat should not look like another. Approach handing you to Tower is a
-   change of person, and the colour says so before the words do. */
+/* Each seat sets --seat on its row; the name and the bubble's leading edge both
+   take it, so a handoff is visible even scrolling past at speed. */
 .tone-pilot {
-  color: var(--accent-pilot);
+  --seat: var(--active);
 }
 
 .tone-delivery {
-  color: var(--delivery);
+  --seat: var(--delivery);
 }
 
 .tone-surface {
-  color: var(--surface-seat);
+  --seat: var(--surface-seat);
 }
 
 .tone-tower {
-  color: var(--tower);
+  --seat: var(--tower);
 }
 
 .tone-radar {
-  color: var(--accent);
+  --seat: var(--accent);
 }
 
 .tone-advisory,
 .tone-atc {
-  color: var(--text-dim);
+  --seat: var(--text-dim);
+}
+
+.bubble-speaker {
+  color: var(--seat, var(--text-dim));
 }
 
 .bubble {
-  padding: 8px 12px;
+  padding: 7px 11px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-left: 2px solid var(--seat, var(--border-strong));
+  border-radius: var(--radius-lg);
   background: var(--surface-comm);
   color: var(--text);
   font-size: 14px;
@@ -306,35 +346,71 @@ h1 {
   overflow-wrap: anywhere;
 }
 
-/* The tail corner, which is what makes a bubble read as coming from a side. */
-.from-atc .bubble {
-  border-top-left-radius: 3px;
-}
-
 .from-pilot .bubble {
-  border-top-right-radius: 3px;
   border-color: var(--pilot-bubble-border);
+  border-left-width: 1px;
+  border-right: 2px solid var(--seat, var(--active));
   background: var(--pilot-bubble);
-  color: var(--text);
 }
 
 /* An overheard copy is another aircraft's clearance. It must not read as this
    cockpit's, or a routing bug looks like normal operation (phase 22 M7). */
 .is-overheard .bubble {
   border-style: dashed;
+  border-right-width: 1px;
   background: transparent;
-  color: var(--text-pilot);
+  color: var(--text-feed);
 }
 
-.bubble-tag {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: var(--border);
+.chip.bubble-tag {
+  height: 16px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+/* ---- Inputs -------------------------------------------------------------- */
+
+/* Materialize 2's form fields are floating-label fieldsets built for a page
+   with room; in a radio composer a label above every box is a line of
+   conversation lost. The inputs here are styled from the same roles instead,
+   as the sunken entry fields of an FMS scratchpad. */
+.composer input,
+.control-row input {
+  min-width: 0;
+  flex: 1;
+  height: 32px;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  transition: border-color 0.15s ease;
+}
+
+.composer input::placeholder,
+.control-row input::placeholder {
+  color: color-mix(in srgb, var(--text-dim) 70%, transparent);
+}
+
+.composer input:focus,
+.control-row input:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.composer input:disabled,
+.control-row input:disabled {
+  opacity: 0.5;
 }
 
 /* ---- Composer ------------------------------------------------------------ */
@@ -360,8 +436,12 @@ h1 {
   flex: 0 1 auto;
 }
 
+/* A frequency is entered like one: monospace, standby-cyan. */
 .composer-tune input {
-  width: 92px;
+  width: 96px;
+  color: var(--accent);
+  font-family: var(--font-readout);
+  font-variant-numeric: tabular-nums;
 }
 
 .composer-say {
@@ -369,60 +449,15 @@ h1 {
   min-width: 0;
 }
 
-.composer input {
-  min-width: 0;
-  flex: 1;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-sunken);
-  color: var(--text-input);
-  font: inherit;
-  font-size: 13px;
-}
-
-.composer input:focus {
-  border-color: var(--accent);
-  outline: none;
-}
-
-.composer button {
-  flex: none;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--text-input);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.composer button:hover:not(:disabled) {
-  border-color: var(--accent);
-}
-
-.composer button:disabled,
-.composer input:disabled {
-  opacity: 0.5;
-}
-
 /* Reading back through the log must not mean missing the call that just came
    in, so the log says how much it is holding below. */
-.jump-latest {
+.btn.jump-latest {
   position: absolute;
   right: 12px;
   bottom: 10px;
-  padding: 6px 12px;
-  border: 1px solid var(--accent);
-  border-radius: 999px;
-  background: var(--surface-raised);
-  color: var(--text);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
-  cursor: pointer;
+  height: 28px;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
 }
 
 /* ---- Controls ------------------------------------------------------------ */
@@ -441,61 +476,7 @@ h1 {
 
 .control-row .label {
   flex: none;
-  width: 90px;
-}
-
-.control-row input {
-  flex: 1;
-  min-width: 0;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-sunken);
-  color: var(--text-input);
-  font: inherit;
-  font-size: 14px;
-}
-
-.control-row input:focus {
-  border-color: var(--accent);
-  outline: none;
-}
-
-.control-row button {
-  flex: none;
-  padding: 7px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface-raised);
-  color: var(--text-input);
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.control-row button:hover {
-  border-color: var(--accent);
-}
-
-.flight-plan {
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 4px 8px;
-  align-items: baseline;
-  padding: 8px 0;
-}
-
-.flight-plan strong {
-  overflow-wrap: anywhere;
-  font-size: 16px;
-  letter-spacing: 0;
-}
-
-.flight-plan span:last-child {
-  grid-column: 2;
-  color: var(--text-dim);
-  font-size: 13px;
-  overflow-wrap: anywhere;
+  width: 110px;
 }
 
 /* ---- Failure and staleness ----------------------------------------------- */
@@ -510,25 +491,29 @@ h1 {
 
 /* Stale telemetry is not the same condition as a disconnected console, and the
    pilot needs to tell them apart: one means the numbers above stopped arriving,
-   the other means nobody is listening to the radio. */
+   the other means nobody is listening to the radio. Styled as a caution
+   annunciator, because that is what it is. */
 .stale-banner {
+  flex: none;
   margin: 0;
   color: var(--warn);
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .stale-banner.is-stale {
   padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
   border-left: 3px solid var(--warn);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--warn-surface);
 }
 
 /* While the console is unreachable every value on screen is last-known. Dimming
    the readouts says so at a glance; the log keeps full contrast because what was
    already said is still true. */
-.console-unreachable .tile strong,
-.console-unreachable .json-block {
+.console-unreachable .tile strong {
   opacity: 0.45;
 }
 

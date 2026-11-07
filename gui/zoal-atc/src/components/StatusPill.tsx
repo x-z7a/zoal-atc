@@ -10,6 +10,6 @@ type Props = {
 // text says which it is too -- colour alone is not a status.
 export function StatusPill({ready, children}: Props) {
   return (
-    <span className={`status ${ready ? "status-ready" : "status-waiting"}`}>{children}</span>
+    <span className={`chip status ${ready ? "status-ready" : "status-waiting"}`}>{children}</span>
   );
 }

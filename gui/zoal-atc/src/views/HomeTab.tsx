@@ -1,6 +1,6 @@
 import {useEffect, useState} from "react";
 
-import {ACTIONS} from "../bridge/actions";
+import {ACTIONS, LOCAL_ACTIONS} from "../bridge/actions";
 import {EVENTS} from "../bridge/types";
 import type {BayView, FlightPlanView, PanelTelemetry, SessionView} from "../bridge/views";
 import {CommLog} from "../components/CommLog";
@@ -30,9 +30,8 @@ const ARMED_MS = 5000;
 // What the pilot flies with.
 //
 // Own-ship across the top, the radio filling everything left, and the things
-// you do to the radio docked to the bottom of it. Everything that exists to
-// explain the console rather than fly the aeroplane is on Debug, and everything
-// set once is on Settings.
+// you do to the radio docked to the bottom of it. Everything set once is on
+// Settings.
 export function HomeTab() {
   const {store} = useConsole();
   const telemetry = useConsoleEvent<PanelTelemetry>(EVENTS.telemetry);
@@ -56,12 +55,13 @@ export function HomeTab() {
     const mhz = Number.parseFloat(value);
     if (!Number.isFinite(mhz)) {
       // The only check the panel makes, and only because an unparseable string
-      // is not a frequency at all. Whether 118.8 is allowed here is the
-      // console's answer to give.
+      // is not a frequency at all. Whether it is in the COM band is the
+      // plugin's answer to give, in its own words.
       return;
     }
     clearError();
-    void run(ACTIONS.tuneRadio, {mhz, target: "active"}).catch(() => {});
+    // Answered by the plugin, which writes COM1's active frequency dataref.
+    void run(LOCAL_ACTIONS.tuneRadio, {mhz, com: 1, target: "active"}).catch(() => {});
   }
 
   function transmit(text: string): void {
@@ -146,10 +146,10 @@ export function HomeTab() {
         />
       </section>
 
-      <section className="feed radio" aria-label="Radio">
+      <section className="card feed radio" aria-label="Radio">
         <div className="feed-head">
           <span className="label">Radio</span>
-          <span className="pulse" aria-hidden="true" />
+          <span className="radio-led" aria-hidden="true" />
           <span className="label">{formatDroppedEvents(status.droppedEvents)}</span>
         </div>
 

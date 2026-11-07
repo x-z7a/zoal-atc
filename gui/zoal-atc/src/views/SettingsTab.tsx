@@ -131,7 +131,7 @@ export function SettingsTab() {
   }
 
   return (
-    <section className="controls" aria-label="Settings">
+    <section className="controls settings" aria-label="Settings">
       <h2 className="section-title">Connection</h2>
 
       <div className="setting">
@@ -209,7 +209,12 @@ export function SettingsTab() {
         <strong>{formatFlightPlanRoute(plan)}</strong>
         <p className="setting-help">{formatFlightPlanDetail(plan) || "No plan imported yet."}</p>
         <div className="control-row">
-          <button type="button" onClick={importNow} disabled={busy || boot !== "ready"}>
+          <button
+            type="button"
+            className="btn btn-filled"
+            onClick={importNow}
+            disabled={busy || boot !== "ready"}
+          >
             Import now
           </button>
         </div>
@@ -244,6 +249,7 @@ export function SettingsTab() {
           Corner
         </label>
         <select
+          className="browser-default"
           id="notification-corner"
           value={notifications.corner}
           disabled={busy || boot !== "ready" || !notifications.enabled}
@@ -262,6 +268,7 @@ export function SettingsTab() {
           Seconds on screen
         </label>
         <select
+          className="browser-default"
           id="notification-timeout"
           value={String(notifications.timeoutSecs)}
           disabled={busy || boot !== "ready" || !notifications.enabled}

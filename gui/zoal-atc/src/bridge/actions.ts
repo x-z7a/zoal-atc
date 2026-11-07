@@ -19,7 +19,6 @@ export const ACTIONS = {
   facilitySnapshot: "facility_snapshot",
   status: "status",
   // Writes.
-  tuneRadio: "tune_radio",
   submitText: "submit_text",
   refreshFlightPlan: "refresh_flight_plan",
   // The pilot saying this is a different flight from the last one.
@@ -59,6 +58,10 @@ export const LOCAL_ACTIONS = {
   // console is unreachable, which is when settings get fiddled with.
   settings: "settings",
   saveSettings: "save_settings",
+  // The pilot's own radio. The plugin writes the COM dataref itself, so tuning
+  // is the sim doing what the pilot asked, not a request a console can refuse,
+  // and it keeps working while the console is unreachable.
+  tuneRadio: "tune_radio",
 } as const;
 
 export type LocalActionName = (typeof LOCAL_ACTIONS)[keyof typeof LOCAL_ACTIONS];

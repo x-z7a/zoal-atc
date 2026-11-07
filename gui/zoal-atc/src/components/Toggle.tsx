@@ -9,19 +9,23 @@ type Props = {
 //
 // A real checkbox rather than a styled div: it is reachable by keyboard, it
 // announces its own state, and the label is attached to it — this window is
-// used with a yoke in one hand.
+// used with a yoke in one hand. Materialize's switch draws the lever over it;
+// the checkbox underneath is still the control.
 export function Toggle({label, checked, disabled = false, onChange}: Props) {
   const id = `toggle-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
-    <div className="toggle-row">
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <label htmlFor={id}>{label}</label>
+    <div className={`switch toggle-row${disabled ? " is-disabled" : ""}`}>
+      <label htmlFor={id}>
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span className="lever" aria-hidden="true" />
+        <span className="toggle-label">{label}</span>
+      </label>
     </div>
   );
 }

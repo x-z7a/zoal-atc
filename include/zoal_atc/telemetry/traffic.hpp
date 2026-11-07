@@ -13,8 +13,7 @@
 // The XPLM reads themselves are glue in xplane_plugin.cpp.
 //
 // The plugin holds no ATC logic: it filters by distance to keep the frame small
-// (the same bounding role apt.dat bbox scoping already plays in navdata) and
-// makes no decision about the targets it keeps. Geometry, phase and every
+// and makes no decision about the targets it keeps. Geometry, phase and every
 // authorization stay console-side.
 namespace zoal_atc::telemetry {
 

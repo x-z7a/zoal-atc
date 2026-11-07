@@ -33,8 +33,6 @@ add_library(zoal_atc_core STATIC
     src/gui/gui_frames.cpp
     src/gui/notification.cpp
     src/gui/panel_paths.cpp
-    src/navdata/md5.cpp
-    src/navdata/navdata_service.cpp
     src/ptt/noop_audio_recorder.cpp
     src/ptt/push_to_talk_controller.cpp
     src/stt/transcript_frame.cpp
@@ -48,6 +46,7 @@ add_library(zoal_atc_core STATIC
     src/transport/json_util.cpp
     src/transport/speech_text.cpp
     src/transport/websocket_client.cpp
+    src/weather/metar.cpp
 )
 
 target_include_directories(zoal_atc_core
@@ -266,7 +265,7 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_tests tests/push_to_talk_controller_test.cpp)
     zoal_atc_add_test(zoal_atc_telemetry_tests tests/telemetry_frame_test.cpp)
     zoal_atc_add_test(zoal_atc_traffic_tests tests/traffic_test.cpp)
-    zoal_atc_add_test(zoal_atc_navdata_tests tests/navdata_service_test.cpp)
+    zoal_atc_add_test(zoal_atc_metar_tests tests/metar_test.cpp)
     zoal_atc_add_test(zoal_atc_speech_text_tests tests/speech_text_test.cpp)
     zoal_atc_add_test(zoal_atc_endpoint_config_tests tests/endpoint_config_test.cpp)
     zoal_atc_add_test(zoal_atc_reconnect_gate_tests tests/reconnect_gate_test.cpp)

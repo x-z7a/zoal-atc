@@ -24,8 +24,10 @@ function CommEntry({entry, ownCallsign}: {entry: CommLogEntry; ownCallsign?: str
       : ownCallsign || "You"
     : formatPosition(entry.spokenBy);
 
+  const tone = fromPilot ? "pilot" : positionTone(entry.spokenBy);
   const className = [
     "bubble-row",
+    `tone-${tone}`,
     fromPilot ? "from-pilot" : "from-atc",
     entry.overheard ? "is-overheard" : "",
   ]
@@ -34,13 +36,13 @@ function CommEntry({entry, ownCallsign}: {entry: CommLogEntry; ownCallsign?: str
 
   return (
     <li className={className}>
-      <span className={`bubble-speaker tone-${fromPilot ? "pilot" : positionTone(entry.spokenBy)}`}>
+      <span className="bubble-speaker">
         {speaker}
         {/* An overheard copy is another aircraft's clearance. Rendered like an
             addressed one, a routing bug reads as normal operation -- a
             clearance appearing in two cockpits looks fine (phase 22 M7). */}
         {entry.overheard ? (
-          <span className="bubble-tag">
+          <span className="chip bubble-tag">
             {entry.addressedTo ? `to ${entry.addressedTo}` : "overheard"}
           </span>
         ) : null}
@@ -120,7 +122,7 @@ export function CommLog({entries, ownCallsign}: Props) {
       {/* Reading back through the log must not mean missing the call that just
           came in. */}
       {pendingBelow > 0 ? (
-        <button type="button" className="jump-latest" onClick={jumpToLatest}>
+        <button type="button" className="btn btn-filled jump-latest" onClick={jumpToLatest}>
           {pendingBelow === 1 ? "1 new transmission" : `${pendingBelow} new transmissions`} ↓
         </button>
       ) : null}

@@ -1,4 +1,3 @@
-#include "zoal_atc/navdata/navdata_service.hpp"
 #include "zoal_atc/gui/gui_bridge.hpp"
 #include "zoal_atc/gui/panel_paths.hpp"
 #include "zoal_atc/gui/skyscript_panel.hpp"
@@ -15,6 +14,7 @@
 #include "zoal_atc/transport/json_util.hpp"
 #include "zoal_atc/transport/speech_text.hpp"
 #include "zoal_atc/transport/websocket_client.hpp"
+#include "zoal_atc/weather/metar.hpp"
 
 #include <XPLMDataAccess.h>
 #include <XPLMNavigation.h>
@@ -44,9 +44,6 @@
 #include <variant>
 #include <vector>
 
-using zoal_atc::navdata::NavdataPaths;
-using zoal_atc::navdata::NavdataPublisher;
-using zoal_atc::navdata::NavdataRequest;
 using zoal_atc::ptt::MiniaudioAudioRecorder;
 using zoal_atc::ptt::PttEvent;
 using zoal_atc::ptt::PttEventSink;
@@ -189,9 +186,6 @@ struct ActiveSpeech {
 };
 
 std::optional<ActiveSpeech> g_active_speech;
-
-// Defined after the navdata worker below; called from the receiver thread.
-void enqueue_navdata_request(NavdataRequest request);
 
 std::uint64_t now_ms() {
   return static_cast<std::uint64_t>(XPLMGetElapsedTime() * 1000.0f);
@@ -422,9 +416,28 @@ std::string settings_json() {
   return out.str();
 }
 
+// Defined with the datarefs below. Writes the COM dataref a tune names and
+// reports whether there was one to write.
+bool apply_radio_tune(const zoal_atc::telemetry::RadioTuneCommand &cmd);
+
 std::optional<zoal_atc::gui::LocalAnswer>
 handle_local_gui_action(const std::string &action,
                         const std::string &payload_json) {
+  if (action == "tune_radio") {
+    // The pilot's own radio, so the plugin turns the knob itself. The bridge
+    // runs local actions on the main thread, where datarefs may be written, and
+    // answering here means tuning works with the console unreachable too.
+    const auto tune = zoal_atc::telemetry::parse_panel_tune_request(payload_json);
+    if (!tune.command.valid) {
+      return zoal_atc::gui::LocalAnswer{false, "null", tune.error};
+    }
+    if (!apply_radio_tune(tune.command)) {
+      return zoal_atc::gui::LocalAnswer{
+          false, "null", "this aircraft has no COM frequency dataref"};
+    }
+    return zoal_atc::gui::LocalAnswer{
+        true, zoal_atc::telemetry::build_panel_tune_answer(tune.command), ""};
+  }
   if (action == "connection_settings") {
     return zoal_atc::gui::LocalAnswer{true, connection_settings_json(), ""};
   }
@@ -952,11 +965,6 @@ void reply_receiver_loop() {
       }
       continue;
     }
-    // Console cache miss: it asks for the full navdata text by hash.
-    auto request = zoal_atc::navdata::parse_navdata_request(payload);
-    if (request.has_value()) {
-      enqueue_navdata_request(std::move(*request));
-    }
   }
 }
 
@@ -1184,13 +1192,11 @@ TelemetryDatarefs g_datarefs;
 double g_last_telemetry_sent_secs = 0;
 double g_last_airport_check_secs = 0;
 double g_last_metar_sent_secs = 0;
-double g_last_navdata_scan_secs = 0;
 bool g_has_last_pause_sent = false;
 bool g_last_pause_sent = false;
 std::string g_airport_id;
 std::string g_airport_name;
-std::string g_last_navdata_scan_airport;
-bool g_navdata_scan_retry_pending = false;
+bool g_metar_retry_pending = false;
 bool g_last_websocket_connected = false;
 
 constexpr double kAirportCheckIntervalSecs = 3.0;
@@ -1229,6 +1235,17 @@ XPLMDataRef radio_tune_dataref(const zoal_atc::telemetry::RadioTuneCommand &cmd)
   return com == 2 ? g_datarefs.com2_stby_khz : g_datarefs.com1_stby_khz;
 }
 
+bool apply_radio_tune(const zoal_atc::telemetry::RadioTuneCommand &cmd) {
+  const XPLMDataRef ref = radio_tune_dataref(cmd);
+  if (ref == nullptr) {
+    return false;
+  }
+  write_i(ref, zoal_atc::telemetry::com_mhz_to_hz833(cmd.frequency_mhz));
+  log_line("radio_tune: COM" + std::to_string(cmd.com) + " " + cmd.target +
+           " " + std::to_string(cmd.frequency_mhz));
+  return true;
+}
+
 void process_pending_radio_tunes() {
   std::vector<zoal_atc::telemetry::RadioTuneCommand> commands;
   {
@@ -1239,10 +1256,7 @@ void process_pending_radio_tunes() {
     commands.swap(g_pending_radio_tunes);
   }
   for (const auto &cmd : commands) {
-    write_i(radio_tune_dataref(cmd),
-            zoal_atc::telemetry::com_mhz_to_hz833(cmd.frequency_mhz));
-    log_line("radio_tune: " + cmd.target + " " +
-             std::to_string(cmd.frequency_mhz));
+    apply_radio_tune(cmd);
   }
 }
 
@@ -1460,39 +1474,29 @@ TelemetrySnapshot sample_telemetry() {
   return s;
 }
 
-// --- Navdata worker (file half of docs/data-sources.md) ----------------------
+// --- METAR worker ------------------------------------------------------------
 //
-// File reads (a multi-hundred-MB apt.dat scan on airport change) never run on
-// the flight loop: a dedicated worker owns the NavdataPublisher and processes
-// scan/request/metar jobs; outbound frames go through the async sink's queue.
-class NavdataWorker {
+// Reading the sim's real-weather file never runs on the flight loop: a
+// dedicated worker reads the newest METAR and queues the frame on the async
+// sink. Requests coalesce, since only the newest file ever matters.
+class MetarWorker {
 public:
-  explicit NavdataWorker(const std::string &xplane_root)
-      : publisher_(NavdataPaths{xplane_root},
-                   [](const std::string &frame) {
-                     const auto type =
-                         json_string_field(frame, "type").value_or("unknown");
-                     log_line("queue " + type + " frame bytes=" +
-                              std::to_string(frame.size()));
-                     if (g_transport_sink) {
-                       g_transport_sink->publish_text(frame);
-                     }
-                   },
-                   [](const std::string &message) { log_line(message); }),
-        metar_dir_(NavdataPaths{xplane_root}.metar_dir()),
+  explicit MetarWorker(const std::string &xplane_root)
+      : metar_dir_(zoal_atc::weather::metar_dir(xplane_root)),
         thread_([this] { run(); }) {}
 
-  ~NavdataWorker() { stop(); }
+  ~MetarWorker() { stop(); }
 
-  void enqueue_airport_scan(std::string icao) {
-    push(Job{JobKind::Scan, std::move(icao), NavdataRequest{}});
+  void enqueue() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (stopping_) {
+        return;
+      }
+      pending_ = true;
+    }
+    cv_.notify_one();
   }
-
-  void enqueue_request(NavdataRequest request) {
-    push(Job{JobKind::Request, "", std::move(request)});
-  }
-
-  void enqueue_metar() { push(Job{JobKind::Metar, "", NavdataRequest{}}); }
 
   void stop() {
     {
@@ -1509,127 +1513,71 @@ public:
   }
 
 private:
-  enum class JobKind { Scan, Request, Metar };
-  struct Job {
-    JobKind kind;
-    std::string icao;
-    NavdataRequest request;
-  };
-
-  void push(Job job) {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      if (stopping_) {
-        return;
-      }
-      jobs_.push_back(std::move(job));
-    }
-    cv_.notify_one();
-  }
-
   void run() {
     for (;;) {
-      Job job;
       {
         std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait(lock, [this] { return stopping_ || !jobs_.empty(); });
-        if (stopping_ && jobs_.empty()) {
+        cv_.wait(lock, [this] { return stopping_ || pending_; });
+        if (stopping_) {
           return;
         }
-        job = std::move(jobs_.front());
-        jobs_.pop_front();
+        pending_ = false;
       }
-      switch (job.kind) {
-      case JobKind::Scan:
-        log_line("navdata scan started for " + job.icao);
-        publisher_.publish_for_airport(job.icao);
-        log_line("navdata scan finished for " + job.icao);
-        break;
-      case JobKind::Request:
-        if (!publisher_.handle_request(job.request)) {
-          log_line("navdata request for unknown hash " + job.request.md5);
-        }
-        break;
-      case JobKind::Metar:
-        send_metar();
-        break;
-      }
+      send_metar();
     }
   }
 
   void send_metar() {
-    namespace nav = zoal_atc::navdata;
-    const auto newest = nav::newest_metar_file(publisher_paths_metar_dir());
+    namespace wx = zoal_atc::weather;
+    const auto newest = wx::newest_metar_file(metar_dir_);
     if (!newest.has_value()) {
       return;
     }
-    const auto text = nav::read_file_text(*newest);
+    const auto text = wx::read_file_text(*newest);
     if (!text.has_value() || text->empty()) {
       return;
     }
     if (g_transport_sink) {
-      const auto frame = nav::build_metar_frame(*text);
+      const auto frame = wx::build_metar_frame(*text);
       log_line("queue weather_metar frame bytes=" +
                std::to_string(frame.size()));
       g_transport_sink->publish_text(frame);
     }
   }
 
-  std::string publisher_paths_metar_dir() const { return metar_dir_; }
-
-  NavdataPublisher publisher_;
   std::string metar_dir_;
   std::mutex mutex_;
   std::condition_variable cv_;
-  std::deque<Job> jobs_;
+  bool pending_ = false;
   bool stopping_ = false;
   std::thread thread_;
 };
 
-std::unique_ptr<NavdataWorker> g_navdata_worker;
-
-void enqueue_navdata_request(NavdataRequest request) {
-  if (g_navdata_worker) {
-    if (request.scan) {
-      g_navdata_worker->enqueue_airport_scan(std::move(request.icao));
-    } else {
-      g_navdata_worker->enqueue_request(std::move(request));
-    }
-  }
-}
+std::unique_ptr<MetarWorker> g_metar_worker;
 
 bool websocket_connected() {
   return g_websocket && g_websocket->connected();
 }
 
-void enqueue_navdata_scan(const std::string &icao, double now_secs,
-                          const std::string &reason) {
-  if (!g_navdata_worker || icao.empty()) {
+void send_metar_now(double now_secs) {
+  if (!g_metar_worker) {
     return;
   }
-  const bool connected = websocket_connected();
-  std::string message = reason + "; scanning navdata for " + icao;
-  if (!connected) {
-    message += " (websocket not connected; will retry on reconnect)";
-  }
-  log_line(message);
-
-  g_navdata_worker->enqueue_airport_scan(icao);
-  g_navdata_worker->enqueue_metar();
+  g_metar_worker->enqueue();
   g_last_metar_sent_secs = now_secs;
-  g_last_navdata_scan_secs = now_secs;
-  g_last_navdata_scan_airport = icao;
-  g_navdata_scan_retry_pending = !connected;
+  g_metar_retry_pending = !websocket_connected();
 }
 
-void retry_navdata_after_websocket_reconnect(double now_secs) {
+// resend_metar_after_websocket_reconnect re-sends the weather once the socket
+// comes back, so a console that reconnects mid-flight is not left without it.
+void resend_metar_after_websocket_reconnect(double now_secs) {
   const bool connected = websocket_connected();
   if (!connected) {
     // Force the first frame after reconnect even when X-Plane is paused and its
     // monotonic clock cannot make the normal rate controller due.
     g_has_last_pause_sent = false;
-    if (g_last_websocket_connected && !g_airport_id.empty()) {
-      g_navdata_scan_retry_pending = true;
+    if (g_last_websocket_connected) {
+      g_metar_retry_pending = true;
     }
     g_last_websocket_connected = false;
     return;
@@ -1637,21 +1585,16 @@ void retry_navdata_after_websocket_reconnect(double now_secs) {
 
   const bool reconnected = !g_last_websocket_connected;
   g_last_websocket_connected = true;
-  if (!g_navdata_scan_retry_pending || g_airport_id.empty()) {
+  if (!g_metar_retry_pending) {
     return;
   }
-  if (g_last_navdata_scan_airport == g_airport_id &&
-      now_secs - g_last_navdata_scan_secs < 1.0) {
-    return;
-  }
-  enqueue_navdata_scan(
-      g_airport_id, now_secs,
-      reconnected ? "websocket connected; retrying navdata scan"
-                  : "websocket ready; retrying pending navdata scan");
+  log_line(reconnected ? "websocket connected; re-sending METAR"
+                       : "websocket ready; sending pending METAR");
+  send_metar_now(now_secs);
 }
 
-// check_nearest_airport refreshes the active field from the nav database and
-// kicks a navdata scan when it changes. Runs at a slow cadence off the flight
+// check_nearest_airport refreshes the active field from the nav database for
+// telemetry, and re-sends the weather when it changes. Runs at a slow cadence off the flight
 // loop (the lookup is cheap but not free).
 void check_nearest_airport(double now_secs) {
   if (now_secs - g_last_airport_check_secs < kAirportCheckIntervalSecs &&
@@ -1676,7 +1619,8 @@ void check_nearest_airport(double now_secs) {
   }
   g_airport_id = id;
   g_airport_name = name;
-  enqueue_navdata_scan(g_airport_id, now_secs, "active airport changed");
+  log_line("active airport changed to " + g_airport_id);
+  send_metar_now(now_secs);
 }
 
 void sample_and_send_telemetry(double now_secs) {
@@ -1803,13 +1747,13 @@ float flight_loop_callback(float, float, int, void *) {
   process_pending_radio_tunes();
   sample_and_send_telemetry(now_secs);
   process_pending_queries();
-  retry_navdata_after_websocket_reconnect(now_secs);
+  resend_metar_after_websocket_reconnect(now_secs);
   // Real weather refreshes periodically; re-send the newest METAR file on a
   // slow cadence (also sent immediately on airport change).
-  if (g_navdata_worker && g_last_metar_sent_secs != 0 &&
+  if (g_metar_worker && g_last_metar_sent_secs != 0 &&
       now_secs - g_last_metar_sent_secs >= kMetarIntervalSecs) {
     g_last_metar_sent_secs = now_secs;
-    g_navdata_worker->enqueue_metar();
+    g_metar_worker->enqueue();
   }
   return -1.0f;
 }
@@ -1913,9 +1857,9 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   }
   g_sink = std::make_unique<XPlanePttSink>(*g_transport_sink);
 
-  // Dataref sampling + navdata sender (the second design input's edge half).
+  // Dataref sampling + the sim's weather.
   g_datarefs.resolve();
-  g_navdata_worker = std::make_unique<NavdataWorker>(std::string(system_path));
+  g_metar_worker = std::make_unique<MetarWorker>(std::string(system_path));
 
   start_reply_receiver();
 
@@ -1963,7 +1907,7 @@ PLUGIN_API void XPluginStop() {
 
   g_ptt.reset();
   g_sink.reset();
-  g_navdata_worker.reset(); // joins the worker before the sink goes away
+  g_metar_worker.reset(); // joins the worker before the sink goes away
   if (g_active_speech.has_value() && g_active_speech->channel != nullptr) {
     XPLMStopAudio(g_active_speech->channel);
   }
