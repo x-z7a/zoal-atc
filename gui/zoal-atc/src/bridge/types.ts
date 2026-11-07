@@ -56,6 +56,9 @@ export type SkyscriptHost = {
 export const REQUEST_CHANNEL = "console.request";
 export const READY_CHANNEL = "console.ready";
 export const EVENT_CHANNEL = "console.event";
+// The HUD reports how tall it is drawing, so the plugin can size its window to
+// exactly that (hud_layout.hpp): a browser window takes every click inside it.
+export const HUD_LAYOUT_CHANNEL = "hud.layout";
 export const PANEL_LOG_PREFIX = "[zoal-atc panel]";
 
 // The events the console publishes, from console/internal/gui/gui.go. Names are

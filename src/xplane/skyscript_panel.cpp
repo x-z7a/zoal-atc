@@ -1,9 +1,10 @@
 #include "zoal_atc/gui/skyscript_panel.hpp"
 
 #include "zoal_atc/gui/gui_bridge.hpp"
-#include "zoal_atc/gui/notification.hpp"
+#include "zoal_atc/gui/hud_layout.hpp"
 #include "zoal_atc/gui/panel_paths.hpp"
 
+#include <XPLMDisplay.h>
 #include <XPLMMenus.h>
 #include <XPLMPlugin.h>
 #include <XPLMUtilities.h>
@@ -11,6 +12,7 @@
 #include <cstdio>
 #include <cstddef>
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <string>
@@ -28,41 +30,21 @@ void gui_log(const std::string &message) {
 }
 
 constexpr const char *kGuiCommandName = "zoal_atc/gui_toggle";
+constexpr const char *kHudCommandName = "zoal_atc/hud_toggle";
 constexpr const char *kRequestChannel = "console.request";
 constexpr const char *kReadyChannel = "console.ready";
+// The HUD page reports how tall it is drawing, so the window can be exactly
+// that tall: see hud_layout.hpp for why that matters.
+constexpr const char *kHudLayoutChannel = "hud.layout";
 // A frame's worth of posts. The browser is a display, not a consumer the sim
 // waits on: capping the drain keeps a backlog from stretching a flight frame.
 constexpr std::size_t kMaxPostsPerFrame = 16;
 
-// Only the newest transmission is worth a toast. Showing a backlog one at a
-// time would replace each with the next anyway, and a pilot returning from ten
-// minutes away wants to know ATC called, not to watch ten toasts.
-constexpr std::size_t kMaxNotificationsPerFrame = 8;
-
-NotificationController g_notifications;
-
-SkyScriptNotificationCorner corner_from(const std::string &corner) {
-  if (corner == "top_left") {
-    return SKYSCRIPT_NOTIFICATION_TOP_LEFT;
-  }
-  if (corner == "bottom_left") {
-    return SKYSCRIPT_NOTIFICATION_BOTTOM_LEFT;
-  }
-  if (corner == "bottom_right") {
-    return SKYSCRIPT_NOTIFICATION_BOTTOM_RIGHT;
-  }
-  return SKYSCRIPT_NOTIFICATION_TOP_RIGHT;
-}
-
-// dup_c_string hands Skyscript a buffer it will release with free(), which is
-// what its C ABI documents. new[] here would be a heap mismatch.
+// dup_c_string hands Skyscript a reply it will free. It must come from
+// skyscript_strdup: on Windows the library has its own C runtime and heap, and
+// a buffer from this plugin's malloc freed there corrupts it and crashes the sim.
 char *dup_c_string(const std::string &value) {
-  auto *buffer = static_cast<char *>(std::malloc(value.size() + 1U));
-  if (buffer == nullptr) {
-    return nullptr;
-  }
-  std::memcpy(buffer, value.c_str(), value.size() + 1U);
-  return buffer;
+  return skyscript_strdup(value.c_str());
 }
 
 std::string current_plugin_root() {
@@ -72,74 +54,56 @@ std::string current_plugin_root() {
 }
 
 SkyScriptApp g_panel = nullptr;
+SkyScriptApp g_hud = nullptr;
 XPLMCommandRef g_gui_command = nullptr;
+XPLMCommandRef g_hud_command = nullptr;
 XPLMMenuID g_gui_menu = nullptr;
 bool g_skyscript_initialized = false;
 GuiBridge *g_bridge = nullptr;
 std::function<std::uint64_t()> g_now_ms;
-bool g_panel_visible = false;
+bool g_view_visible[kGuiViewCount] = {false, false};
+
+// What the HUD was last placed for, so it is moved only when something changed
+// rather than every frame.
+int g_hud_content_height = 0;
+ScreenRect g_hud_screen;
+bool g_hud_placed = false;
 
 std::uint64_t panel_now_ms() { return g_now_ms ? g_now_ms() : 0U; }
 
-// raise_due_notifications turns the events nobody saw into at most one toast.
-//
-// Showing a new notification replaces the current one, so a backlog would only
-// ever leave the last of them on screen. Draining to the newest and raising it
-// once says the same thing without flickering through the rest, and the panel
-// still holds the whole log for when it is opened.
-void raise_due_notifications(bool panel_visible) {
-  const auto events = g_bridge->take_notification_events(kMaxNotificationsPerFrame);
-  if (events.empty()) {
-    return;
-  }
+// The view travels as the handler's user data, so one pair of handlers serves
+// both windows and each request is attributed to the page that sent it.
+void *view_tag(GuiView view) {
+  return reinterpret_cast<void *>(static_cast<std::uintptr_t>(view));
+}
 
-  const auto prefs = g_notifications.preferences();
+GuiView view_from(void *tag) {
+  return static_cast<GuiView>(reinterpret_cast<std::uintptr_t>(tag));
+}
 
-  // Walk the whole batch so the queue drains, but keep only the last one that
-  // would have raised: Skyscript replaces the current toast with each new one,
-  // so raising them in turn would flicker through to the same result.
-  NotificationRequest newest;
-  for (const auto &event : events) {
-    const auto request = notification_for(event, prefs, panel_visible);
-    if (request.raise) {
-      newest = request;
-    }
-  }
-  if (!newest.raise) {
-    return;
-  }
-
-  SkyScriptNotificationOptions options = skyscript_default_notification_options();
-  options.title = newest.title.c_str();
-  options.body = newest.body.c_str();
-  options.corner = corner_from(prefs.corner);
-  options.timeout_seconds = static_cast<float>(prefs.timeout_secs);
-  options.play_sound = prefs.sound ? 1 : 0;
-  // Over a hidden browser Skyscript forces this off anyway, because nothing on
-  // such a toast can be clicked. Saying so here keeps the two ends agreeing.
-  options.dismissible = 0;
-
-  skyscript_app_show_notification(g_panel, &options);
+SkyScriptApp app_for(GuiView view) {
+  return view == GuiView::hud ? g_hud : g_panel;
 }
 
 // Both handlers run synchronously on the X-Plane main thread, inside the
-// browser-function call that carries the page's request. Neither may wait on the console: the request
-// returns a receipt, and the answer is posted later on console.event.
+// browser-function call that carries the page's request. Neither may wait on
+// the console: the request returns a receipt, and the answer is posted later on
+// console.event.
 void console_request_handler(const char *, const char *payload,
                              char **out_response, char **out_error,
-                             void *) {
+                             void *user_data) {
   if (g_bridge == nullptr) {
     *out_error = dup_c_string("gui bridge unavailable");
     gui_log("console.request failed: gui bridge unavailable");
     return;
   }
-  const auto result =
-      g_bridge->submit(payload != nullptr ? payload : "", panel_now_ms());
+  const auto result = g_bridge->submit(payload != nullptr ? payload : "",
+                                       panel_now_ms(), view_from(user_data));
   *out_response = dup_c_string(result.ack_json);
 }
 
 void console_ready_handler(const char *, const char *, char **out_response,
-                           char **out_error, void *) {
+                           char **out_error, void *user_data) {
   if (g_bridge == nullptr) {
     *out_error = dup_c_string("gui bridge unavailable");
     gui_log("console.ready failed: gui bridge unavailable");
@@ -147,7 +111,44 @@ void console_ready_handler(const char *, const char *, char **out_response,
   }
   // Skyscript reports no page unload, so a reload simply says ready again:
   // attaching is what clears the previous page's backlog and re-subscribes.
-  *out_response = dup_c_string(g_bridge->attach_panel(panel_now_ms()));
+  *out_response = dup_c_string(
+      g_bridge->attach_panel(panel_now_ms(), view_from(user_data)));
+}
+
+ScreenRect screen_bounds() {
+  ScreenRect screen;
+  XPLMGetScreenBoundsGlobal(&screen.left, &screen.top, &screen.right,
+                            &screen.bottom);
+  return screen;
+}
+
+void place_hud() {
+  if (!g_hud) {
+    return;
+  }
+  const ScreenRect screen = screen_bounds();
+  const ScreenRect rect = hud_rect(screen, g_hud_content_height);
+  skyscript_app_set_geometry(g_hud, rect.left, rect.top, rect.right,
+                             rect.bottom);
+  g_hud_screen = screen;
+  g_hud_placed = true;
+}
+
+void hud_layout_handler(const char *, const char *payload, char **out_response,
+                        char **, void *) {
+  const auto height = parse_hud_layout(payload != nullptr ? payload : "");
+  if (height.has_value() && *height != g_hud_content_height) {
+    g_hud_content_height = *height;
+    place_hud();
+  }
+  *out_response = dup_c_string("{\"ok\":true}");
+}
+
+void register_view(SkyScriptApp app, GuiView view) {
+  skyscript_app_on_message(app, kRequestChannel, console_request_handler,
+                           view_tag(view));
+  skyscript_app_on_message(app, kReadyChannel, console_ready_handler,
+                           view_tag(view));
 }
 
 void show_panel() {
@@ -176,6 +177,26 @@ int gui_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
   return 1;
 }
 
+void show_hud() {
+  if (!g_hud) {
+    return;
+  }
+  skyscript_app_show(g_hud, "");
+  place_hud();
+}
+
+int hud_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
+  if (phase != xplm_CommandBegin || !g_hud) {
+    return 0;
+  }
+  if (skyscript_app_is_visible(g_hud)) {
+    skyscript_app_hide(g_hud);
+  } else {
+    show_hud();
+  }
+  return 1;
+}
+
 void install_gui_menu() {
   XPLMMenuID plugins_menu = XPLMFindPluginsMenu();
   if (!plugins_menu || !g_gui_command) {
@@ -200,6 +221,46 @@ void install_gui_menu() {
                                     g_gui_command) < 0) {
     gui_log("could not append panel toggle menu item");
   }
+  if (g_hud_command &&
+      XPLMAppendMenuItemWithCommand(g_gui_menu, "Toggle HUD", g_hud_command) <
+          0) {
+    gui_log("could not append HUD toggle menu item");
+  }
+}
+
+// create_hud makes the second window: chromeless, transparent wherever the page
+// paints nothing, pinned to the top right and as tall as its content. Failing
+// to make it costs the HUD and nothing else -- the panel is already up.
+void create_hud(const std::string &home) {
+  const std::string url = home + "&view=hud";
+  SkyScriptAppConfig hud_config = skyscript_default_config();
+  hud_config.homepage = url.c_str();
+  hud_config.hide_addressbar = 1;
+  hud_config.audio_muted = 1;
+  hud_config.console_logging = 0;
+  hud_config.framerate = 15;
+  hud_config.window_chromeless = 1;
+  const HudPlacement placement;
+  hud_config.width = static_cast<unsigned short>(placement.width);
+  hud_config.height = static_cast<unsigned short>(placement.min_height);
+
+  g_hud = skyscript_create_app_window("zoal-atc HUD", "zoal-atc-hud",
+                                      &hud_config);
+  if (!g_hud) {
+    gui_log("Skyscript did not create the zoal-atc HUD; the panel still works");
+    return;
+  }
+  if (g_bridge != nullptr) {
+    register_view(g_hud, GuiView::hud);
+  }
+  skyscript_app_on_message(g_hud, kHudLayoutChannel, hud_layout_handler,
+                           nullptr);
+  g_hud_command =
+      XPLMCreateCommand(kHudCommandName, "zoal-atc: Toggle the radio HUD");
+  XPLMRegisterCommandHandler(g_hud_command, hud_command_handler, 1, nullptr);
+  // Up from the start: the HUD is how ATC is heard with the panel closed,
+  // which is most of a flight.
+  show_hud();
 }
 
 } // namespace
@@ -231,18 +292,15 @@ void start_skyscript_panel(const SkyscriptPanelConfig &config) {
   panel_config.console_logging = 0;
   panel_config.framerate = 15;
   panel_config.minimum_width = 760;
-  panel_config.width = 920;
-  panel_config.height = 620;
+  // Wide enough for the six readouts on one row at the panel's type size
+  // (six 170px tiles, their gaps and the padding come to about 1075px), so the
+  // first thing a pilot sees is not a lone tile wrapped onto a second line.
+  panel_config.width = 1200;
+  panel_config.height = 800;
   // Window chrome, chosen rather than inherited. Skyscript v0.9.0 made
   // self-decorated windows the default and v0.9.1 put the field on the C ABI so
   // a consumer can say which it wants; stating it here means the panel's
   // appearance does not move when a later Skyscript changes its mind.
-  //
-  // It is also a requirement rather than a preference: a notification can only
-  // bring its own window when the app draws its own chrome, because decoration
-  // is fixed at window creation and a titled window would put an empty X-Plane
-  // frame on screen around the toast. Notifications with the panel closed are
-  // the whole point of the bump.
   panel_config.window_titleless = 1;
   panel_config.window_opacity = 0.96f;
 
@@ -257,15 +315,15 @@ void start_skyscript_panel(const SkyscriptPanelConfig &config) {
 
   g_bridge = config.bridge;
   g_now_ms = config.now_ms;
-  g_panel_visible = skyscript_app_is_visible(g_panel) != 0;
+  g_view_visible[static_cast<std::size_t>(GuiView::panel)] =
+      skyscript_app_is_visible(g_panel) != 0;
   if (g_bridge != nullptr) {
-    skyscript_app_on_message(g_panel, kRequestChannel, console_request_handler,
-                             nullptr);
-    skyscript_app_on_message(g_panel, kReadyChannel, console_ready_handler,
-                             nullptr);
+    register_view(g_panel, GuiView::panel);
   } else {
     gui_log("no GUI bridge configured; Skyscript handlers were not registered");
   }
+
+  create_hud(home);
 
   g_gui_command =
       XPLMCreateCommand(kGuiCommandName, "zoal-atc: Toggle in-sim panel");
@@ -278,11 +336,14 @@ void start_skyscript_panel(const SkyscriptPanelConfig &config) {
 
 void stop_skyscript_panel() {
   if (g_bridge != nullptr) {
-    g_bridge->detach_panel();
+    g_bridge->detach_panel(GuiView::panel);
+    g_bridge->detach_panel(GuiView::hud);
     g_bridge = nullptr;
   }
   g_now_ms = nullptr;
-  g_panel_visible = false;
+  g_view_visible[0] = g_view_visible[1] = false;
+  g_hud_placed = false;
+  g_hud_content_height = 0;
   if (g_gui_menu) {
     XPLMDestroyMenu(g_gui_menu);
     g_gui_menu = nullptr;
@@ -291,6 +352,15 @@ void stop_skyscript_panel() {
     XPLMUnregisterCommandHandler(g_gui_command, gui_command_handler, 1,
                                  nullptr);
     g_gui_command = nullptr;
+  }
+  if (g_hud_command) {
+    XPLMUnregisterCommandHandler(g_hud_command, hud_command_handler, 1,
+                                 nullptr);
+    g_hud_command = nullptr;
+  }
+  if (g_hud) {
+    skyscript_destroy_app_window(g_hud);
+    g_hud = nullptr;
   }
   if (g_panel) {
     skyscript_destroy_app_window(g_panel);
@@ -303,45 +373,40 @@ void stop_skyscript_panel() {
 }
 
 void tick_skyscript_panel() {
-  if (g_panel == nullptr || g_bridge == nullptr) {
+  if (g_bridge == nullptr) {
     return;
   }
 
-  const bool visible = skyscript_app_is_visible(g_panel) != 0;
-  if (visible != g_panel_visible) {
-    g_panel_visible = visible;
-    g_bridge->set_panel_visible(visible, panel_now_ms());
+  for (const GuiView view : {GuiView::panel, GuiView::hud}) {
+    SkyScriptApp app = app_for(view);
+    if (app == nullptr) {
+      continue;
+    }
+    const auto index = static_cast<std::size_t>(view);
+    const bool visible = skyscript_app_is_visible(app) != 0;
+    if (visible != g_view_visible[index]) {
+      g_view_visible[index] = visible;
+      g_bridge->set_panel_visible(visible, panel_now_ms(), view);
+    }
+    for (const auto &message : g_bridge->take_js_messages(kMaxPostsPerFrame, view)) {
+      skyscript_app_post_message(app, message.channel.c_str(),
+                                 message.payload.c_str());
+    }
   }
 
-  const auto messages = g_bridge->take_js_messages(kMaxPostsPerFrame);
-  for (const auto &message : messages) {
-    skyscript_app_post_message(g_panel, message.channel.c_str(),
-                               message.payload.c_str());
+  // The screen changes size when X-Plane's window does; the HUD follows its
+  // corner rather than staying where the old corner was.
+  if (g_hud && g_hud_placed &&
+      skyscript_app_is_visible(g_hud) != 0) {
+    const ScreenRect screen = screen_bounds();
+    if (screen.left != g_hud_screen.left || screen.top != g_hud_screen.top ||
+        screen.right != g_hud_screen.right ||
+        screen.bottom != g_hud_screen.bottom) {
+      place_hud();
+    }
   }
-
-  raise_due_notifications(visible);
 }
 
-bool apply_notification_control(const std::string &frame) {
-  const auto control = parse_notification_control(frame);
-  if (!control.valid) {
-    return false;
-  }
-  g_notifications.apply(control);
-  return true;
-}
-
-void clear_notification_control() { g_notifications.reset(); }
-
-void set_local_notification_preferences(const NotificationPreferences &prefs) {
-  // The baseline, not a console command. A preference the pilot set in their
-  // own panel belongs to them, so it has to survive the console going away —
-  // which is exactly what reset() falls back to.
-  g_notifications.local = prefs;
-}
-
-NotificationPreferences local_notification_preferences() {
-  return g_notifications.local;
-}
+void show_skyscript_panel() { show_panel(); }
 
 } // namespace zoal_atc::gui

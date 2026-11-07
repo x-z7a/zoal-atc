@@ -13,7 +13,18 @@ type Props = {
 // slack, so a stray wheel notch does not stop the log following the radio.
 const STICK_SLACK_PX = 48;
 
-function CommEntry({entry, ownCallsign}: {entry: CommLogEntry; ownCallsign?: string}) {
+// One transmission, as a chat bubble. Exported for the HUD, which shows the
+// same lines the same way -- a pilot should not have to learn two looks for
+// one radio.
+export function CommBubble({
+  entry,
+  ownCallsign,
+  className: extra,
+}: {
+  entry: CommLogEntry;
+  ownCallsign?: string;
+  className?: string;
+}) {
   const fromPilot = entry.kind !== "atc";
   // An overheard pilot transmission is another aircraft on the frequency, not
   // this one. Labelled as this cockpit it reads as words the pilot just said
@@ -30,6 +41,7 @@ function CommEntry({entry, ownCallsign}: {entry: CommLogEntry; ownCallsign?: str
     `tone-${tone}`,
     fromPilot ? "from-pilot" : "from-atc",
     entry.overheard ? "is-overheard" : "",
+    extra ?? "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -111,7 +123,7 @@ export function CommLog({entries, ownCallsign}: Props) {
     <div className="comm-wrap">
       <ul className="comm-log" ref={listRef} aria-live="polite" aria-label="Radio log">
         {entries.map((entry, index) => (
-          <CommEntry
+          <CommBubble
             key={`${entry.at ?? ""}-${entry.generation ?? ""}-${index}`}
             entry={entry}
             ownCallsign={ownCallsign}

@@ -5,10 +5,16 @@
 
 namespace zoal_atc::gui {
 
+namespace {
+
+constexpr GuiView kAllViews[kGuiViewCount] = {GuiView::panel, GuiView::hud};
+
+} // namespace
+
 GuiBridge::GuiBridge(GuiBridgeConfig config) : config_(std::move(config)) {}
 
 SubmitResult GuiBridge::submit(const std::string &panel_request_json,
-                               std::uint64_t now_ms) {
+                               std::uint64_t now_ms, GuiView view) {
   const auto request = parse_panel_request(panel_request_json);
   if (!request.has_value()) {
     return {false, 0, build_request_ack(false, 0, "malformed request")};
@@ -38,10 +44,8 @@ SubmitResult GuiBridge::submit(const std::string &panel_request_json,
       response.payload_json = answer->payload_json;
       response.error = answer->error;
       // Receipt now, answer on console.event - the same two steps a proxied
-      // request takes, so the panel needs no second code path for these.
-      if (panel_attached_) {
-        enqueue_js_locked(build_js_response(response));
-      }
+      // request takes, so the page needs no second code path for these.
+      enqueue_js_locked(view, build_js_response(response));
       return {true, response.request_id,
               build_request_ack(true, response.request_id, "")};
     }
@@ -49,7 +53,7 @@ SubmitResult GuiBridge::submit(const std::string &panel_request_json,
 
   std::lock_guard<std::mutex> lock(mutex_);
   if (!connected_) {
-    // Refuse now rather than let the panel wait out a timeout to learn what the
+    // Refuse now rather than let the page wait out a timeout to learn what the
     // status line already says.
     return {false, 0, build_request_ack(false, 0, "console disconnected")};
   }
@@ -59,7 +63,7 @@ SubmitResult GuiBridge::submit(const std::string &panel_request_json,
   }
 
   const std::uint64_t id = next_request_id_++;
-  pending_[id] = Pending{now_ms + config_.request_timeout_ms, false};
+  pending_[id] = Pending{now_ms + config_.request_timeout_ms, false, view};
 
   GuiRequest frame;
   frame.request_id = id;
@@ -70,17 +74,18 @@ SubmitResult GuiBridge::submit(const std::string &panel_request_json,
   return {true, id, build_request_ack(true, id, "")};
 }
 
-std::string GuiBridge::attach_panel(std::uint64_t now_ms) {
+std::string GuiBridge::attach_panel(std::uint64_t now_ms, GuiView view) {
   std::lock_guard<std::mutex> lock(mutex_);
-  panel_attached_ = true;
-  panel_visible_ = true;
+  ViewState &state = view_locked(view);
+  state.attached = true;
+  state.visible = true;
   // A page that just loaded holds no history, and anything queued for the
   // previous one is about a screen that no longer exists.
-  js_queue_.clear();
+  state.queue.clear();
   if (connected_) {
     subscribe_locked(now_ms);
   }
-  replay_locked();
+  replay_locked(view);
   return R"({"ok":true,"replayed":)" + std::to_string(cache_.size()) + "}";
 }
 
@@ -92,30 +97,44 @@ void GuiBridge::set_local_action(
   config_.local_action = std::move(handler);
 }
 
-void GuiBridge::detach_panel() {
+void GuiBridge::detach_panel(GuiView view) {
   std::lock_guard<std::mutex> lock(mutex_);
-  panel_attached_ = false;
-  panel_visible_ = false;
-  js_queue_.clear();
-  // Panel requests outlive their page only as leaked pending slots; the answers
-  // have nowhere to go. Our own subscribe is dropped with them, so the next
-  // attach re-asserts it.
+  ViewState &state = view_locked(view);
+  state.attached = false;
+  state.visible = false;
+  state.queue.clear();
+  // A page's requests outlive it only as leaked pending slots; the answers have
+  // nowhere to go.
+  for (auto entry = pending_.begin(); entry != pending_.end();) {
+    if (!entry->second.internal && entry->second.view == view) {
+      entry = pending_.erase(entry);
+    } else {
+      ++entry;
+    }
+  }
+  if (any_attached_locked()) {
+    return;
+  }
+  // The last page is gone, so nobody is listening. Our own subscribe goes with
+  // it, and the next attach re-asserts it.
   pending_.clear();
   subscribe_request_id_ = 0;
   retired_subscribes_.clear();
   subscribed_ = false;
 }
 
-void GuiBridge::set_panel_visible(bool visible, std::uint64_t now_ms) {
+void GuiBridge::set_panel_visible(bool visible, std::uint64_t now_ms,
+                                  GuiView view) {
   (void)now_ms;
   std::lock_guard<std::mutex> lock(mutex_);
-  if (panel_visible_ == visible) {
+  ViewState &state = view_locked(view);
+  if (state.visible == visible) {
     return;
   }
-  panel_visible_ = visible;
-  if (visible && panel_attached_) {
+  state.visible = visible;
+  if (visible && state.attached) {
     // Show what is true now, not the backlog of what was true while hidden.
-    replay_locked();
+    replay_locked(view);
   }
 }
 
@@ -147,13 +166,16 @@ bool GuiBridge::on_socket_frame(const std::string &frame,
           settle_subscribe_locked(*response, now_ms);
         }
       }
-      // Otherwise a timed-out panel request, or an id from a connection that
+      // Otherwise a timed-out page request, or an id from a connection that
       // has since been replaced. There is no promise left to settle.
       return true;
     }
-    const bool internal = entry->second.internal;
+    const Pending pending = entry->second;
     pending_.erase(entry);
-    settle_locked(response->request_id, *response, internal, now_ms);
+    if (pending.internal && response->request_id == subscribe_request_id_) {
+      subscribe_request_id_ = 0;
+    }
+    settle_locked(pending, *response, now_ms);
     return true;
   }
 
@@ -164,27 +186,22 @@ bool GuiBridge::on_socket_frame(const std::string &frame,
                      [&](const GuiEvent &held) {
                        return held.event == event->event;
                      });
-    const bool superseded_unseen =
-        cached != cache_.end() && !can_see_events_locked();
+    const bool superseded = cached != cache_.end();
     if (cached == cache_.end()) {
       cache_.push_back(*event);
     } else {
       cached->payload_json = event->payload_json;
     }
-    // Every event, once, regardless of whether a panel was watching. This is
-    // the notification path: what it exists for is precisely the case where
-    // nobody saw the event because the window was closed.
-    notify_queue_.push_back(*event);
-    while (notify_queue_.size() > config_.max_js_queue) {
-      notify_queue_.pop_front();
-    }
-
-    if (can_see_events_locked()) {
-      enqueue_js_locked(build_js_event(*event));
-    } else if (superseded_unseen) {
-      // An update nobody saw and that the cache no longer holds is genuinely
-      // lost, so say so rather than let the panel believe it saw everything.
-      ++dropped_events_;
+    for (const GuiView view : kAllViews) {
+      ViewState &state = view_locked(view);
+      if (state.attached && state.visible) {
+        enqueue_js_locked(view, build_js_event(*event));
+      } else if (superseded) {
+        // An update this page never saw and that the cache no longer holds is
+        // genuinely lost to it, so say so rather than let it believe it saw
+        // everything.
+        ++state.dropped_events;
+      }
     }
     return true;
   }
@@ -204,7 +221,7 @@ void GuiBridge::set_connected(bool connected, std::uint64_t now_ms) {
   if (!connected) {
     subscribed_ = false;
     fail_all_locked("console disconnected", now_ms);
-  } else if (panel_attached_) {
+  } else if (any_attached_locked()) {
     // The console holds no memory of a socket that went away, so a reconnect
     // re-asserts the subscription instead of assuming it survived.
     subscribe_locked(now_ms);
@@ -220,22 +237,27 @@ void GuiBridge::tick(std::uint64_t now_ms) {
       expired.push_back(entry.first);
     }
   }
-  // Stable order so a burst of timeouts reaches the panel oldest first.
+  // Stable order so a burst of timeouts reaches the page oldest first.
   std::sort(expired.begin(), expired.end());
   for (const std::uint64_t id : expired) {
     const auto entry = pending_.find(id);
-    const bool internal = entry->second.internal;
+    const Pending pending = entry->second;
     pending_.erase(entry);
+    if (pending.internal && id == subscribe_request_id_) {
+      subscribe_request_id_ = 0;
+      // Not answered yet is not refused: keep listening for it.
+      retire_subscribe_locked(id);
+    }
     GuiResponse response;
     response.request_id = id;
     response.ok = false;
     response.error = "request timed out";
-    settle_locked(id, response, internal, now_ms);
+    settle_locked(pending, response, now_ms);
   }
 
   // A subscribe that failed is asked again rather than left failed: the socket
   // is up, so the console is there to ask.
-  if (connected_ && panel_attached_ && !subscribed_ &&
+  if (connected_ && any_attached_locked() && !subscribed_ &&
       subscribe_request_id_ == 0 && now_ms >= next_subscribe_ms_) {
     subscribe_locked(now_ms);
   }
@@ -248,28 +270,18 @@ std::vector<std::string> GuiBridge::take_socket_frames() {
   return frames;
 }
 
-std::vector<JsMessage> GuiBridge::take_js_messages(std::size_t max) {
+std::vector<JsMessage> GuiBridge::take_js_messages(std::size_t max,
+                                                   GuiView view) {
   std::lock_guard<std::mutex> lock(mutex_);
+  auto &queue = view_locked(view).queue;
   std::vector<JsMessage> messages;
-  const std::size_t count = std::min(max, js_queue_.size());
+  const std::size_t count = std::min(max, queue.size());
   messages.reserve(count);
   for (std::size_t i = 0; i < count; ++i) {
-    messages.push_back(std::move(js_queue_.front()));
-    js_queue_.pop_front();
+    messages.push_back(std::move(queue.front()));
+    queue.pop_front();
   }
   return messages;
-}
-
-std::vector<GuiEvent> GuiBridge::take_notification_events(std::size_t max) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  std::vector<GuiEvent> events;
-  const std::size_t count = std::min(max, notify_queue_.size());
-  events.reserve(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    events.push_back(std::move(notify_queue_.front()));
-    notify_queue_.pop_front();
-  }
-  return events;
 }
 
 std::size_t GuiBridge::pending_count() const {
@@ -277,9 +289,9 @@ std::size_t GuiBridge::pending_count() const {
   return pending_.size();
 }
 
-std::size_t GuiBridge::dropped_events() const {
+std::size_t GuiBridge::dropped_events(GuiView view) const {
   std::lock_guard<std::mutex> lock(mutex_);
-  return dropped_events_;
+  return view_locked(view).dropped_events;
 }
 
 bool GuiBridge::subscribed() const {
@@ -299,29 +311,16 @@ std::vector<std::string> GuiBridge::take_log_lines() {
   return lines;
 }
 
-void GuiBridge::settle_locked(std::uint64_t request_id,
-                              const GuiResponse &response, bool internal,
+void GuiBridge::settle_locked(const Pending &pending,
+                              const GuiResponse &response,
                               std::uint64_t now_ms) {
-  if (internal) {
-    if (request_id == subscribe_request_id_) {
-      subscribe_request_id_ = 0;
-      if (!response.ok && response.error == "request timed out") {
-        // Not answered yet is not refused: keep listening for it.
-        retired_subscribes_.push_back(request_id);
-        while (retired_subscribes_.size() > 8) {
-          retired_subscribes_.pop_front();
-        }
-      }
-    }
+  if (pending.internal) {
     settle_subscribe_locked(response, now_ms);
     return;
   }
-  if (!panel_attached_) {
-    return;
-  }
-  // A response is delivered even to a hidden panel: it is a correlated answer
+  // A response is delivered even to a hidden page: it is a correlated answer
   // to something the page asked for, and its JavaScript is still waiting.
-  enqueue_js_locked(build_js_response(response));
+  enqueue_js_locked(pending.view, build_js_response(response));
 }
 
 void GuiBridge::settle_subscribe_locked(const GuiResponse &response,
@@ -357,43 +356,51 @@ void GuiBridge::fail_all_locked(const std::string &reason,
     ids.push_back(entry.first);
   }
   std::sort(ids.begin(), ids.end());
+  subscribe_request_id_ = 0;
   for (const std::uint64_t id : ids) {
     const auto entry = pending_.find(id);
-    const bool internal = entry->second.internal;
+    const Pending pending = entry->second;
     pending_.erase(entry);
     GuiResponse response;
     response.request_id = id;
     response.ok = false;
     response.error = reason;
-    settle_locked(id, response, internal, now_ms);
+    settle_locked(pending, response, now_ms);
   }
 }
 
-void GuiBridge::enqueue_js_locked(std::string payload) {
-  if (!panel_attached_) {
+void GuiBridge::enqueue_js_locked(GuiView view, std::string payload) {
+  ViewState &state = view_locked(view);
+  if (!state.attached) {
     return;
   }
-  if (js_queue_.size() >= config_.max_js_queue) {
+  if (state.queue.size() >= config_.max_js_queue) {
     // Drop the oldest: on a radio panel, missing state beats stale state.
-    js_queue_.pop_front();
-    ++dropped_events_;
+    state.queue.pop_front();
+    ++state.dropped_events;
   }
-  js_queue_.push_back(JsMessage{kConsoleEventChannel, std::move(payload)});
+  state.queue.push_back(JsMessage{kConsoleEventChannel, std::move(payload)});
 }
 
 void GuiBridge::enqueue_status_locked() {
+  for (const GuiView view : kAllViews) {
+    enqueue_status_locked(view);
+  }
+}
+
+void GuiBridge::enqueue_status_locked(GuiView view) {
   GuiStatus status;
   status.connected = connected_;
   status.subscribed = subscribed_;
   status.pending = pending_.size();
-  status.dropped_events = dropped_events_;
-  enqueue_js_locked(build_js_status(status));
+  status.dropped_events = view_locked(view).dropped_events;
+  enqueue_js_locked(view, build_js_status(status));
 }
 
-void GuiBridge::replay_locked() {
-  enqueue_status_locked();
+void GuiBridge::replay_locked(GuiView view) {
+  enqueue_status_locked(view);
   for (const auto &event : cache_) {
-    enqueue_js_locked(build_js_event(event));
+    enqueue_js_locked(view, build_js_event(event));
   }
 }
 
@@ -405,19 +412,37 @@ void GuiBridge::subscribe_locked(std::uint64_t now_ms) {
   if (subscribe_request_id_ != 0) {
     pending_.erase(subscribe_request_id_);
     // Superseded, not refused: if the console answers it, that answer counts.
-    retired_subscribes_.push_back(subscribe_request_id_);
-    while (retired_subscribes_.size() > 8) {
-      retired_subscribes_.pop_front();
-    }
+    retire_subscribe_locked(subscribe_request_id_);
   }
   const std::uint64_t id = next_request_id_++;
   subscribe_request_id_ = id;
-  pending_[id] = Pending{now_ms + config_.request_timeout_ms, true};
+  pending_[id] = Pending{now_ms + config_.request_timeout_ms, true,
+                         GuiView::panel};
   socket_frames_.push_back(build_gui_subscribe(id, config_.topics));
 }
 
-bool GuiBridge::can_see_events_locked() const {
-  return panel_attached_ && panel_visible_;
+void GuiBridge::retire_subscribe_locked(std::uint64_t request_id) {
+  retired_subscribes_.push_back(request_id);
+  while (retired_subscribes_.size() > 8) {
+    retired_subscribes_.pop_front();
+  }
+}
+
+GuiBridge::ViewState &GuiBridge::view_locked(GuiView view) {
+  return views_[static_cast<std::size_t>(view)];
+}
+
+const GuiBridge::ViewState &GuiBridge::view_locked(GuiView view) const {
+  return views_[static_cast<std::size_t>(view)];
+}
+
+bool GuiBridge::any_attached_locked() const {
+  for (const auto &state : views_) {
+    if (state.attached) {
+      return true;
+    }
+  }
+  return false;
 }
 
 } // namespace zoal_atc::gui

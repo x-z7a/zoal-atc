@@ -2,8 +2,8 @@
  * cockpit.
  *
  * Materialize draws every component from the --md-sys-color-* roles, so this
- * file is the whole theme: set the roles once and buttons, cards, chips, tabs,
- * switches and tables all follow. The palette borrows avionics conventions a
+ * file is the whole theme: set the roles once and buttons, cards, chips and tabs
+ * all follow. The palette borrows avionics conventions a
  * pilot already reads without thinking -- cyan for what you can select, green
  * for what is active, amber for caution, magenta for the route -- on the
  * near-black of a display that has to sit beside a night cockpit.

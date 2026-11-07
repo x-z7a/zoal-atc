@@ -766,10 +766,7 @@ describe("the panel", () => {
       const save = host.requests.find((request) => request.action === "save_settings");
       // The whole settings block goes each time, so saving one field cannot
       // quietly reset another to a default the panel never showed.
-      expect(save?.payload).toEqual({
-        simbriefPilotId: "123456",
-        notifications: {enabled: true, corner: "top_right", timeoutSecs: 8, sound: true},
-      });
+      expect(save?.payload).toEqual({simbriefPilotId: "123456"});
     });
 
     // What the console kept, not what the panel sent.
@@ -786,60 +783,6 @@ describe("the panel", () => {
 
       await waitFor(() => {
         expect(screen.getByLabelText("SimBrief pilot ID")).toHaveValue("123456");
-      });
-    });
-
-    describe("notifications", () => {
-      // A pilot who has never opened Settings still gets told: the failure mode
-      // of the alternative is a missed clearance.
-      it("is on before anybody chooses anything", async () => {
-        const readId = await openSettings();
-        host.respondTo(readId, {simbriefPilotId: ""});
-
-        expect(await screen.findByLabelText("Tell me when ATC calls")).toBeChecked();
-      });
-
-      it("shows what the console stored", async () => {
-        const readId = await openSettings();
-        host.respondTo(readId, {
-          simbriefPilotId: "",
-          notifications: {enabled: false, corner: "bottom_left", timeoutSecs: 15, sound: false},
-        });
-
-        await waitFor(() => {
-          expect(screen.getByLabelText("Tell me when ATC calls")).not.toBeChecked();
-        });
-        expect(screen.getByLabelText("Corner")).toHaveValue("bottom_left");
-        expect(screen.getByLabelText("Seconds on screen")).toHaveValue("15");
-      });
-
-      // A toggle that has to be confirmed with a button is one that gets left
-      // half-set.
-      it("saves the moment it is switched", async () => {
-        const readId = await openSettings();
-        host.respondTo(readId, {simbriefPilotId: ""});
-        await waitFor(() =>
-          expect(screen.getByLabelText("Tell me when ATC calls")).toBeChecked(),
-        );
-
-        await userEvent.click(screen.getByLabelText("Tell me when ATC calls"));
-
-        await waitFor(() => {
-          expect(host.requests.some((request) => request.action === "save_settings")).toBe(true);
-        });
-        const save = host.requests.find((request) => request.action === "save_settings");
-        expect(save?.payload).toMatchObject({notifications: {enabled: false}});
-      });
-
-      // With the window closed nothing on a toast can be clicked, so there is
-      // no "until I dismiss it" to offer.
-      it("offers no way to make a notification permanent", async () => {
-        const readId = await openSettings();
-        host.respondTo(readId, {simbriefPilotId: ""});
-
-        const timeout = await screen.findByLabelText("Seconds on screen");
-        const values = [...timeout.querySelectorAll("option")].map((option) => option.value);
-        expect(values).not.toContain("0");
       });
     });
 

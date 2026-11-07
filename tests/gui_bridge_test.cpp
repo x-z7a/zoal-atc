@@ -645,6 +645,77 @@ void test_no_retry_without_a_panel() {
               "no subscribe for a page that is gone");
 }
 
+// The HUD stays up while the panel is closed: that is what it is for. So an
+// event must reach a visible HUD whatever the panel is doing, and the panel's
+// own count of what it missed must not be cleared by the HUD having seen it.
+void test_events_reach_each_view_on_its_own_terms() {
+  using zoal_atc::gui::GuiView;
+  zoal_atc::gui::GuiBridge bridge(test_config());
+  bring_up(bridge);
+  bridge.attach_panel(0, GuiView::hud);
+  bridge.take_js_messages(64, GuiView::hud);
+
+  bridge.set_panel_visible(false, 0, GuiView::panel);
+  bridge.on_socket_frame(gui_event("comm_log", "[1]"), 0);
+  bridge.on_socket_frame(gui_event("comm_log", "[1,2]"), 0);
+
+  const auto hud = js_payloads(bridge, 64);
+  expect_size(hud.size(), 0, "panel queue untouched by take on hud");
+  std::vector<std::string> hud_payloads;
+  for (const auto &message : bridge.take_js_messages(64, GuiView::hud)) {
+    hud_payloads.push_back(message.payload);
+  }
+  expect_size(hud_payloads.size(), 2, "the HUD hears both updates");
+  expect_size(bridge.dropped_events(GuiView::hud), 0, "the HUD missed nothing");
+  expect_size(bridge.dropped_events(GuiView::panel), 1,
+              "the hidden panel missed the replaced update");
+}
+
+// An answer belongs to the page that asked. The panel's import result showing
+// up in the HUD's JavaScript would settle nothing there and be lost here.
+void test_answers_go_to_the_view_that_asked() {
+  using zoal_atc::gui::GuiView;
+  zoal_atc::gui::GuiBridge bridge(test_config());
+  bring_up(bridge);
+  bridge.attach_panel(0, GuiView::hud);
+  bridge.take_socket_frames();
+  bridge.take_js_messages(64, GuiView::hud);
+  bridge.take_js_messages(64, GuiView::panel);
+
+  const auto asked =
+      bridge.submit(R"({"action":"refresh_flight_plan"})", 0, GuiView::hud);
+  expect_true(asked.accepted, "the HUD may ask the console");
+  bridge.on_socket_frame(gui_response(asked.request_id, R"({"hasPlan":true})"), 1);
+
+  expect_size(bridge.take_js_messages(64, GuiView::panel).size(), 0,
+              "the panel is not handed the HUD's answer");
+  const auto hud = bridge.take_js_messages(64, GuiView::hud);
+  expect_size(hud.size(), 1, "the HUD gets its answer");
+  expect_true(!hud.empty() &&
+                  hud.at(0).payload.find(R"("kind":"response")") !=
+                      std::string::npos,
+              "as a response");
+}
+
+// Closing the panel must not take the HUD off the air: the subscription is
+// shared, and goes only with the last page.
+void test_subscription_outlives_the_panel_while_the_hud_is_up() {
+  using zoal_atc::gui::GuiView;
+  zoal_atc::gui::GuiBridge bridge(test_config());
+  bring_up(bridge);
+  bridge.attach_panel(0, GuiView::hud);
+  bridge.on_socket_frame(gui_response(2, "null"), 0);
+  bridge.take_socket_frames();
+
+  bridge.detach_panel(GuiView::panel);
+  expect_true(bridge.subscribed(), "still subscribed for the HUD");
+  bridge.tick(5000);
+  expect_size(bridge.take_socket_frames().size(), 0, "no resubscribe needed");
+
+  bridge.detach_panel(GuiView::hud);
+  expect_true(!bridge.subscribed(), "nobody left listening");
+}
+
 int main() {
   test_submit_needs_a_console();
   test_attach_subscribes_and_acks();
@@ -665,6 +736,9 @@ int main() {
   test_late_subscribe_answer_counts();
   test_refused_subscribe_is_asked_again();
   test_no_retry_without_a_panel();
+  test_events_reach_each_view_on_its_own_terms();
+  test_answers_go_to_the_view_that_asked();
+  test_subscription_outlives_the_panel_while_the_hud_is_up();
 
   if (g_failures != 0) {
     return EXIT_FAILURE;

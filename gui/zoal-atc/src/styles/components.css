@@ -1,6 +1,5 @@
-/* The tab shell and Settings: Materialize components (.tabs, .switch,
- * select.browser-default) trimmed to the panel's density and coloured by
- * tokens.css. */
+/* The tab shell and Settings: Materialize's .tabs trimmed to the panel's
+ * density and coloured by tokens.css. */
 
 /* ---- Tabs ---------------------------------------------------------------- */
 
@@ -118,63 +117,6 @@
 
 .section-title:first-child {
   margin-top: 0;
-}
-
-/* Materialize's switch, scaled to sit on a text line. */
-.switch.toggle-row {
-  --track-height: 22px;
-  --track-width: 38px;
-  --size-off: 10px;
-  --size-on: 16px;
-}
-
-.switch.toggle-row label {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text);
-  font-size: 15px;
-}
-
-/* Materialize's lever hover halo is sized for a 32px track; at this size it
-   swallows the label. */
-.switch.toggle-row input[type="checkbox"]:not(:disabled) ~ .lever:hover::before,
-.switch.toggle-row input[type="checkbox"]:not(:disabled):focus ~ .lever::before,
-.switch.toggle-row input[type="checkbox"]:not(:disabled) ~ .lever:active::before {
-  transform: scale(1.8);
-}
-
-.switch.toggle-row input[type="checkbox"]:focus-visible ~ .lever {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.switch.toggle-row.is-disabled label {
-  cursor: default;
-  opacity: 0.5;
-}
-
-.setting select.browser-default {
-  align-self: flex-start;
-  width: auto;
-  min-width: 160px;
-  height: 36px;
-  padding: 0 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--surface-sunken);
-  color: var(--text);
-  font: inherit;
-  font-size: 15px;
-}
-
-.setting select.browser-default:focus {
-  border-color: var(--accent);
-  outline: none;
-}
-
-.setting select:disabled {
-  opacity: 0.5;
 }
 
 /* ---- Boot failure -------------------------------------------------------- */
