@@ -38,10 +38,22 @@ describe("readShellParams", () => {
 
   for (const testCase of cases) {
     it(testCase.name, () => {
-      expect(readShellParams(testCase.search)).toEqual({
+      expect(readShellParams(testCase.search)).toMatchObject({
         pluginVersion: testCase.pluginVersion,
         skyscript: testCase.skyscript,
       });
     });
   }
+
+  it("is the panel unless the plugin says otherwise", () => {
+    expect(readShellParams("?plugin_version=0.1.0&skyscript=ready").view).toBe("panel");
+  });
+
+  it("is the HUD when the plugin opens it as one", () => {
+    expect(readShellParams("?plugin_version=0.1.0&skyscript=ready&view=hud").view).toBe("hud");
+  });
+
+  it("does not become something else on an unknown view", () => {
+    expect(readShellParams("?view=debug").view).toBe("panel");
+  });
 });

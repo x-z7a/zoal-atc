@@ -142,6 +142,18 @@ export class ConsoleBridge {
     };
   }
 
+  // notify posts to the plugin on a channel of its own, outside the
+  // request/answer protocol: a report the plugin acts on and answers with a
+  // bare ok. Failures are logged, not thrown, because nothing waits on them.
+  notify(channel: string, payload: unknown): void {
+    if (!this.host || this.disposed) {
+      return;
+    }
+    this.host.postMessage(channel, payload).catch((error: unknown) => {
+      panelWarn("notify failed", {channel, error: errorMessage(error)});
+    });
+  }
+
   // request asks the console for something and resolves with its payload. It
   // rejects when the console refuses, when the link is down, or when nothing
   // answers - the panel is never left holding a promise that will not settle.

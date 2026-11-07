@@ -1,8 +1,8 @@
 /* The panel's layout, on top of Materialize.
  *
- * Materialize supplies the components -- .card, .btn, .chip, .tabs, .switch,
- * table -- and tokens.css colours them. What lives here is what a framework
- * cannot know: a 620px window inside a sim, a radio log that has to own the
+ * Materialize supplies the components -- .card, .btn, .chip and .tabs
+ * -- and tokens.css colours them. What lives here is what a framework
+ * cannot know: a small window inside a sim, a radio log that has to own the
  * height, and readouts that are read at a glance in turbulence. */
 
 :root {

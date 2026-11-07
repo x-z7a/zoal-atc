@@ -19,6 +19,16 @@ namespace zoal_atc::gui {
 // events, and bridge status share it, discriminated by the envelope's "kind".
 inline constexpr const char *kConsoleEventChannel = "console.event";
 
+// GuiView names a page the bridge serves. Each is its own Skyscript window
+// with its own JavaScript, so each is attached, shown and owed messages on its
+// own -- but they share one console subscription and one event cache.
+//
+//   - panel: the full radio panel, opened and closed by the pilot;
+//   - hud:   the transparent overlay that shows the last few transmissions
+//            and stays up while the panel is closed.
+enum class GuiView : std::size_t { panel = 0, hud = 1 };
+inline constexpr std::size_t kGuiViewCount = 2;
+
 // JsMessage is one Skyscript post the main thread still owes the browser.
 struct JsMessage {
   std::string channel;
@@ -101,16 +111,18 @@ public:
   // --- X-Plane main thread: Skyscript message handlers ----------------------
 
   // submit turns one console.request envelope into a pending console request.
+  // The answer goes back to the view that asked.
   SubmitResult submit(const std::string &panel_request_json,
-                      std::uint64_t now_ms);
+                      std::uint64_t now_ms, GuiView view = GuiView::panel);
 
-  // attach_panel records that the page loaded and is listening. It replays the
-  // cached snapshot so a reloaded panel is current before the console pushes
+  // attach_panel records that a page loaded and is listening. It replays the
+  // cached snapshot so a reloaded page is current before the console pushes
   // anything new. Returns the ack JSON for the console.ready call.
-  std::string attach_panel(std::uint64_t now_ms);
+  std::string attach_panel(std::uint64_t now_ms, GuiView view = GuiView::panel);
 
-  // detach_panel drops everything owed to a page that is gone.
-  void detach_panel();
+  // detach_panel drops everything owed to a page that is gone. The console
+  // subscription is dropped only with the last page.
+  void detach_panel(GuiView view = GuiView::panel);
 
   // Installs the local action handler after construction. The bridge is a
   // static and the plugin only learns its config path at XPluginStart, so the
@@ -120,9 +132,10 @@ public:
                                                const std::string &payload_json)>
           handler);
 
-  // set_panel_visible gates the high-volume event stream. A hidden panel keeps
+  // set_panel_visible gates the high-volume event stream. A hidden page keeps
   // only the latest of each event; showing it again replays that.
-  void set_panel_visible(bool visible, std::uint64_t now_ms);
+  void set_panel_visible(bool visible, std::uint64_t now_ms,
+                         GuiView view = GuiView::panel);
 
   // --- websocket receiver thread -------------------------------------------
 
@@ -141,20 +154,15 @@ public:
   // take_socket_frames returns the frames the flight loop should publish.
   std::vector<std::string> take_socket_frames();
 
-  // take_js_messages returns at most `max` posts for Skyscript, oldest first.
-  std::vector<JsMessage> take_js_messages(std::size_t max);
-
-  // take_notification_events returns console events that arrived since the last
-  // call, oldest first, whether or not the panel was there to see them.
-  //
-  // Deliberately a second queue rather than a read of the js one. The js queue
-  // is what the *browser* is owed, and a hidden panel is owed nothing -- which
-  // is exactly the case a notification exists for. Bounded and drop-oldest like
-  // everything else here: an unattended sim must not accumulate toasts.
-  std::vector<GuiEvent> take_notification_events(std::size_t max);
+  // take_js_messages returns at most `max` posts for one view, oldest first.
+  std::vector<JsMessage> take_js_messages(std::size_t max,
+                                          GuiView view = GuiView::panel);
 
   [[nodiscard]] std::size_t pending_count() const;
-  [[nodiscard]] std::size_t dropped_events() const;
+  // Updates this view never saw: replaced in the cache while it was hidden, or
+  // pushed out of its full queue. Per view, because the HUD seeing an event
+  // says nothing about whether the closed panel did.
+  [[nodiscard]] std::size_t dropped_events(GuiView view = GuiView::panel) const;
   [[nodiscard]] bool subscribed() const;
   [[nodiscard]] bool connected() const;
 
@@ -169,18 +177,31 @@ private:
     // internal marks the bridge's own subscribe: it settles `subscribed_` and
     // is never forwarded to a browser that did not ask for it.
     bool internal = false;
+    // The page that asked, and so the one its answer is owed to.
+    GuiView view = GuiView::panel;
   };
 
-  void settle_locked(std::uint64_t request_id, const GuiResponse &response,
-                     bool internal, std::uint64_t now_ms);
+  struct ViewState {
+    bool attached = false;
+    bool visible = false;
+    std::deque<JsMessage> queue;
+    std::size_t dropped_events = 0;
+  };
+
+  void settle_locked(const Pending &pending, const GuiResponse &response,
+                     std::uint64_t now_ms);
   void settle_subscribe_locked(const GuiResponse &response,
                                std::uint64_t now_ms);
   void fail_all_locked(const std::string &reason, std::uint64_t now_ms);
-  void enqueue_js_locked(std::string payload);
+  void enqueue_js_locked(GuiView view, std::string payload);
   void enqueue_status_locked();
-  void replay_locked();
+  void enqueue_status_locked(GuiView view);
+  void replay_locked(GuiView view);
   void subscribe_locked(std::uint64_t now_ms);
-  [[nodiscard]] bool can_see_events_locked() const;
+  void retire_subscribe_locked(std::uint64_t request_id);
+  [[nodiscard]] ViewState &view_locked(GuiView view);
+  [[nodiscard]] const ViewState &view_locked(GuiView view) const;
+  [[nodiscard]] bool any_attached_locked() const;
 
   GuiBridgeConfig config_;
   mutable std::mutex mutex_;
@@ -200,18 +221,14 @@ private:
 
   bool connected_ = false;
   bool subscribed_ = false;
-  bool panel_attached_ = false;
-  bool panel_visible_ = false;
+  ViewState views_[kGuiViewCount];
 
   std::deque<std::string> socket_frames_;
-  std::deque<JsMessage> js_queue_;
-  std::deque<GuiEvent> notify_queue_;
 
   // The latest payload of each event, in first-seen order. This is the snapshot
   // a panel gets on load, on unhide, and after a reconnect - the plugin caching
   // what the console last said, not modelling what it meant.
   std::vector<GuiEvent> cache_;
-  std::size_t dropped_events_ = 0;
 };
 
 } // namespace zoal_atc::gui

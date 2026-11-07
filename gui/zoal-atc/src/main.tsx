@@ -2,15 +2,24 @@ import {StrictMode} from "react";
 import {createRoot} from "react-dom/client";
 
 import {App} from "./app/App";
+import {readShellParams} from "./domain/shell";
+import {HudApp} from "./hud/HudApp";
 import {ConsoleProvider} from "./state/ConsoleProvider";
 import "./styles/index.css";
 
 const container = document.getElementById("root");
+// One bundle, two windows. The HUD's window is transparent wherever the page
+// paints nothing, so its document must not paint a background at all -- which
+// is decided on <html>, before React draws anything over it.
+const shell = readShellParams(window.location.search);
+if (shell.view === "hud") {
+  document.documentElement.classList.add("hud-window");
+}
 if (container) {
   createRoot(container).render(
     <StrictMode>
       <ConsoleProvider>
-        <App search={window.location.search} />
+        {shell.view === "hud" ? <HudApp /> : <App search={window.location.search} />}
       </ConsoleProvider>
     </StrictMode>,
   );

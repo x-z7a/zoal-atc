@@ -9,7 +9,7 @@ import {ALL_ACTIONS, ALL_LOCAL_ACTIONS} from "./actions";
 // nothing fails.
 //
 // settings and save_settings left this list deliberately and are now in
-// LOCAL_ACTIONS: a pilot's SimBrief ID and their notification preference belong
+// LOCAL_ACTIONS: a pilot's SimBrief ID belongs
 // to the person in the cockpit rather than to a facility, the plugin's config
 // file already holds the ID, and answering them locally keeps them working
 // while the console is unreachable. tune_radio followed for the same reason:

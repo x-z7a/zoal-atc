@@ -49,8 +49,7 @@ export const LOCAL_ACTIONS = {
   connectionSettings: "connection_settings",
   saveConnectionSettings: "save_connection_settings",
   // The pilot's own preferences. They moved here from ACTIONS deliberately: a
-  // SimBrief ID and how somebody wants to be notified belong to the person in
-  // the cockpit, not to whichever facility they are talking to today. The
+  // SimBrief ID belongs to the person in the cockpit, not to whichever facility they are talking to today. The
   // plugin's config file already holds the ID and already sends it on the
   // hello, so a copy on a console would be a second answer to a question that
   // has one -- and the two would drift the first time this pilot flew
@@ -62,6 +61,9 @@ export const LOCAL_ACTIONS = {
   // is the sim doing what the pilot asked, not a request a console can refuse,
   // and it keeps working while the console is unreachable.
   tuneRadio: "tune_radio",
+  // Brings up the full panel from the HUD. A window on this computer, so the
+  // plugin opens it, console or no console.
+  openPanel: "open_panel",
 } as const;
 
 export type LocalActionName = (typeof LOCAL_ACTIONS)[keyof typeof LOCAL_ACTIONS];

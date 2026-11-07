@@ -3,7 +3,6 @@
 
 #include <cstdint>
 #include <functional>
-#include "zoal_atc/gui/notification.hpp"
 
 #include <string>
 
@@ -31,24 +30,9 @@ void stop_skyscript_panel();
 // thread queues into the bridge and never touches Skyscript itself.
 void tick_skyscript_panel();
 
-// apply_notification_control hands the panel a console->plugin
-// `notification_control` frame. Returns true when the frame was one, so the
-// caller stops trying other parsers. Safe before the panel exists.
-bool apply_notification_control(const std::string &frame);
-
-// clear_notification_control reverts to the local default, for when the console
-// goes away. A stale preference should not outlive the console that sent it.
-void clear_notification_control();
-
-// set_local_notification_preferences sets the baseline the panel's own settings
-// tab writes. It is deliberately the local fallback rather than a command: this
-// is the pilot's own choice, made in their cockpit, and it must outlive any
-// console they happen to be connected to.
-void set_local_notification_preferences(const NotificationPreferences &prefs);
-
-// local_notification_preferences reads that baseline back, so the settings tab
-// shows what is in force rather than what it last sent.
-NotificationPreferences local_notification_preferences();
+// show_skyscript_panel brings up the full panel, for the HUD's "open panel"
+// control. Main thread only, like every other Skyscript call.
+void show_skyscript_panel();
 
 } // namespace zoal_atc::gui
 

@@ -403,16 +403,11 @@ std::optional<std::string> config_value(const std::string &text,
 
 std::string settings_json() {
   const auto text = read_file(g_config_path).value_or(std::string());
-  const auto prefs = zoal_atc::gui::local_notification_preferences();
   std::ostringstream out;
   out << R"({"simbriefPilotId":")"
       << zoal_atc::transport::json_escape(
              config_value(text, "simbrief_id").value_or(std::string()))
-      << R"(","notifications":{"enabled":)"
-      << (prefs.enabled ? "true" : "false") << R"(,"corner":")"
-      << zoal_atc::transport::json_escape(prefs.corner)
-      << R"(","timeoutSecs":)" << prefs.timeout_secs << R"(,"sound":)"
-      << (prefs.sound ? "true" : "false") << "}}";
+      << R"("})";
   return out.str();
 }
 
@@ -423,6 +418,13 @@ bool apply_radio_tune(const zoal_atc::telemetry::RadioTuneCommand &cmd);
 std::optional<zoal_atc::gui::LocalAnswer>
 handle_local_gui_action(const std::string &action,
                         const std::string &payload_json) {
+  if (action == "open_panel") {
+    // The HUD's way into the full panel. Local because it is a window on this
+    // computer, and because the moment a pilot reaches for the panel may well
+    // be the moment the console has gone quiet.
+    zoal_atc::gui::show_skyscript_panel();
+    return zoal_atc::gui::LocalAnswer{true, R"({"opened":true})", ""};
+  }
   if (action == "tune_radio") {
     // The pilot's own radio, so the plugin turns the knob itself. The bridge
     // runs local actions on the main thread, where datarefs may be written, and
@@ -474,39 +476,6 @@ handle_local_gui_action(const std::string &action,
       // preference that is not about being on the air.
     }
 
-    // Notifications are entirely ours: the plugin raises the toast, so this is
-    // applied rather than stored and forwarded.
-    auto prefs = zoal_atc::gui::local_notification_preferences();
-    const auto notifications =
-        zoal_atc::transport::json_raw_field(payload_json, "notifications");
-    if (notifications.has_value()) {
-      const auto &block = *notifications;
-      if (const auto enabled =
-              zoal_atc::transport::json_bool_field(block, "enabled")) {
-        prefs.enabled = *enabled;
-      }
-      if (const auto corner =
-              zoal_atc::transport::json_string_field(block, "corner")) {
-        if (*corner == "top_left" || *corner == "top_right" ||
-            *corner == "bottom_left" || *corner == "bottom_right") {
-          prefs.corner = *corner;
-        }
-      }
-      if (const auto timeout =
-              zoal_atc::transport::json_number_field(block, "timeoutSecs")) {
-        // Bounded here rather than trusted: nothing on a toast over a hidden
-        // browser can be clicked, so one that waits to be dismissed never
-        // leaves, and one that stays a minute has become furniture.
-        if (*timeout > 0.0 && *timeout <= 60.0) {
-          prefs.timeout_secs = *timeout;
-        }
-      }
-      if (const auto sound =
-              zoal_atc::transport::json_bool_field(block, "sound")) {
-        prefs.sound = *sound;
-      }
-      zoal_atc::gui::set_local_notification_preferences(prefs);
-    }
     return zoal_atc::gui::LocalAnswer{true, settings_json(), ""};
   }
   if (action != "save_connection_settings") {
@@ -900,10 +869,6 @@ void reply_receiver_loop() {
       // Settle whatever the panel was waiting on rather than leave it spinning
       // on a link that is gone.
       g_gui_bridge.set_connected(false, monotonic_ms());
-      // A notification preference should not outlive the console that sent it.
-      // The local default is "on", which is the safe direction for something
-      // whose failure mode is silence.
-      zoal_atc::gui::clear_notification_control();
       std::this_thread::sleep_for(std::chrono::seconds(1));
       continue;
     }
@@ -940,14 +905,6 @@ void reply_receiver_loop() {
         g_rate_controller.apply(control);
       }
       log_line("telemetry_control: profile=" + control.profile);
-      continue;
-    }
-    // Console-commanded notification preference (phase 24 M7). Applied on this
-    // thread because the controller is plain data the flight loop reads; it
-    // never touches Skyscript from here, which is the rule that keeps a socket
-    // thread out of CEF.
-    if (zoal_atc::gui::apply_notification_control(payload)) {
-      log_line("notification_control applied");
       continue;
     }
     // Console one-off pull query (P2-M4 T4): enqueue for the flight loop to

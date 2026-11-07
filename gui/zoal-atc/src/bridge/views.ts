@@ -55,7 +55,6 @@ export type FlightPlanView = {
 // facility, so two connected pilots each keep their own.
 export type SettingsView = {
   simbriefPilotId?: string;
-  notifications?: NotificationsSetting;
 };
 
 // What the *plugin* holds, not the console: the credential and address of the
@@ -66,22 +65,6 @@ export type ConnectionView = {
   token?: string;
   // Read-only. Shown so the pilot can see which console the token is for.
   url?: string;
-};
-
-// How this pilot wants to be told ATC spoke while the panel is closed. The
-// plugin raises the toast, so these are pushed to it rather than acted on here.
-export type NotificationsSetting = {
-  enabled: boolean;
-  corner: string;
-  timeoutSecs: number;
-  sound: boolean;
-};
-
-export const DEFAULT_NOTIFICATIONS: NotificationsSetting = {
-  enabled: true,
-  corner: "top_right",
-  timeoutSecs: 8,
-  sound: true,
 };
 
 export type SessionView = {

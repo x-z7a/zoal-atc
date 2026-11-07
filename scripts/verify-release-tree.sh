@@ -96,11 +96,6 @@ require_file "apps/zoal-atc/main.css"
 # mistake.
 require_dir "assets/icons"
 require_file "assets/icons/x-circle.svg"
-# The notification sound. Skyscript reads it from the assets directory at the
-# moment a toast is raised, so a release without it fails silently: the toast
-# appears and simply makes no sound, which is indistinguishable from a pilot
-# having turned the sound off.
-require_file "assets/notify.pcm"
 require_file "licenses/skyscript/LICENSE"
 require_file "licenses/THIRD-PARTY.txt"
 

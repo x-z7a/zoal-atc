@@ -52,9 +52,11 @@ yourself, see *Console endpoint* below.
   Home and Settings tabs. The panel never talks to the console directly —
   everything goes through the plugin's socket over the `console.request` /
   `console.event` bridge, so credentials stay out of the page.
-- **Notifications.** The plugin raises a toast from its cached `atc_reply` so it
-  works with the panel closed and never opened. A visible panel raises nothing:
-  the rule is "notify about what the pilot cannot already see".
+- **The HUD.** A second, frameless SkyScript window pinned to the top right of
+  the screen, transparent except for what it draws: the last three
+  transmissions, each for a minute, and a drawer to reload the flight plan,
+  start a new flight or open the panel. It stays up while the panel is closed.
+  Toggle it from Plugins > zoal-atc > Toggle HUD or bind `zoal_atc/hud_toggle`.
 
 ## Console endpoint
 
