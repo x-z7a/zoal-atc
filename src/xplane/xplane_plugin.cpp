@@ -913,7 +913,10 @@ void reply_receiver_loop() {
       log_line("websocket reconnected");
       last_failure.clear();
     }
-    g_gui_bridge.set_connected(true, monotonic_ms());
+    // Connected is not decided here. This thread only hears the socket when
+    // the console speaks, and after a reconnect the console may have nothing
+    // to say until it is asked -- which the panel would not do while it
+    // believed the socket was down. sync_gui_connection reads the socket.
     // GUI frames are queued, never delivered from here: Skyscript is pumped on
     // the main thread and this is not it.
     if (g_gui_bridge.on_socket_frame(payload, monotonic_ms())) {
@@ -1724,13 +1727,41 @@ int ptt_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
 // process_gui_bridge is the main-thread half of the GUI proxy: it expires stale
 // panel requests, publishes whatever the panel asked for, and lets the panel
 // owner post the results. Everything the browser sees passes through here.
+// sync_gui_connection tells the GUI bridge whether the socket is up, from the
+// socket itself and every frame.
+//
+// It used to be told only when a frame arrived from the console, so after a
+// reconnect the panel stayed "unreachable" until the console happened to send
+// something: requests were refused as disconnected and the subscribe that would
+// have prompted an answer was never sent.
+void sync_gui_connection(std::uint64_t now_ms) {
+  static std::uint64_t seen_generation = 0;
+  const bool up = websocket_connected();
+  if (up) {
+    const std::uint64_t generation = g_websocket->connection_generation();
+    if (generation != seen_generation) {
+      // A different connection from the one the bridge subscribed on, even if
+      // the bridge never saw the old one drop. Drop it here so everything owed
+      // to the dead socket fails and the new one is subscribed afresh.
+      seen_generation = generation;
+      g_gui_bridge.set_connected(false, now_ms);
+    }
+  }
+  g_gui_bridge.set_connected(up, now_ms);
+}
+
 void process_gui_bridge() {
-  g_gui_bridge.tick(monotonic_ms());
+  const std::uint64_t now = monotonic_ms();
+  sync_gui_connection(now);
+  g_gui_bridge.tick(now);
   if (g_transport_sink) {
     const auto frames = g_gui_bridge.take_socket_frames();
     for (const auto &frame : frames) {
       g_transport_sink->publish_text(frame);
     }
+  }
+  for (const auto &line : g_gui_bridge.take_log_lines()) {
+    log_line(line);
   }
   zoal_atc::gui::tick_skyscript_panel();
 }

@@ -524,6 +524,127 @@ void test_local_action_failure_reaches_the_page() {
               "the reason reaches the page");
 }
 
+std::string gui_refusal(std::uint64_t id, const std::string &error) {
+  return R"({"type":"gui_response","request_id":)" + std::to_string(id) +
+         R"(,"ok":false,"error":")" + error + R"("})";
+}
+
+bool has_status(const std::vector<std::string> &payloads, bool subscribed) {
+  const std::string want = std::string(R"("subscribed":)") +
+                           (subscribed ? "true" : "false");
+  for (const auto &payload : payloads) {
+    if (payload.find(R"("kind":"status")") != std::string::npos &&
+        payload.find(want) != std::string::npos) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// The socket being up is not the console listening. A subscribe nobody answered
+// in time used to be final until the socket dropped, which on a healthy
+// connection is never: the panel read "unreachable" for the whole flight.
+void test_unanswered_subscribe_is_asked_again() {
+  auto config = test_config();
+  config.subscribe_retry_ms = 500;
+  zoal_atc::gui::GuiBridge bridge(config);
+  bridge.set_connected(true, 0);
+  bridge.attach_panel(0);
+  expect_size(bridge.take_socket_frames().size(), 1, "first subscribe sent");
+  bridge.take_js_messages(64);
+
+  bridge.tick(1000);
+  expect_true(!bridge.subscribed(), "a timed-out subscribe is not subscribed");
+  expect_size(bridge.take_socket_frames().size(), 0,
+              "no retry before the retry interval");
+  const auto lines = bridge.take_log_lines();
+  expect_size(lines.size(), 1, "the failure is logged");
+  expect_true(!lines.empty() &&
+                  lines.at(0).find("request timed out") != std::string::npos,
+              "the log says why");
+
+  bridge.tick(1500);
+  const auto frames = bridge.take_socket_frames();
+  expect_size(frames.size(), 1, "subscribe asked again");
+  expect_true(!frames.empty() &&
+                  frames.at(0).find(R"("request_id":2)") != std::string::npos,
+              "the retry is a new request");
+
+  bridge.on_socket_frame(gui_response(2, "null"), 1600);
+  expect_true(bridge.subscribed(), "the retry's answer subscribes");
+  expect_true(has_status(js_payloads(bridge), true),
+              "the panel is told it is live");
+  bridge.tick(5000);
+  expect_size(bridge.take_socket_frames().size(), 0,
+              "nothing more once subscribed");
+}
+
+// The console answers every subscribe; it is the answer that can be slow. A yes
+// that arrives after the timeout is still a yes.
+void test_late_subscribe_answer_counts() {
+  auto config = test_config();
+  config.subscribe_retry_ms = 500;
+  zoal_atc::gui::GuiBridge bridge(config);
+  bridge.set_connected(true, 0);
+  bridge.attach_panel(0);
+  bridge.tick(1000);   // id 1 times out
+  bridge.tick(1500);   // id 2 sent
+  bridge.take_socket_frames();
+  bridge.take_js_messages(64);
+  expect_size(bridge.pending_count(), 1, "the retry is in flight");
+
+  expect_true(bridge.on_socket_frame(gui_response(1, "null"), 1600),
+              "late answer consumed");
+  expect_true(bridge.subscribed(), "a late yes subscribes");
+  expect_size(bridge.pending_count(), 0,
+              "the redundant retry is no longer pending");
+
+  // Had the retry been left pending, its timeout would undo the late yes.
+  bridge.tick(10000);
+  expect_true(bridge.subscribed(), "still subscribed after the retry's deadline");
+  expect_size(bridge.take_socket_frames().size(), 0, "no further subscribes");
+}
+
+void test_refused_subscribe_is_asked_again() {
+  auto config = test_config();
+  config.subscribe_retry_ms = 500;
+  zoal_atc::gui::GuiBridge bridge(config);
+  bridge.set_connected(true, 0);
+  bridge.attach_panel(0);
+  bridge.take_socket_frames();
+
+  bridge.on_socket_frame(gui_refusal(1, "panel worker unavailable"), 100);
+  expect_true(!bridge.subscribed(), "a refusal is not subscribed");
+  const auto lines = bridge.take_log_lines();
+  expect_true(!lines.empty() && lines.at(0).find("panel worker unavailable") !=
+                                    std::string::npos,
+              "the console's reason is logged");
+
+  bridge.tick(599);
+  expect_size(bridge.take_socket_frames().size(), 0, "waits out the interval");
+  bridge.tick(600);
+  expect_size(bridge.take_socket_frames().size(), 1, "then asks again");
+
+  // A refusal arriving after the timeout changes nothing: a newer subscribe is
+  // already the one that counts.
+  bridge.on_socket_frame(gui_response(2, "null"), 700);
+  expect_true(bridge.subscribed(), "subscribed on the retry");
+}
+
+// A closed panel is not retried for: nobody is there to show it to.
+void test_no_retry_without_a_panel() {
+  auto config = test_config();
+  config.subscribe_retry_ms = 500;
+  zoal_atc::gui::GuiBridge bridge(config);
+  bridge.set_connected(true, 0);
+  bridge.attach_panel(0);
+  bridge.detach_panel();
+  bridge.take_socket_frames();
+  bridge.tick(5000);
+  expect_size(bridge.take_socket_frames().size(), 0,
+              "no subscribe for a page that is gone");
+}
+
 int main() {
   test_submit_needs_a_console();
   test_attach_subscribes_and_acks();
@@ -540,6 +661,10 @@ int main() {
   test_local_actions_answer_without_the_console();
   test_local_actions_do_not_swallow_console_actions();
   test_local_action_failure_reaches_the_page();
+  test_unanswered_subscribe_is_asked_again();
+  test_late_subscribe_answer_counts();
+  test_refused_subscribe_is_asked_again();
+  test_no_retry_without_a_panel();
 
   if (g_failures != 0) {
     return EXIT_FAILURE;

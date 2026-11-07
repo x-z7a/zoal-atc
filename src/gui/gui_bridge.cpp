@@ -102,6 +102,7 @@ void GuiBridge::detach_panel() {
   // attach re-asserts it.
   pending_.clear();
   subscribe_request_id_ = 0;
+  retired_subscribes_.clear();
   subscribed_ = false;
 }
 
@@ -128,13 +129,31 @@ bool GuiBridge::on_socket_frame(const std::string &frame,
     std::lock_guard<std::mutex> lock(mutex_);
     const auto entry = pending_.find(response->request_id);
     if (entry == pending_.end()) {
-      // A timed-out request, or an id from a connection that has since been
-      // replaced. There is no promise left to settle.
+      const auto retired =
+          std::find(retired_subscribes_.begin(), retired_subscribes_.end(),
+                    response->request_id);
+      if (retired != retired_subscribes_.end()) {
+        // Our own subscribe, answered after we stopped waiting. A late yes
+        // still means the console is listening; a late no changes nothing,
+        // because a newer subscribe is already in flight or scheduled.
+        retired_subscribes_.erase(retired);
+        if (response->ok && !subscribed_) {
+          // The retry still in flight is now redundant, and must not be left
+          // to time out and undo this.
+          if (subscribe_request_id_ != 0) {
+            pending_.erase(subscribe_request_id_);
+            subscribe_request_id_ = 0;
+          }
+          settle_subscribe_locked(*response, now_ms);
+        }
+      }
+      // Otherwise a timed-out panel request, or an id from a connection that
+      // has since been replaced. There is no promise left to settle.
       return true;
     }
     const bool internal = entry->second.internal;
     pending_.erase(entry);
-    settle_locked(response->request_id, *response, internal);
+    settle_locked(response->request_id, *response, internal, now_ms);
     return true;
   }
 
@@ -180,9 +199,11 @@ void GuiBridge::set_connected(bool connected, std::uint64_t now_ms) {
     return;
   }
   connected_ = connected;
+  // Whatever a dead socket was waiting on, the new one will not answer.
+  retired_subscribes_.clear();
   if (!connected) {
     subscribed_ = false;
-    fail_all_locked("console disconnected");
+    fail_all_locked("console disconnected", now_ms);
   } else if (panel_attached_) {
     // The console holds no memory of a socket that went away, so a reconnect
     // re-asserts the subscription instead of assuming it survived.
@@ -209,7 +230,14 @@ void GuiBridge::tick(std::uint64_t now_ms) {
     response.request_id = id;
     response.ok = false;
     response.error = "request timed out";
-    settle_locked(id, response, internal);
+    settle_locked(id, response, internal, now_ms);
+  }
+
+  // A subscribe that failed is asked again rather than left failed: the socket
+  // is up, so the console is there to ask.
+  if (connected_ && panel_attached_ && !subscribed_ &&
+      subscribe_request_id_ == 0 && now_ms >= next_subscribe_ms_) {
+    subscribe_locked(now_ms);
   }
 }
 
@@ -264,17 +292,28 @@ bool GuiBridge::connected() const {
   return connected_;
 }
 
+std::vector<std::string> GuiBridge::take_log_lines() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::vector<std::string> lines(log_lines_.begin(), log_lines_.end());
+  log_lines_.clear();
+  return lines;
+}
+
 void GuiBridge::settle_locked(std::uint64_t request_id,
-                              const GuiResponse &response, bool internal) {
+                              const GuiResponse &response, bool internal,
+                              std::uint64_t now_ms) {
   if (internal) {
     if (request_id == subscribe_request_id_) {
       subscribe_request_id_ = 0;
+      if (!response.ok && response.error == "request timed out") {
+        // Not answered yet is not refused: keep listening for it.
+        retired_subscribes_.push_back(request_id);
+        while (retired_subscribes_.size() > 8) {
+          retired_subscribes_.pop_front();
+        }
+      }
     }
-    const bool was = subscribed_;
-    subscribed_ = response.ok;
-    if (was != subscribed_) {
-      enqueue_status_locked();
-    }
+    settle_subscribe_locked(response, now_ms);
     return;
   }
   if (!panel_attached_) {
@@ -285,7 +324,33 @@ void GuiBridge::settle_locked(std::uint64_t request_id,
   enqueue_js_locked(build_js_response(response));
 }
 
-void GuiBridge::fail_all_locked(const std::string &reason) {
+void GuiBridge::settle_subscribe_locked(const GuiResponse &response,
+                                        std::uint64_t now_ms) {
+  const bool was = subscribed_;
+  subscribed_ = response.ok;
+  if (subscribed_ && !was) {
+    log_lines_.push_back("console subscribed: the panel is live");
+  }
+  if (!response.ok) {
+    next_subscribe_ms_ = now_ms + config_.subscribe_retry_ms;
+    // A dropped socket says so itself; this is for the case it does not.
+    if (connected_) {
+      log_lines_.push_back("console subscribe failed (" + response.error +
+                           "); asking again in " +
+                           std::to_string(config_.subscribe_retry_ms / 1000) +
+                           "s");
+    }
+  }
+  while (log_lines_.size() > 16) {
+    log_lines_.pop_front();
+  }
+  if (was != subscribed_) {
+    enqueue_status_locked();
+  }
+}
+
+void GuiBridge::fail_all_locked(const std::string &reason,
+                                std::uint64_t now_ms) {
   std::vector<std::uint64_t> ids;
   ids.reserve(pending_.size());
   for (const auto &entry : pending_) {
@@ -300,7 +365,7 @@ void GuiBridge::fail_all_locked(const std::string &reason) {
     response.request_id = id;
     response.ok = false;
     response.error = reason;
-    settle_locked(id, response, internal);
+    settle_locked(id, response, internal, now_ms);
   }
 }
 
@@ -339,6 +404,11 @@ void GuiBridge::subscribe_locked(std::uint64_t now_ms) {
   // `pending` is what the panel's own status line reports to the pilot.
   if (subscribe_request_id_ != 0) {
     pending_.erase(subscribe_request_id_);
+    // Superseded, not refused: if the console answers it, that answer counts.
+    retired_subscribes_.push_back(subscribe_request_id_);
+    while (retired_subscribes_.size() > 8) {
+      retired_subscribes_.pop_front();
+    }
   }
   const std::uint64_t id = next_request_id_++;
   subscribe_request_id_ = id;

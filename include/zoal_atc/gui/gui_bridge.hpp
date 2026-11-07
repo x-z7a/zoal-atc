@@ -38,6 +38,11 @@ struct GuiBridgeConfig {
   // it will not be answered. A promise that never settles is worse than a
   // refusal: the panel would show a spinner for the rest of the flight.
   std::uint64_t request_timeout_ms = 10000;
+  // How long after a failed subscribe the bridge asks again. The socket being
+  // up is not the console listening: the subscribe is answered by a worker
+  // behind a stream, and one answer that is lost or late must not leave the
+  // panel showing an unreachable console for the rest of the flight.
+  std::uint64_t subscribe_retry_ms = 5000;
   // Caps that make a wedged console or a runaway panel cost bounded memory.
   std::size_t max_pending = 32;
   std::size_t max_js_queue = 256;
@@ -153,6 +158,11 @@ public:
   [[nodiscard]] bool subscribed() const;
   [[nodiscard]] bool connected() const;
 
+  // take_log_lines returns what the bridge has to say about its own
+  // subscription since the last call. The bridge is SDK-free and is fed from
+  // the socket thread, so it cannot log itself; the flight loop drains this.
+  std::vector<std::string> take_log_lines();
+
 private:
   struct Pending {
     std::uint64_t deadline_ms = 0;
@@ -162,8 +172,10 @@ private:
   };
 
   void settle_locked(std::uint64_t request_id, const GuiResponse &response,
-                     bool internal);
-  void fail_all_locked(const std::string &reason);
+                     bool internal, std::uint64_t now_ms);
+  void settle_subscribe_locked(const GuiResponse &response,
+                               std::uint64_t now_ms);
+  void fail_all_locked(const std::string &reason, std::uint64_t now_ms);
   void enqueue_js_locked(std::string payload);
   void enqueue_status_locked();
   void replay_locked();
@@ -178,6 +190,13 @@ private:
   // The subscribe still awaiting an answer, so re-subscribing can retire it
   // instead of stacking a new one behind it. Zero means none outstanding.
   std::uint64_t subscribe_request_id_ = 0;
+  // Subscribes this connection gave up waiting on. The console still answers
+  // them, just late, and a late "yes" is as good as a prompt one -- throwing it
+  // away is how a healthy console came to read as unreachable.
+  std::deque<std::uint64_t> retired_subscribes_;
+  // When a failed subscribe may be asked again; see subscribe_retry_ms.
+  std::uint64_t next_subscribe_ms_ = 0;
+  std::deque<std::string> log_lines_;
 
   bool connected_ = false;
   bool subscribed_ = false;
