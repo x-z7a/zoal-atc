@@ -331,6 +331,7 @@ WebSocketStatus WebSocketClient::connect_locked() {
   // no, and asking again immediately only asks faster.
   if (status.ok) {
     reconnect_gate_.note_success();
+    generation_.fetch_add(1, std::memory_order_acq_rel);
   } else {
     reconnect_gate_.note_failure(now_ms);
   }

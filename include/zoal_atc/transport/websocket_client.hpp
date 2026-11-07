@@ -95,6 +95,13 @@ public:
   [[nodiscard]] bool connected() const {
     return connected_.load(std::memory_order_acquire);
   }
+  // Counts successful connects. A socket that drops and is re-dialled between
+  // two looks at connected() still reads as up both times, but it is a new
+  // connection: the console has forgotten everything the old one asked for.
+  // Comparing this is how a caller tells the difference.
+  [[nodiscard]] std::uint64_t connection_generation() const {
+    return generation_.load(std::memory_order_acquire);
+  }
   WebSocketStatus send_text(std::string_view payload) override;
   [[nodiscard]] WebSocketStatus receive_text(std::string &payload);
 
@@ -118,6 +125,7 @@ private:
   // Atomic so connected() can answer without the lock; every write still happens
   // under mutex_.
   std::atomic<bool> connected_{false};
+  std::atomic<std::uint64_t> generation_{0};
   // Paces re-dialling. Guarded by mutex_, like the socket it protects.
   ReconnectGate reconnect_gate_;
 };
