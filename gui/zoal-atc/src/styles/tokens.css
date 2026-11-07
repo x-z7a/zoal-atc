@@ -51,12 +51,12 @@
 
   /* Flatter and tighter than Material's defaults. A display bezel has corners;
      a phone app has pills. */
-  --btn-height: 32px;
+  --btn-height: 36px;
   --btn-padding: 14px;
   --btn-border-radius: 3px;
-  --btn-font-size: 12px;
-  --mw-chip-height: 22px;
-  --mw-chip-font-size: 11px;
+  --btn-font-size: 14px;
+  --mw-chip-height: 24px;
+  --mw-chip-font-size: 12px;
   --mw-chip-padding: 8px;
 
   --font-sans:
