@@ -53,6 +53,16 @@ const SherpaOnnxOfflineTts *KokoroSynthesizer::load_locked(Engine &engine) {
     return engine.tts;
   }
   const std::filesystem::path dir(model_dir_);
+  // The catalogue was prepared at startup, but an engine loads on the first
+  // voice that needs it, which may be an hour later -- and a release unpacked
+  // over a running simulator in between replaces model.onnx and leaves no
+  // voices-zoal.bin. The load then fails, and every reply in that accent is
+  // silent until X-Plane restarts. Preparing again is cheap when nothing
+  // changed, because every write is skipped when the bytes already match.
+  if (catalogue_ && !prepare_catalogue(model_dir_, nullptr)) {
+    engine.load_failed = true;
+    return nullptr;
+  }
   const std::string model = (dir / "model.onnx").string();
   const std::string voices =
       (dir / (catalogue_ ? kCatalogueVoicesFile : "voices.bin")).string();
