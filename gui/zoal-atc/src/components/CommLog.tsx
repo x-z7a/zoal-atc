@@ -59,7 +59,11 @@ export function CommBubble({
           </span>
         ) : null}
       </span>
-      <div className="bubble">{entry.text || ""}</div>
+      {/* The text in a span of its own, so the HUD can clamp it to three lines
+          without the next line showing through the bubble's padding. */}
+      <div className="bubble">
+        <span className="bubble-text">{entry.text || ""}</span>
+      </div>
     </li>
   );
 }

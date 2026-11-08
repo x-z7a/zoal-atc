@@ -51,6 +51,7 @@ describe("readShellParams", () => {
 
   it("is the HUD when the plugin opens it as one", () => {
     expect(readShellParams("?plugin_version=0.1.0&skyscript=ready&view=hud").view).toBe("hud");
+    expect(readShellParams("?view=hud-feed").view).toBe("hud-feed");
   });
 
   it("does not become something else on an unknown view", () => {

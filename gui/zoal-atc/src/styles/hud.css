@@ -186,22 +186,59 @@ html.hud-window {
   filter: none;
 }
 
-/* A refusal is the one thing that earns a line of its own, and with it a
-   resize: it is rare, and it must be read. */
-.hud-drawer-error {
-  max-width: 100%;
-  padding: 3px 12px;
-  border-radius: 12px;
-  background: var(--hud-glass);
-  text-shadow: none;
+/* A refusal takes the menu's place in the same row, rather than a line of its
+   own: the bar's window never changes height. The full text is the tooltip. */
+.hud-actions.is-error {
+  max-width: 380px;
+  gap: 6px;
+  padding: 0 3px 0 10px;
+  border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 600;
 }
 
-.hud-drawer-error .action-error {
-  margin: 0;
-  font-size: 12px;
+.hud-actions.is-error .hud-icon {
+  fill: var(--danger);
+}
+
+.hud-error-text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud-dismiss {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.hud-dismiss:hover {
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+}
+
+.hud-dismiss .hud-icon {
+  width: 13px;
+  height: 13px;
 }
 
 /* ---- Feed ---------------------------------------------------------------- */
+
+/* The feed's own window. Never taller than it is, whatever is in it: a
+   clipped line is better than a window that has to grow while it shows one. */
+.hud-feed-window {
+  overflow: hidden;
+  max-height: 100vh;
+}
 
 .hud-feed {
   display: flex;
@@ -219,6 +256,7 @@ html.hud-window {
    were is readable before the words are. */
 .hud-feed .bubble-row {
   max-width: 100%;
+  min-width: 0;
   align-self: flex-end;
   align-items: flex-end;
   /* No entrance animation, deliberately: an offscreen browser that throttles
@@ -228,9 +266,21 @@ html.hud-window {
   transition: opacity 5s linear;
 }
 
+/* Three lines of text at most, so three bubbles always fit the feed window's
+   one full height (HUD_FEED_HEIGHT_PX in domain/hud.ts). The whole line is in
+   the panel's log. */
 .hud-feed .bubble {
+  max-width: 100%;
   background: var(--hud-glass);
   font-size: 14px;
+  line-height: 1.45;
+}
+
+.hud-feed .bubble-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
 }
 
 /* The panel's pilot bubble is a faint wash over its glass; over the sky it

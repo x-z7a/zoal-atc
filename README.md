@@ -55,10 +55,12 @@ yourself, see *Console endpoint* below.
   themes (Graphite, Daylight and Night) are picked on Settings and apply to the
   panel and the HUD together; the choice is stored as `panel_theme` in
   `zoal_atc.cfg`.
-- **The HUD.** A second, frameless SkyScript window pinned to the top right of
-  the screen, transparent except for what it draws: the last three
-  transmissions, each for a minute, and a menu to reload the flight plan,
-  start a new flight or open the panel. It stays up while the panel is closed.
+- **The HUD.** Frameless SkyScript windows pinned to the top right of the
+  screen, transparent except for what they draw: a fixed-size bar with a menu
+  to reload the flight plan, start a new flight or open the panel, and under
+  it the last three transmissions, each for a minute. The transmissions have
+  a window of their own that only resizes while it is empty, so lines coming
+  and going never make the bar jump. It stays up while the panel is closed.
   Toggle it from Plugins > zoal-atc > Toggle HUD or bind `zoal_atc/hud_toggle`.
 
 ## Console endpoint

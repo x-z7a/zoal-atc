@@ -28,6 +28,20 @@ ScreenRect hud_rect(const ScreenRect &screen, int content_height,
   return rect;
 }
 
+ScreenRect hud_feed_rect(const ScreenRect &screen, const ScreenRect &bar,
+                         int content_height, const HudPlacement &placement) {
+  const int gap = std::max(0, placement.feed_gap);
+  const int room = std::max(1, bar.bottom - gap - screen.bottom);
+  const int height = std::clamp(content_height, 1, room);
+
+  ScreenRect rect;
+  rect.left = bar.left;
+  rect.right = bar.right;
+  rect.top = std::max(screen.bottom + 1, bar.bottom - gap);
+  rect.bottom = rect.top - height;
+  return rect;
+}
+
 std::optional<int> parse_hud_layout(const std::string &payload_json) {
   const auto height = transport::json_number_field(payload_json, "height");
   if (!height.has_value() || !std::isfinite(*height) || *height <= 0.0 ||

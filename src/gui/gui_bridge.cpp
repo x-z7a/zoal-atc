@@ -7,7 +7,8 @@ namespace zoal_atc::gui {
 
 namespace {
 
-constexpr GuiView kAllViews[kGuiViewCount] = {GuiView::panel, GuiView::hud};
+constexpr GuiView kAllViews[kGuiViewCount] = {GuiView::panel, GuiView::hud,
+                                               GuiView::hud_feed};
 
 } // namespace
 
