@@ -12,12 +12,11 @@ export const HUD_LIFESPAN_MS = 60_000;
 // How long before the end a line starts to fade, so it leaves rather than
 // vanishing mid-read.
 export const HUD_FADE_MS = 5_000;
-// The feed window's two heights (HudFeedApp). Full is room for three lines at
-// their tallest: hud.css clamps each bubble to three lines of text, so a row
-// is at most a 16px name, a 3px gap and a 79px bubble, and three rows with
-// their 6px gaps and the window's padding come to 312. A little over, so a
-// font that renders a pixel taller is not clipped.
-export const HUD_FEED_HEIGHT_PX = 320;
+// The feed window's two heights (HudFeedApp). Full is room for three lines of
+// ordinary length with plenty to spare -- a long clearance runs to five or six
+// lines of text, and nothing is cut short. Should three long ones ever outgrow
+// it, the oldest is the one pushed off the top (hud.css), never the newest.
+export const HUD_FEED_HEIGHT_PX = 480;
 export const HUD_FEED_COLLAPSED_PX = 1;
 // Slack for the console's clock and this computer's disagreeing. A line whose
 // own timestamp is older than its lifespan plus this was said before the HUD

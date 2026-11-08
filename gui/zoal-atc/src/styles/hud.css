@@ -235,9 +235,15 @@ html.hud-window {
 
 /* The feed's own window. Never taller than it is, whatever is in it: a
    clipped line is better than a window that has to grow while it shows one. */
+/* As tall as its lines, up to the window. Column-reverse puts the list's
+   bottom -- the newest line -- at the window's bottom only once the lines
+   outgrow it, so overflow pushes the oldest off the top; while they fit the
+   whole column is as tall as they are and sits under the bar as usual. */
 .hud-feed-window {
+  display: flex;
   overflow: hidden;
   max-height: 100vh;
+  flex-direction: column-reverse;
 }
 
 .hud-feed {
@@ -266,21 +272,13 @@ html.hud-window {
   transition: opacity 5s linear;
 }
 
-/* Three lines of text at most, so three bubbles always fit the feed window's
-   one full height (HUD_FEED_HEIGHT_PX in domain/hud.ts). The whole line is in
-   the panel's log. */
+/* Every word of a transmission is shown: the feed's window has room for
+   three long ones (HUD_FEED_HEIGHT_PX in domain/hud.ts). */
 .hud-feed .bubble {
   max-width: 100%;
   background: var(--hud-glass);
   font-size: 14px;
   line-height: 1.45;
-}
-
-.hud-feed .bubble-text {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
 }
 
 /* The panel's pilot bubble is a faint wash over its glass; over the sky it

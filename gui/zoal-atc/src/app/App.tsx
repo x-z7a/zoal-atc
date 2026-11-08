@@ -6,7 +6,7 @@ import {Tabs, TabPanel, type TabDefinition} from "../components/Tabs";
 import {describeStatus, isConsoleReachable} from "../domain/status";
 import {readShellParams} from "../domain/shell";
 import {useConsole} from "../state/ConsoleProvider";
-import {useConsoleStatus, useReportEditing, useTelemetryFreshness, useThemeSync} from "../state/hooks";
+import {useConsoleStatus, useTelemetryFreshness, useThemeSync} from "../state/hooks";
 import {HomeTab} from "../views/HomeTab";
 import {SettingsTab} from "../views/SettingsTab";
 
@@ -24,7 +24,6 @@ export function App({search}: Props) {
   const {boot, bootDetail} = useConsole();
   const status = useConsoleStatus();
   useThemeSync();
-  useReportEditing();
   const freshness = useTelemetryFreshness();
 
   // Home by default and held in memory only. The window is hidden and shown
