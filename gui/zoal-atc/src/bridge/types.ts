@@ -66,6 +66,11 @@ export const HUD_FEED_LAYOUT_CHANNEL = "hud.feed_layout";
 // clicked browser window the keyboard and keeps it there, and the HUD has
 // nothing to type into: holding it only swallows the pilot's sim shortcuts.
 export const HUD_FOCUS_CHANNEL = "hud.release_focus";
+// The panel says whether a text field in it has the keyboard. After a
+// transmission the plugin takes the keyboard back from whichever browser window
+// grabbed it (skyscript_panel.cpp, guard_keyboard) -- but never from a pilot
+// typing in the panel.
+export const PANEL_EDITING_CHANNEL = "panel.editing";
 // The plugin posts here to every window when a setting changes, so a theme
 // picked in the panel reaches the HUD -- a separate page -- straight away.
 export const SETTINGS_CHANGED_CHANNEL = "settings.changed";

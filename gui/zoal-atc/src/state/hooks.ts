@@ -3,7 +3,7 @@ import {useCallback, useEffect, useState, useSyncExternalStore} from "react";
 import {LOCAL_ACTIONS} from "../bridge/actions";
 import type {ConsoleStatus} from "../bridge/types";
 import type {CommLogEntry, PanelTelemetry, SettingsView} from "../bridge/views";
-import {EVENTS, SETTINGS_CHANGED_CHANNEL} from "../bridge/types";
+import {EVENTS, PANEL_EDITING_CHANNEL, SETTINGS_CHANGED_CHANNEL} from "../bridge/types";
 import {applyTheme, themeOrDefault} from "../domain/theme";
 import {
   freshnessOf,
@@ -137,4 +137,53 @@ export function useThemeSync(): void {
       stop();
     };
   }, [bridge, boot]);
+}
+
+// isEditable says whether an element takes typing: the one case where the
+// panel, not the sim, should have the keyboard.
+export function isEditable(element: Element | null): boolean {
+  if (!element) {
+    return false;
+  }
+  if (element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+    return true;
+  }
+  if (element instanceof HTMLInputElement) {
+    return !["button", "checkbox", "radio", "range", "reset", "submit", "color", "file", "image"].includes(
+      element.type,
+    );
+  }
+  return element instanceof HTMLElement && element.isContentEditable === true;
+}
+
+// useReportEditing tells the plugin whenever a text field in this window gains
+// or loses the keyboard, so it knows not to take the keyboard back mid-word.
+export function useReportEditing(): void {
+  const {bridge} = useConsole();
+
+  useEffect(() => {
+    if (!bridge) {
+      return;
+    }
+    let last: boolean | null = null;
+    function report(): void {
+      // focusout fires before the next element has focus: read it a tick later.
+      setTimeout(() => {
+        const editing = isEditable(document.activeElement);
+        if (editing !== last) {
+          last = editing;
+          bridge?.notify(PANEL_EDITING_CHANNEL, {editing});
+        }
+      }, 0);
+    }
+    document.addEventListener("focusin", report);
+    document.addEventListener("focusout", report);
+    return () => {
+      document.removeEventListener("focusin", report);
+      document.removeEventListener("focusout", report);
+      if (last) {
+        bridge.notify(PANEL_EDITING_CHANNEL, {editing: false});
+      }
+    };
+  }, [bridge]);
 }
