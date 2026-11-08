@@ -34,6 +34,11 @@ void tick_skyscript_panel();
 // control. Main thread only, like every other Skyscript call.
 void show_skyscript_panel();
 
+// post_to_skyscript_windows sends one plugin message to every window, panel and
+// HUD alike: how a setting saved in one reaches the other. Skyscript queues it
+// for a hidden window. Main thread only.
+void post_to_skyscript_windows(const char *channel, const std::string &payload);
+
 } // namespace zoal_atc::gui
 
 #endif

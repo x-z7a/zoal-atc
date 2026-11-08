@@ -3,6 +3,7 @@ import {createRoot} from "react-dom/client";
 
 import {App} from "./app/App";
 import {readShellParams} from "./domain/shell";
+import {applyTheme, cachedTheme} from "./domain/theme";
 import {HudApp} from "./hud/HudApp";
 import {ConsoleProvider} from "./state/ConsoleProvider";
 import "./styles/index.css";
@@ -15,6 +16,9 @@ const shell = readShellParams(window.location.search);
 if (shell.view === "hud") {
   document.documentElement.classList.add("hud-window");
 }
+// The last theme this browser saw, before the first paint; the plugin's stored
+// one replaces it as soon as the bridge is up (useThemeSync).
+applyTheme(cachedTheme());
 if (container) {
   createRoot(container).render(
     <StrictMode>

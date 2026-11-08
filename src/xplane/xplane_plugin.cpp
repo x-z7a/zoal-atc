@@ -1,5 +1,6 @@
 #include "zoal_atc/gui/gui_bridge.hpp"
 #include "zoal_atc/gui/panel_paths.hpp"
+#include "zoal_atc/gui/panel_theme.hpp"
 #include "zoal_atc/gui/skyscript_panel.hpp"
 #include "zoal_atc/ptt/miniaudio_audio_recorder.hpp"
 #include "zoal_atc/ptt/push_to_talk_controller.hpp"
@@ -407,6 +408,9 @@ std::string settings_json() {
   out << R"({"simbriefPilotId":")"
       << zoal_atc::transport::json_escape(
              config_value(text, "simbrief_id").value_or(std::string()))
+      << R"(","theme":")"
+      << zoal_atc::gui::panel_theme_or_default(
+             config_value(text, "panel_theme").value_or(std::string()))
       << R"("})";
   return out.str();
 }
@@ -451,6 +455,17 @@ handle_local_gui_action(const std::string &action,
       return zoal_atc::gui::LocalAnswer{false, "null",
                                         "no config file path is known"};
     }
+    // Either field may come alone: a save names only what it changes.
+    const auto theme_field =
+        zoal_atc::transport::json_string_field(payload_json, "theme");
+    std::optional<std::string> theme;
+    if (theme_field.has_value()) {
+      theme = zoal_atc::gui::known_panel_theme(*theme_field);
+      if (!theme.has_value()) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "unknown theme: " + *theme_field};
+      }
+    }
     const auto pilot_id =
         zoal_atc::transport::json_string_field(payload_json, "simbriefPilotId");
     if (pilot_id.has_value()) {
@@ -474,6 +489,19 @@ handle_local_gui_action(const std::string &action,
       // sends it with an import explicitly. Dropping a live connection the way
       // a token change does would take a pilot off the air to change a
       // preference that is not about being on the air.
+    }
+    if (theme.has_value()) {
+      const auto existing = read_file(g_config_path);
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          existing.value_or(std::string()), "panel_theme", *theme);
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      // The panel and the HUD are two pages; the one that saved knows from
+      // this answer, the other learns here.
+      zoal_atc::gui::post_to_skyscript_windows(
+          "settings.changed", R"({"theme":")" + *theme + R"("})");
     }
 
     return zoal_atc::gui::LocalAnswer{true, settings_json(), ""};

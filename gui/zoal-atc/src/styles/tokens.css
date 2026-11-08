@@ -1,105 +1,235 @@
-/* The panel's theme: Materialize's Material 3 colour roles, retuned for a glass
- * cockpit.
+/* The panel's theme: Materialize's Material 3 colour roles, retuned as warm
+ * graphite glass.
  *
  * Materialize draws every component from the --md-sys-color-* roles, so this
  * file is the whole theme: set the roles once and buttons, cards, chips and tabs
- * all follow. The palette borrows avionics conventions a
- * pilot already reads without thinking -- cyan for what you can select, green
- * for what is active, amber for caution, magenta for the route -- on the
- * near-black of a display that has to sit beside a night cockpit.
+ * all follow.
+ *
+ * The palette is deliberately quiet: warm graphite rather than blue-black, one
+ * honey accent for what you can press, sage for what is live, coral for
+ * caution. Readouts are plain off-white -- a glance at a number should not be a
+ * glance at a neon sign -- and colour is kept for the things that mean
+ * something: who is talking, what is live, what needs attention.
  *
  * The selector is deliberately heavier than Materialize's own :root[theme=dark]
  * and prefers-color-scheme blocks, so this palette wins however the host
- * resolves its colour scheme. The panel is dark-only, like the panel it sits in. */
+ * resolves its colour scheme. The panel is dark-only: it sits over a cockpit. */
 :root,
 :root[theme],
 :root[theme="dark"] {
   color-scheme: dark;
 
-  --md-sys-color-primary: #43c6e3;
-  --md-sys-color-on-primary: #00262f;
-  --md-sys-color-primary-container: #0f3944;
-  --md-sys-color-on-primary-container: #b3eefb;
-  --md-sys-color-secondary: #6fdc8c;
-  --md-sys-color-on-secondary: #002910;
-  --md-sys-color-secondary-container: #17392a;
-  --md-sys-color-on-secondary-container: #b4f3c4;
-  --md-sys-color-tertiary: #e47bdc;
-  --md-sys-color-on-tertiary: #3a0036;
-  --md-sys-color-tertiary-container: #3d1a3a;
-  --md-sys-color-on-tertiary-container: #f8c8f1;
-  --md-sys-color-error: #ff8f86;
-  --md-sys-color-on-error: #410002;
-  --md-sys-color-error-container: #3d1513;
-  --md-sys-color-on-error-container: #ffdad5;
-  --md-sys-color-background: #090d12;
-  --md-sys-color-on-background: #e1e7ed;
-  --md-sys-color-surface: #10161d;
-  --md-sys-color-on-surface: #e1e7ed;
-  --md-sys-color-surface-variant: #18202a;
-  --md-sys-color-on-surface-variant: #8d9cad;
-  --md-sys-color-outline: #3a4757;
-  --md-sys-color-outline-variant: #222c37;
-  --md-sys-color-inverse-surface: #e1e7ed;
-  --md-sys-color-inverse-on-surface: #10161d;
-  --md-sys-color-inverse-primary: #006879;
+  --md-sys-color-primary: #efb45c;
+  --md-sys-color-on-primary: #2e1f06;
+  --md-sys-color-primary-container: #3d3121;
+  --md-sys-color-on-primary-container: #f8dcb2;
+  --md-sys-color-secondary: #a9d39f;
+  --md-sys-color-on-secondary: #15290f;
+  --md-sys-color-secondary-container: #2c3529;
+  --md-sys-color-on-secondary-container: #d3ecca;
+  --md-sys-color-tertiary: #e3a3c2;
+  --md-sys-color-on-tertiary: #3a1428;
+  --md-sys-color-tertiary-container: #3e2a34;
+  --md-sys-color-on-tertiary-container: #f6d5e5;
+  --md-sys-color-error: #ff8a7a;
+  --md-sys-color-on-error: #3d0b05;
+  --md-sys-color-error-container: #3f201b;
+  --md-sys-color-on-error-container: #ffd9d2;
+  --md-sys-color-background: #19191b;
+  --md-sys-color-on-background: #efebe5;
+  --md-sys-color-surface: #222224;
+  --md-sys-color-on-surface: #efebe5;
+  --md-sys-color-surface-variant: #2d2d30;
+  --md-sys-color-on-surface-variant: #a6a099;
+  --md-sys-color-outline: #4a4845;
+  --md-sys-color-outline-variant: #343331;
+  --md-sys-color-inverse-surface: #efebe5;
+  --md-sys-color-inverse-on-surface: #222224;
+  --md-sys-color-inverse-primary: #7a5410;
   --md-sys-color-shadow: #000000;
   --md-sys-color-scrim: #000000;
-  /* No tint: Material's tinted elevation turns every card faintly blue, and an
-     instrument panel is grey glass, not branded glass. */
-  --md-sys-color-surface-tint: #10161d;
+  /* No tint: Material's tinted elevation would turn every card faintly amber. */
+  --md-sys-color-surface-tint: #222224;
 
-  /* Flatter and tighter than Material's defaults. A display bezel has corners;
-     a phone app has pills. */
-  --btn-height: 36px;
-  --btn-padding: 14px;
-  --btn-border-radius: 3px;
+  /* Pills, the same shape as the HUD: one radio, one look. */
+  --btn-height: 34px;
+  --btn-padding: 16px;
+  --btn-border-radius: 999px;
   --btn-font-size: 14px;
   --mw-chip-height: 24px;
   --mw-chip-font-size: 12px;
-  --mw-chip-padding: 8px;
+  --mw-chip-padding: 10px;
 
   --font-sans:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  /* Every number a pilot reads -- frequencies, altitudes, squawks -- is set in
-     a monospace with tabular figures, so 118.800 and 121.900 line up digit for
-     digit and a changing value never jitters its neighbours. */
-  --font-readout: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  /* Numbers a pilot reads -- frequencies, altitudes, squawks -- are set with
+     tabular figures, so 118.800 and 121.900 line up digit for digit and a
+     changing value never jitters its neighbours. The same face as the prose,
+     not a terminal monospace: these are instrument readouts, not a shell. */
+  --font-readout: var(--font-sans);
 
   /* The panel's own names for the roles above, so the stylesheet says what a
      colour is for rather than which Material slot it borrowed. */
   --bg: var(--md-sys-color-background);
-  --surface-sunken: #070a0e;
+  --surface-sunken: #121213;
   --surface: var(--md-sys-color-surface);
   --surface-raised: var(--md-sys-color-surface-variant);
-  --surface-comm: #141c25;
+  --surface-comm: rgb(255 248 240 / 7%);
 
-  --border: var(--md-sys-color-outline-variant);
-  --border-strong: var(--md-sys-color-outline);
+  /* The panel is glass over the cockpit: mostly opaque, so text reads over a
+     bright sky, but not a wall. The cards on it are lighter washes of the same
+     glass rather than solid blocks. */
+  --glass: color-mix(in srgb, var(--bg) 88%, transparent);
+  --glass-card: rgb(255 248 240 / 4.5%);
+  --glass-well: rgb(0 0 0 / 22%);
+
+  --border: rgb(255 248 240 / 8%);
+  --border-strong: rgb(255 248 240 / 15%);
 
   --text: var(--md-sys-color-on-surface);
   --text-dim: var(--md-sys-color-on-surface-variant);
-  --text-feed: #c4cfda;
+  --text-feed: #d8d2ca;
 
   --accent: var(--md-sys-color-primary);
   --active: var(--md-sys-color-secondary);
   --route: var(--md-sys-color-tertiary);
-  --warn: #f2b33d;
-  --warn-surface: #2a1f0b;
+  --warn: #ff9b6a;
+  --on-warn: #2b1206;
+  --warn-surface: #3a2419;
   --danger: var(--md-sys-color-error);
 
-  /* This cockpit's own bubble. Tinted rather than filled: a solid block of
-     colour at this size is louder than the radio deserves. */
-  --pilot-bubble: #10261d;
-  --pilot-bubble-border: #235440;
+  /* This cockpit's own bubble: a sage wash, tinted rather than filled. */
+  --pilot-bubble: rgb(169 211 159 / 13%);
+  --pilot-bubble-border: rgb(169 211 159 / 26%);
 
   /* One seat should not look like another. Approach handing you to Tower is a
-     change of person, and the colour says so before the words do. */
-  --delivery: #c7a4f0;
-  --surface-seat: #f2cf6b;
-  --tower: #7fb8f0;
+     change of person, and the colour says so before the words do. Radar seats
+     take the accent; the rest are muted, distinct hues. */
+  --delivery: #c4b3e6;
+  --surface-seat: #e8a989;
+  --tower: #9fc4e8;
 
-  --radius-sm: 2px;
-  --radius: 3px;
-  --radius-lg: 4px;
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* The HUD sits over the sky with no glass behind its text, so it carries a
+     shadow in the opposite tone to the text. */
+  --hud-text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
+}
+
+/* ---- Other themes ----------------------------------------------------------
+ *
+ * Picked in Settings and stored by the plugin (domain/theme.ts). Each block
+ * re-sets the roles and the glass; everything above that is derived from them
+ * follows. `html:root` outweighs both the default block and Materialize's own
+ * :root[theme] selectors. */
+
+/* Daylight: warm paper glass for a bright cockpit, with the accents darkened
+   until they read on it. */
+html:root[data-zoal-theme="daylight"] {
+  color-scheme: light;
+
+  --md-sys-color-primary: #a35d08;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #f2dab4;
+  --md-sys-color-on-primary-container: #48290a;
+  --md-sys-color-secondary: #3b7738;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #d6e9cf;
+  --md-sys-color-on-secondary-container: #12300f;
+  --md-sys-color-tertiary: #9e4570;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #f4d8e5;
+  --md-sys-color-on-tertiary-container: #3d0f25;
+  --md-sys-color-error: #b93a2a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #f9dcd6;
+  --md-sys-color-on-error-container: #410c05;
+  --md-sys-color-background: #f2eee7;
+  --md-sys-color-on-background: #27231e;
+  --md-sys-color-surface: #fbf8f3;
+  --md-sys-color-on-surface: #27231e;
+  --md-sys-color-surface-variant: #e8e2d8;
+  --md-sys-color-on-surface-variant: #6b6358;
+  --md-sys-color-outline: #c6bdb0;
+  --md-sys-color-outline-variant: #ddd5ca;
+  --md-sys-color-inverse-surface: #27231e;
+  --md-sys-color-inverse-on-surface: #f2eee7;
+  --md-sys-color-surface-tint: #fbf8f3;
+
+  --surface-sunken: #ece6dd;
+  --surface-comm: rgb(255 255 255 / 72%);
+  --glass: color-mix(in srgb, var(--bg) 90%, transparent);
+  --glass-card: rgb(255 255 255 / 55%);
+  --glass-well: rgb(70 50 25 / 6%);
+  --border: rgb(70 50 25 / 12%);
+  --border-strong: rgb(70 50 25 / 21%);
+  --text-feed: #3d3731;
+
+  --warn: #c0561d;
+  --on-warn: #ffffff;
+  --warn-surface: #fae2d3;
+
+  --pilot-bubble: rgb(59 119 56 / 12%);
+  --pilot-bubble-border: rgb(59 119 56 / 28%);
+
+  --delivery: #6d53a6;
+  --surface-seat: #ad552a;
+  --tower: #2d6a9b;
+
+  --hud-text-shadow: 0 1px 1px rgb(255 255 255 / 55%);
+}
+
+/* Night: dim, low-glare and shifted warm, the way cockpit night lighting is,
+   so the panel does not cost the pilot their dark-adapted eyes. */
+html:root[data-zoal-theme="night"] {
+  --md-sys-color-primary: #cc8748;
+  --md-sys-color-on-primary: #1e1004;
+  --md-sys-color-primary-container: #33241a;
+  --md-sys-color-on-primary-container: #e4c09d;
+  --md-sys-color-secondary: #8cab81;
+  --md-sys-color-on-secondary: #111c0e;
+  --md-sys-color-secondary-container: #1f271c;
+  --md-sys-color-on-secondary-container: #bfd4b6;
+  --md-sys-color-tertiary: #b58a9e;
+  --md-sys-color-on-tertiary: #24111a;
+  --md-sys-color-tertiary-container: #2e2027;
+  --md-sys-color-on-tertiary-container: #e2c6d3;
+  --md-sys-color-error: #d4705f;
+  --md-sys-color-on-error: #2b0a05;
+  --md-sys-color-error-container: #33180f;
+  --md-sys-color-on-error-container: #efc4ba;
+  --md-sys-color-background: #0e0c0b;
+  --md-sys-color-on-background: #c8b8a7;
+  --md-sys-color-surface: #161312;
+  --md-sys-color-on-surface: #c8b8a7;
+  --md-sys-color-surface-variant: #1f1b18;
+  --md-sys-color-on-surface-variant: #85776a;
+  --md-sys-color-outline: #3b332d;
+  --md-sys-color-outline-variant: #28221e;
+  --md-sys-color-inverse-surface: #c8b8a7;
+  --md-sys-color-inverse-on-surface: #161312;
+  --md-sys-color-surface-tint: #161312;
+
+  --surface-sunken: #090807;
+  --surface-comm: rgb(255 235 215 / 5%);
+  --glass: color-mix(in srgb, var(--bg) 90%, transparent);
+  --glass-card: rgb(255 235 215 / 3.5%);
+  --glass-well: rgb(0 0 0 / 30%);
+  --border: rgb(255 235 215 / 7%);
+  --border-strong: rgb(255 235 215 / 12%);
+  --text-feed: #b4a493;
+
+  --warn: #d8844f;
+  --on-warn: #1f0c03;
+  --warn-surface: #2a1a10;
+
+  --pilot-bubble: rgb(140 171 129 / 11%);
+  --pilot-bubble-border: rgb(140 171 129 / 22%);
+
+  --delivery: #a394c0;
+  --surface-seat: #c48b70;
+  --tower: #8aa5c0;
 }

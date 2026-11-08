@@ -8,7 +8,13 @@ import {ErrorText} from "../components/ErrorText";
 import {isFading, liveHudLines, nextHudLines, type HudLine} from "../domain/hud";
 import {isConsoleReachable} from "../domain/status";
 import {useConsole} from "../state/ConsoleProvider";
-import {useCommLog, useConsoleAction, useConsoleEvent, useConsoleStatus} from "../state/hooks";
+import {
+  useCommLog,
+  useConsoleAction,
+  useConsoleEvent,
+  useConsoleStatus,
+  useThemeSync,
+} from "../state/hooks";
 
 // How long "New flight" stays armed. The same as the panel's, for the same
 // reason: it throws a clearance away, and must not be one stray click.
@@ -137,6 +143,7 @@ export function HudApp() {
   const rootRef = useRef<HTMLElement | null>(null);
   const {store, boot} = useConsole();
   const status = useConsoleStatus();
+  useThemeSync();
   const session = useConsoleEvent<SessionView>(EVENTS.flightSnapshot);
   const lines = useHudLines();
   const {run, error, clearError, busy} = useConsoleAction();

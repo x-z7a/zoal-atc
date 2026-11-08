@@ -786,6 +786,67 @@ describe("the panel", () => {
       });
     });
 
+    describe("theme", () => {
+      afterEach(() => {
+        delete document.documentElement.dataset.zoalTheme;
+        window.localStorage.clear();
+      });
+
+      it("applies a picked theme at once and saves only that", async () => {
+        const readId = await openSettings();
+        host.respondTo(readId, {simbriefPilotId: "516408", theme: "graphite"});
+
+        await userEvent.click(screen.getByRole("radio", {name: /Daylight/}));
+
+        expect(document.documentElement.dataset.zoalTheme).toBe("daylight");
+        await waitFor(() => {
+          expect(host.requests.some((request) => request.action === "save_settings")).toBe(true);
+        });
+        const save = host.requests.find((request) => request.action === "save_settings");
+        // Naming only the theme, so it cannot overwrite the pilot ID.
+        expect(save?.payload).toEqual({theme: "daylight"});
+      });
+
+      // The screen never shows a choice the plugin did not keep.
+      it("puts the old theme back when the save is refused", async () => {
+        const readId = await openSettings();
+        host.respondTo(readId, {simbriefPilotId: "", theme: "night"});
+        await waitFor(() => expect(screen.getByRole("radio", {name: /Night/})).toBeChecked());
+
+        await userEvent.click(screen.getByRole("radio", {name: /Daylight/}));
+        await waitFor(() => expect(host.lastRequestId).toBeGreaterThan(readId));
+        host.failRequest(host.lastRequestId, "could not write zoal_atc.cfg");
+
+        await waitFor(() => expect(document.documentElement.dataset.zoalTheme).toBe("night"));
+        expect(screen.getByRole("radio", {name: /Night/})).toBeChecked();
+        expect(await screen.findByText("could not write zoal_atc.cfg")).toBeInTheDocument();
+      });
+
+      it("takes the stored theme when the window opens", async () => {
+        await mountReady();
+        await waitFor(() => {
+          expect(host.requests.some((request) => request.action === "settings")).toBe(true);
+        });
+        const read = host.requests.find((request) => request.action === "settings");
+        host.respondTo(read!.requestId, {simbriefPilotId: "", theme: "night"});
+
+        await waitFor(() => expect(document.documentElement.dataset.zoalTheme).toBe("night"));
+      });
+
+      // How a pick in the panel reaches the HUD, which is another page.
+      it("follows a theme saved from the other window", async () => {
+        await mountReady();
+
+        act(() => {
+          for (const listener of host.listeners.get("settings.changed") ?? []) {
+            listener({theme: "daylight"});
+          }
+        });
+
+        expect(document.documentElement.dataset.zoalTheme).toBe("daylight");
+      });
+    });
+
     it("shows the console's refusal rather than pretending it saved", async () => {
       const readId = await openSettings();
       host.respondTo(readId, {simbriefPilotId: ""});

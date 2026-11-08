@@ -63,6 +63,9 @@ export const HUD_LAYOUT_CHANNEL = "hud.layout";
 // clicked browser window the keyboard and keeps it there, and the HUD has
 // nothing to type into: holding it only swallows the pilot's sim shortcuts.
 export const HUD_FOCUS_CHANNEL = "hud.release_focus";
+// The plugin posts here to every window when a setting changes, so a theme
+// picked in the panel reaches the HUD -- a separate page -- straight away.
+export const SETTINGS_CHANGED_CHANNEL = "settings.changed";
 export const PANEL_LOG_PREFIX = "[zoal-atc panel]";
 
 // The events the console publishes, from console/internal/gui/gui.go. Names are

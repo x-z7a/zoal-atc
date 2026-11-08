@@ -72,6 +72,7 @@ export class ConsoleBridge {
   private readonly earlyAnswers = new Map<number, EarlyAnswer>();
   private readonly eventHandlers = new Map<string, Set<EventHandler>>();
   private readonly statusHandlers = new Set<StatusHandler>();
+  private readonly hostHandlers = new Map<string, Set<(payload: unknown) => void>>();
   private started = false;
   private disposed = false;
 
@@ -132,6 +133,30 @@ export class ConsoleBridge {
       if (current.size === 0) {
         this.eventHandlers.delete(event);
       }
+    };
+  }
+
+  // onHostMessage listens on a channel the plugin posts to directly, outside
+  // console.event. The host is subscribed once per channel, because Skyscript
+  // has no way to unsubscribe; the handlers are ours to add and remove.
+  onHostMessage(channel: string, handler: (payload: unknown) => void): Unsubscribe {
+    let handlers = this.hostHandlers.get(channel);
+    if (!handlers) {
+      handlers = new Set();
+      this.hostHandlers.set(channel, handlers);
+      const registered = handlers;
+      this.host?.onMessage(channel, (payload) => {
+        if (this.disposed) {
+          return;
+        }
+        for (const listener of [...registered]) {
+          listener(payload);
+        }
+      });
+    }
+    handlers.add(handler);
+    return () => {
+      this.hostHandlers.get(channel)?.delete(handler);
     };
   }
 
@@ -232,6 +257,9 @@ export class ConsoleBridge {
     this.earlyAnswers.clear();
     this.eventHandlers.clear();
     this.statusHandlers.clear();
+    for (const [, handlers] of this.hostHandlers) {
+      handlers.clear();
+    }
   }
 
   // Parks an answer nothing is waiting for yet, on a timer so a page that
