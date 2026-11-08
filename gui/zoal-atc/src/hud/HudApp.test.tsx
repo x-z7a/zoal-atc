@@ -105,7 +105,7 @@ describe("the HUD", () => {
       const reload = host.requests.find((request) => request.action === "refresh_flight_plan");
       host.respondTo(reload!.requestId, {hasPlan: true, origin: "NZAA", destination: "NZQN"});
 
-      expect(await screen.findByText("Flight plan reloaded")).toBeInTheDocument();
+      expect(await screen.findByText("Plan reloaded")).toBeInTheDocument();
     });
 
     // It throws the clearance away, so one press only arms it.

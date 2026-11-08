@@ -59,6 +59,10 @@ export const EVENT_CHANNEL = "console.event";
 // The HUD reports how tall it is drawing, so the plugin can size its window to
 // exactly that (hud_layout.hpp): a browser window takes every click inside it.
 export const HUD_LAYOUT_CHANNEL = "hud.layout";
+// The HUD hands the keyboard back to X-Plane after every click. X-Plane gives a
+// clicked browser window the keyboard and keeps it there, and the HUD has
+// nothing to type into: holding it only swallows the pilot's sim shortcuts.
+export const HUD_FOCUS_CHANNEL = "hud.release_focus";
 export const PANEL_LOG_PREFIX = "[zoal-atc panel]";
 
 // The events the console publishes, from console/internal/gui/gui.go. Names are
