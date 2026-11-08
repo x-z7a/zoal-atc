@@ -7,7 +7,6 @@
 #include <XPLMDisplay.h>
 #include <XPLMMenus.h>
 #include <XPLMPlugin.h>
-#include <XPLMProcessing.h>
 #include <XPLMUtilities.h>
 
 #include <cstdio>
@@ -40,17 +39,6 @@ constexpr const char *kHudLayoutChannel = "hud.layout";
 // The HUD's feed window reports the height it wants on its own channel: 1 when
 // it has nothing to show, its full height while it has.
 constexpr const char *kHudFeedLayoutChannel = "hud.feed_layout";
-// The HUD asks for this after every click in it. X-Plane gives a clicked
-// browser window the keyboard and keeps it there; the HUD has nothing to type
-// into, so holding it only swallows the pilot's sim shortcuts.
-constexpr const char *kHudFocusChannel = "hud.release_focus";
-// The panel says whether one of its text fields has the keyboard.
-constexpr const char *kPanelEditingChannel = "panel.editing";
-// How long after a HUD update the keyboard is watched. X-Plane hands a browser
-// window the keyboard when that window is updated -- resized, or just sent a
-// new transmission -- not only when it is clicked, and the pilot's shortcuts go
-// dead mid-approach. Long enough to cover the page's own repaint.
-constexpr float kKeyboardGuardSeconds = 2.0F;
 // A frame's worth of posts. The browser is a display, not a consumer the sim
 // waits on: capping the drain keeps a backlog from stretching a flight frame.
 constexpr std::size_t kMaxPostsPerFrame = 16;
@@ -85,12 +73,6 @@ int g_hud_content_height = 0;
 int g_hud_feed_height = 1;
 ScreenRect g_hud_screen;
 bool g_hud_placed = false;
-
-// The keyboard guard (guard_keyboard). Who had the keyboard last frame, until
-// when the guard is up, and whether the pilot is typing in the panel.
-bool g_sim_had_keyboard = true;
-float g_keyboard_guard_until = 0.0F;
-bool g_panel_editing = false;
 
 std::uint64_t panel_now_ms() { return g_now_ms ? g_now_ms() : 0U; }
 
@@ -153,44 +135,25 @@ ScreenRect screen_bounds() {
   return screen;
 }
 
-// arm_keyboard_guard starts (or extends) the watch on the keyboard; called on
-// everything X-Plane may answer by giving a HUD window the keyboard.
-void arm_keyboard_guard() {
-  g_keyboard_guard_until = XPLMGetElapsedTime() + kKeyboardGuardSeconds;
-}
-
-// guard_keyboard runs once a frame. If the sim had the keyboard last frame and
-// lost it while the guard was up, a HUD update took it, and it goes straight
-// back -- unless the pilot has just clicked into a text field in the panel,
-// which the panel reports.
-//
-// Without window IDs from Skyscript there is no asking which window holds it,
-// so a click into another plugin's text box in the same two seconds would be
-// undone too; that box only needs clicking again, where a stolen keyboard
-// costs the pilot every shortcut until they notice.
-void guard_keyboard() {
-  const bool sim_has_keyboard = XPLMHasKeyboardFocus(nullptr) != 0;
-  if (!sim_has_keyboard && g_sim_had_keyboard && !g_panel_editing &&
-      XPLMGetElapsedTime() < g_keyboard_guard_until) {
-    XPLMTakeKeyboardFocus(nullptr);
-    g_sim_had_keyboard = XPLMHasKeyboardFocus(nullptr) != 0;
-    return;
+// release_hud_keyboard hands the keyboard back to the sim if either HUD window
+// holds it -- and only then, so a text box in the panel or in another plugin
+// keeps its keyboard. X-Plane gives a browser window the keyboard when it is
+// clicked, and at times when it is only updated (a new transmission, a
+// resize); the HUD has nothing to type into, so holding it only swallows the
+// pilot's sim shortcuts. Run every frame: it costs two lookups.
+void release_hud_keyboard() {
+  for (SkyScriptApp app : {g_hud, g_hud_feed}) {
+    if (app && skyscript_app_release_keyboard_focus(app) != 0) {
+      gui_log(std::string(app == g_hud ? "HUD bar" : "HUD feed") +
+              " took the keyboard; handed it back to the sim");
+    }
   }
-  g_sim_had_keyboard = sim_has_keyboard;
-}
-
-void panel_editing_handler(const char *, const char *payload,
-                           char **out_response, char **, void *) {
-  const std::string body = payload != nullptr ? payload : "";
-  g_panel_editing = body.find("\"editing\":true") != std::string::npos;
-  *out_response = dup_c_string("{\"ok\":true}");
 }
 
 void place_hud() {
   if (!g_hud) {
     return;
   }
-  arm_keyboard_guard();
   const ScreenRect screen = screen_bounds();
   const ScreenRect rect = hud_rect(screen, g_hud_content_height);
   skyscript_app_set_geometry(g_hud, rect.left, rect.top, rect.right,
@@ -224,14 +187,6 @@ void hud_feed_layout_handler(const char *, const char *payload,
     g_hud_feed_height = *height;
     place_hud();
   }
-  *out_response = dup_c_string("{\"ok\":true}");
-}
-
-void hud_focus_handler(const char *, const char *, char **out_response,
-                       char **, void *) {
-  // Nullptr hands the keyboard back to X-Plane itself. Only the HUD posts
-  // this, straight after a click in it, so the focus it takes is the HUD's own.
-  XPLMTakeKeyboardFocus(nullptr);
   *out_response = dup_c_string("{\"ok\":true}");
 }
 
@@ -340,7 +295,7 @@ void create_hud_feed(const std::string &home) {
   feed_config.homepage = url.c_str();
   feed_config.hide_addressbar = 1;
   feed_config.audio_muted = 1;
-  feed_config.console_logging = 0;
+  feed_config.console_logging = 1;
   feed_config.framerate = 15;
   feed_config.window_chromeless = 1;
   const HudPlacement placement;
@@ -358,8 +313,6 @@ void create_hud_feed(const std::string &home) {
   }
   skyscript_app_on_message(g_hud_feed, kHudFeedLayoutChannel,
                            hud_feed_layout_handler, nullptr);
-  skyscript_app_on_message(g_hud_feed, kHudFocusChannel, hud_focus_handler,
-                           nullptr);
 }
 
 // create_hud makes the second window: chromeless, transparent wherever the page
@@ -371,7 +324,7 @@ void create_hud(const std::string &home) {
   hud_config.homepage = url.c_str();
   hud_config.hide_addressbar = 1;
   hud_config.audio_muted = 1;
-  hud_config.console_logging = 0;
+  hud_config.console_logging = 1;
   hud_config.framerate = 15;
   hud_config.window_chromeless = 1;
   const HudPlacement placement;
@@ -388,8 +341,6 @@ void create_hud(const std::string &home) {
     register_view(g_hud, GuiView::hud);
   }
   skyscript_app_on_message(g_hud, kHudLayoutChannel, hud_layout_handler,
-                           nullptr);
-  skyscript_app_on_message(g_hud, kHudFocusChannel, hud_focus_handler,
                            nullptr);
   create_hud_feed(home);
   g_hud_command =
@@ -456,8 +407,6 @@ void start_skyscript_panel(const SkyscriptPanelConfig &config) {
       skyscript_app_is_visible(g_panel) != 0;
   if (g_bridge != nullptr) {
     register_view(g_panel, GuiView::panel);
-    skyscript_app_on_message(g_panel, kPanelEditingChannel,
-                             panel_editing_handler, nullptr);
   } else {
     gui_log("no GUI bridge configured; Skyscript handlers were not registered");
   }
@@ -534,17 +483,10 @@ void tick_skyscript_panel() {
     if (visible != g_view_visible[index]) {
       g_view_visible[index] = visible;
       g_bridge->set_panel_visible(visible, panel_now_ms(), view);
-      // A hidden panel types nothing, and its page may never see the blur.
-      if (view == GuiView::panel && !visible) {
-        g_panel_editing = false;
-      }
     }
     for (const auto &message : g_bridge->take_js_messages(kMaxPostsPerFrame, view)) {
       skyscript_app_post_message(app, message.channel.c_str(),
                                  message.payload.c_str());
-      if (view != GuiView::panel && visible) {
-        arm_keyboard_guard();
-      }
     }
   }
 
@@ -560,7 +502,7 @@ void tick_skyscript_panel() {
     }
   }
 
-  guard_keyboard();
+  release_hud_keyboard();
 }
 
 void show_skyscript_panel() { show_panel(); }

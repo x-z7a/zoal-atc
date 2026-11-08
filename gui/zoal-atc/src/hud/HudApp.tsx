@@ -6,7 +6,7 @@ import type {SessionView} from "../bridge/views";
 import {isConsoleReachable} from "../domain/status";
 import {useConsole} from "../state/ConsoleProvider";
 import {useConsoleAction, useConsoleEvent, useConsoleStatus, useThemeSync} from "../state/hooks";
-import {Icon, ICONS, useReleaseFocus, useReportHeight} from "./shared";
+import {Icon, ICONS, useNoFocus, useReportHeight} from "./shared";
 
 // How long "New flight" stays armed. The same as the panel's, for the same
 // reason: it throws a clearance away, and must not be one stray click.
@@ -38,7 +38,7 @@ export function HudApp() {
   const [done, setDone] = useState<"reload" | "newFlight" | null>(null);
 
   useReportHeight(rootRef, HUD_LAYOUT_CHANNEL);
-  useReleaseFocus();
+  useNoFocus();
 
   useEffect(() => {
     if (!done) {

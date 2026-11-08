@@ -16,6 +16,14 @@ const container = document.getElementById("root");
 const shell = readShellParams(window.location.search);
 if (shell.view !== "panel") {
   document.documentElement.classList.add("hud-window");
+  // The HUD's windows log to X-Plane's Log.txt (skyscript_panel.cpp), and an
+  // uncaught error is otherwise the one thing that does not reach it.
+  window.addEventListener("error", (event) => {
+    console.error(`[zoal-atc ${shell.view}] uncaught: ${event.message}`);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    console.error(`[zoal-atc ${shell.view}] unhandled rejection: ${String(event.reason)}`);
+  });
 }
 // The last theme this browser saw, before the first paint; the plugin's stored
 // one replaces it as soon as the bridge is up (useThemeSync).

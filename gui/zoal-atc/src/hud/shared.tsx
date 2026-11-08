@@ -3,7 +3,6 @@
 
 import {useEffect, useLayoutEffect, useRef, useState, type RefObject} from "react";
 
-import {HUD_FOCUS_CHANNEL} from "../bridge/types";
 import {isFading, liveHudLines, nextHudLines, type HudLine} from "../domain/hud";
 import {useConsole} from "../state/ConsoleProvider";
 import {useCommLog} from "../state/hooks";
@@ -104,18 +103,28 @@ export function useReportHeight(root: RefObject<HTMLElement | null>, channel: st
   }, [bridge, root, channel]);
 }
 
-// useReleaseFocus gives the keyboard back to X-Plane once a click in the HUD is
-// done with. Deferred a tick so the click's own handler runs first.
-export function useReleaseFocus(): void {
-  const {bridge} = useConsole();
+// useNoFocus keeps anything in the HUD from holding focus, so no button is
+// left wearing a focus ring. Nothing in the HUD is typed into: a mousedown that
+// would focus a button is refused (the click still fires), and anything that
+// gets focus some other way is let go of. The keyboard itself -- which X-Plane
+// hands the whole window -- the plugin gives back to the sim every frame
+// (skyscript_panel.cpp, release_hud_keyboard).
+export function useNoFocus(): void {
   useEffect(() => {
-    if (!bridge) {
-      return;
+    function refuse(event: MouseEvent): void {
+      event.preventDefault();
     }
-    function release(): void {
-      setTimeout(() => bridge?.notify(HUD_FOCUS_CHANNEL, {}), 0);
+    function blur(): void {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active !== document.body) {
+        active.blur();
+      }
     }
-    document.addEventListener("pointerup", release, true);
-    return () => document.removeEventListener("pointerup", release, true);
-  }, [bridge]);
+    document.addEventListener("mousedown", refuse, true);
+    document.addEventListener("focusin", blur, true);
+    return () => {
+      document.removeEventListener("mousedown", refuse, true);
+      document.removeEventListener("focusin", blur, true);
+    };
+  }, []);
 }

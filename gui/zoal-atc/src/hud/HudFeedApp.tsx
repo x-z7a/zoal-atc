@@ -6,7 +6,7 @@ import {CommBubble} from "../components/CommLog";
 import {HUD_FEED_COLLAPSED_PX, HUD_FEED_HEIGHT_PX} from "../domain/hud";
 import {useConsole} from "../state/ConsoleProvider";
 import {useConsoleEvent, useThemeSync} from "../state/hooks";
-import {useHudLines, useReleaseFocus} from "./shared";
+import {useHudLines, useNoFocus} from "./shared";
 
 // Taller than this, the plugin has grown the window for us. Deliberately far
 // below the full height: how many CSS pixels a window of so many boxels gives
@@ -58,7 +58,7 @@ function useWindowExpanded(wanted: boolean): boolean {
 export function HudFeedApp() {
   const {bridge} = useConsole();
   useThemeSync();
-  useReleaseFocus();
+  useNoFocus();
   const session = useConsoleEvent<SessionView>(EVENTS.flightSnapshot);
   const lines = useHudLines();
   const wanted = lines.length > 0;
