@@ -23,11 +23,14 @@ inline constexpr const char *kConsoleEventChannel = "console.event";
 // with its own JavaScript, so each is attached, shown and owed messages on its
 // own -- but they share one console subscription and one event cache.
 //
-//   - panel: the full radio panel, opened and closed by the pilot;
-//   - hud:   the transparent overlay that shows the last few transmissions
-//            and stays up while the panel is closed.
-enum class GuiView : std::size_t { panel = 0, hud = 1 };
-inline constexpr std::size_t kGuiViewCount = 2;
+//   - panel:    the full radio panel, opened and closed by the pilot;
+//   - hud:      the HUD's bar and menu, a fixed-size overlay that stays up
+//               while the panel is closed;
+//   - hud_feed: the HUD's last few transmissions, in a window of their own
+//               under the bar, so the lines coming and going never resize
+//               the bar's window.
+enum class GuiView : std::size_t { panel = 0, hud = 1, hud_feed = 2 };
+inline constexpr std::size_t kGuiViewCount = 3;
 
 // JsMessage is one Skyscript post the main thread still owes the browser.
 struct JsMessage {

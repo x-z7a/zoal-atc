@@ -24,10 +24,6 @@ describe("the HUD", () => {
     return result;
   }
 
-  function transmit(text: string, kind = "atc", at = new Date().toISOString()): void {
-    act(() => host.emitEvent("comm_log", {kind, text, at, spokenBy: "tower"}));
-  }
-
   beforeEach(() => {
     host = new FakeSkyscriptHost();
     bridge = new ConsoleBridge(host);
@@ -38,35 +34,13 @@ describe("the HUD", () => {
     vi.useRealTimers();
   });
 
-  it("shows what ATC just said", async () => {
+  // The transmissions are the feed window's (HudFeedApp): a line arriving must
+  // not change the size of the bar's window.
+  it("leaves the transmissions to the feed window", async () => {
     await mountReady();
-    transmit("Runway 05 cleared for takeoff");
+    act(() => host.emitEvent("comm_log", {kind: "atc", text: "Runway 05 cleared for takeoff"}));
 
-    expect(await screen.findByText("Runway 05 cleared for takeoff")).toBeInTheDocument();
-  });
-
-  it("shows the last three transmissions and no more", async () => {
-    await mountReady();
-    for (const text of ["one", "two", "three", "four"]) {
-      transmit(text);
-    }
-
-    await screen.findByText("four");
-    expect(screen.queryByText("one")).not.toBeInTheDocument();
-    expect(screen.getByText("two")).toBeInTheDocument();
-  });
-
-  it("lets a transmission go after a minute", async () => {
-    vi.useFakeTimers({shouldAdvanceTime: true});
-    await mountReady();
-    transmit("Contact departure 124.3");
-    await screen.findByText("Contact departure 124.3");
-
-    await act(async () => {
-      vi.advanceTimersByTime(61_000);
-    });
-
-    expect(screen.queryByText("Contact departure 124.3")).not.toBeInTheDocument();
+    expect(screen.queryByText("Runway 05 cleared for takeoff")).not.toBeInTheDocument();
   });
 
   it("says when the console is unreachable", async () => {

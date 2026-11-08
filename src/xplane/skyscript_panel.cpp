@@ -36,6 +36,9 @@ constexpr const char *kReadyChannel = "console.ready";
 // The HUD page reports how tall it is drawing, so the window can be exactly
 // that tall: see hud_layout.hpp for why that matters.
 constexpr const char *kHudLayoutChannel = "hud.layout";
+// The HUD's feed window reports the height it wants on its own channel: 1 when
+// it has nothing to show, its full height while it has.
+constexpr const char *kHudFeedLayoutChannel = "hud.feed_layout";
 // The HUD asks for this after every click in it. X-Plane gives a clicked
 // browser window the keyboard and keeps it there; the HUD has nothing to type
 // into, so holding it only swallows the pilot's sim shortcuts.
@@ -59,17 +62,19 @@ std::string current_plugin_root() {
 
 SkyScriptApp g_panel = nullptr;
 SkyScriptApp g_hud = nullptr;
+SkyScriptApp g_hud_feed = nullptr;
 XPLMCommandRef g_gui_command = nullptr;
 XPLMCommandRef g_hud_command = nullptr;
 XPLMMenuID g_gui_menu = nullptr;
 bool g_skyscript_initialized = false;
 GuiBridge *g_bridge = nullptr;
 std::function<std::uint64_t()> g_now_ms;
-bool g_view_visible[kGuiViewCount] = {false, false};
+bool g_view_visible[kGuiViewCount] = {false, false, false};
 
 // What the HUD was last placed for, so it is moved only when something changed
 // rather than every frame.
 int g_hud_content_height = 0;
+int g_hud_feed_height = 1;
 ScreenRect g_hud_screen;
 bool g_hud_placed = false;
 
@@ -86,7 +91,15 @@ GuiView view_from(void *tag) {
 }
 
 SkyScriptApp app_for(GuiView view) {
-  return view == GuiView::hud ? g_hud : g_panel;
+  switch (view) {
+  case GuiView::hud:
+    return g_hud;
+  case GuiView::hud_feed:
+    return g_hud_feed;
+  case GuiView::panel:
+    break;
+  }
+  return g_panel;
 }
 
 // Both handlers run synchronously on the X-Plane main thread, inside the
@@ -134,6 +147,11 @@ void place_hud() {
   const ScreenRect rect = hud_rect(screen, g_hud_content_height);
   skyscript_app_set_geometry(g_hud, rect.left, rect.top, rect.right,
                              rect.bottom);
+  if (g_hud_feed) {
+    const ScreenRect feed = hud_feed_rect(screen, rect, g_hud_feed_height);
+    skyscript_app_set_geometry(g_hud_feed, feed.left, feed.top, feed.right,
+                               feed.bottom);
+  }
   g_hud_screen = screen;
   g_hud_placed = true;
 }
@@ -143,6 +161,19 @@ void hud_layout_handler(const char *, const char *payload, char **out_response,
   const auto height = parse_hud_layout(payload != nullptr ? payload : "");
   if (height.has_value() && *height != g_hud_content_height) {
     g_hud_content_height = *height;
+    place_hud();
+  }
+  *out_response = dup_c_string("{\"ok\":true}");
+}
+
+// Only the feed's window moves here. The page asks for a new height only while
+// it is drawing nothing (hud.ts), so a resize never has visible content to
+// stretch -- and the bar, in a window of its own, is not touched at all.
+void hud_feed_layout_handler(const char *, const char *payload,
+                             char **out_response, char **, void *) {
+  const auto height = parse_hud_layout(payload != nullptr ? payload : "");
+  if (height.has_value() && *height != g_hud_feed_height) {
+    g_hud_feed_height = *height;
     place_hud();
   }
   *out_response = dup_c_string("{\"ok\":true}");
@@ -194,7 +225,19 @@ void show_hud() {
     return;
   }
   skyscript_app_show(g_hud, "");
+  if (g_hud_feed) {
+    skyscript_app_show(g_hud_feed, "");
+  }
   place_hud();
+}
+
+void hide_hud() {
+  if (g_hud) {
+    skyscript_app_hide(g_hud);
+  }
+  if (g_hud_feed) {
+    skyscript_app_hide(g_hud_feed);
+  }
 }
 
 int hud_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
@@ -202,7 +245,7 @@ int hud_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
     return 0;
   }
   if (skyscript_app_is_visible(g_hud)) {
-    skyscript_app_hide(g_hud);
+    hide_hud();
   } else {
     show_hud();
   }
@@ -240,9 +283,40 @@ void install_gui_menu() {
   }
 }
 
+// create_hud_feed makes the HUD's third window, for its transmissions: the
+// same kind of chromeless window as the bar's, hung under it. Failing to make
+// it costs the HUD its lines and nothing else.
+void create_hud_feed(const std::string &home) {
+  const std::string url = home + "&view=hud-feed";
+  SkyScriptAppConfig feed_config = skyscript_default_config();
+  feed_config.homepage = url.c_str();
+  feed_config.hide_addressbar = 1;
+  feed_config.audio_muted = 1;
+  feed_config.console_logging = 0;
+  feed_config.framerate = 15;
+  feed_config.window_chromeless = 1;
+  const HudPlacement placement;
+  feed_config.width = static_cast<unsigned short>(placement.width);
+  feed_config.height = 1;
+
+  g_hud_feed = skyscript_create_app_window("zoal-atc HUD feed",
+                                           "zoal-atc-hud-feed", &feed_config);
+  if (!g_hud_feed) {
+    gui_log("Skyscript did not create the HUD feed; the HUD bar still works");
+    return;
+  }
+  if (g_bridge != nullptr) {
+    register_view(g_hud_feed, GuiView::hud_feed);
+  }
+  skyscript_app_on_message(g_hud_feed, kHudFeedLayoutChannel,
+                           hud_feed_layout_handler, nullptr);
+  skyscript_app_on_message(g_hud_feed, kHudFocusChannel, hud_focus_handler,
+                           nullptr);
+}
+
 // create_hud makes the second window: chromeless, transparent wherever the page
-// paints nothing, pinned to the top right and as tall as its content. Failing
-// to make it costs the HUD and nothing else -- the panel is already up.
+// paints nothing, pinned to the top right and as tall as its bar. Failing to
+// make it costs the HUD and nothing else -- the panel is already up.
 void create_hud(const std::string &home) {
   const std::string url = home + "&view=hud";
   SkyScriptAppConfig hud_config = skyscript_default_config();
@@ -269,6 +343,7 @@ void create_hud(const std::string &home) {
                            nullptr);
   skyscript_app_on_message(g_hud, kHudFocusChannel, hud_focus_handler,
                            nullptr);
+  create_hud_feed(home);
   g_hud_command =
       XPLMCreateCommand(kHudCommandName, "zoal-atc: Toggle the radio HUD");
   XPLMRegisterCommandHandler(g_hud_command, hud_command_handler, 1, nullptr);
@@ -352,12 +427,16 @@ void stop_skyscript_panel() {
   if (g_bridge != nullptr) {
     g_bridge->detach_panel(GuiView::panel);
     g_bridge->detach_panel(GuiView::hud);
+    g_bridge->detach_panel(GuiView::hud_feed);
     g_bridge = nullptr;
   }
   g_now_ms = nullptr;
-  g_view_visible[0] = g_view_visible[1] = false;
+  for (bool &visible : g_view_visible) {
+    visible = false;
+  }
   g_hud_placed = false;
   g_hud_content_height = 0;
+  g_hud_feed_height = 1;
   if (g_gui_menu) {
     XPLMDestroyMenu(g_gui_menu);
     g_gui_menu = nullptr;
@@ -371,6 +450,10 @@ void stop_skyscript_panel() {
     XPLMUnregisterCommandHandler(g_hud_command, hud_command_handler, 1,
                                  nullptr);
     g_hud_command = nullptr;
+  }
+  if (g_hud_feed) {
+    skyscript_destroy_app_window(g_hud_feed);
+    g_hud_feed = nullptr;
   }
   if (g_hud) {
     skyscript_destroy_app_window(g_hud);
@@ -391,7 +474,7 @@ void tick_skyscript_panel() {
     return;
   }
 
-  for (const GuiView view : {GuiView::panel, GuiView::hud}) {
+  for (const GuiView view : {GuiView::panel, GuiView::hud, GuiView::hud_feed}) {
     SkyScriptApp app = app_for(view);
     if (app == nullptr) {
       continue;
@@ -425,7 +508,7 @@ void show_skyscript_panel() { show_panel(); }
 
 void post_to_skyscript_windows(const char *channel,
                                const std::string &payload) {
-  for (SkyScriptApp app : {g_panel, g_hud}) {
+  for (SkyScriptApp app : {g_panel, g_hud, g_hud_feed}) {
     if (app) {
       skyscript_app_post_message(app, channel, payload.c_str());
     }

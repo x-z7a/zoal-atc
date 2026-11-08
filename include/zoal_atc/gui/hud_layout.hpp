@@ -27,12 +27,22 @@ struct HudPlacement {
   int margin_top = 40;
   // Never smaller than the drawer handle, never taller than the screen allows.
   int min_height = 36;
+  // Between the bar's window and the feed's window below it.
+  int feed_gap = 6;
 };
 
 // hud_rect pins a window `content_height` tall to the top right of `screen`,
 // clamped so it stays on screen however small the screen or tall the content.
 ScreenRect hud_rect(const ScreenRect &screen, int content_height,
                     const HudPlacement &placement = {});
+
+// hud_feed_rect places the HUD's feed window directly under the bar's window
+// `bar`, the same width and right edge, `content_height` tall. The feed asks
+// for 1 when it has nothing to show, so an empty feed is a strip that takes no
+// clicks; it is never taller than the screen below the bar.
+ScreenRect hud_feed_rect(const ScreenRect &screen, const ScreenRect &bar,
+                         int content_height,
+                         const HudPlacement &placement = {});
 
 // parse_hud_layout reads the page's {"height": N} report. nullopt for anything
 // that is not a sensible positive height, so a malformed post cannot shrink the

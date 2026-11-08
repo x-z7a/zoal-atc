@@ -72,6 +72,26 @@ void reads_the_page_report() {
               "garbage is ignored");
 }
 
+// The feed hangs under the bar, so the bar's window never has to change size
+// for a line to come or go.
+void the_feed_hangs_under_the_bar() {
+  const auto bar = zoal_atc::gui::hud_rect(kScreen, 38);
+  const auto feed = zoal_atc::gui::hud_feed_rect(kScreen, bar, 312);
+  expect_int(feed.left, bar.left, "same left edge");
+  expect_int(feed.right, bar.right, "same right edge");
+  expect_int(feed.top, bar.bottom - 6, "a gap below the bar");
+  expect_int(feed.top - feed.bottom, 312, "as tall as asked");
+}
+
+// Empty, it is a strip that takes no clicks; it never runs off the screen.
+void the_feed_collapses_and_stays_on_screen() {
+  const auto bar = zoal_atc::gui::hud_rect(kScreen, 38);
+  const auto empty = zoal_atc::gui::hud_feed_rect(kScreen, bar, 1);
+  expect_int(empty.top - empty.bottom, 1, "a one-boxel strip");
+  const auto huge = zoal_atc::gui::hud_feed_rect(kScreen, bar, 5000);
+  expect_true(huge.bottom >= kScreen.bottom, "stays on screen");
+}
+
 } // namespace
 
 int main() {
@@ -80,5 +100,7 @@ int main() {
   never_runs_off_the_screen();
   follows_an_offset_desktop();
   reads_the_page_report();
+  the_feed_hangs_under_the_bar();
+  the_feed_collapses_and_stays_on_screen();
   return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
