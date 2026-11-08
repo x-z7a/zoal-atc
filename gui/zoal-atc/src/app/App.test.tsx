@@ -248,6 +248,23 @@ describe("the panel", () => {
     });
   });
 
+  // The plugin takes the keyboard back after a transmission, but never from a
+  // pilot typing in the panel: the panel says when a text field has it.
+  it("tells the plugin while a text field has the keyboard", async () => {
+    await mountReady();
+    connected();
+    const editing = () =>
+      host.posts
+        .filter((post) => post.channel === "panel.editing")
+        .map((post) => (post.payload as {editing: boolean}).editing);
+
+    await userEvent.click(screen.getByLabelText("Tune COM1"));
+    await waitFor(() => expect(editing().slice(-1)[0]).toBe(true));
+
+    await userEvent.click(screen.getByRole("tab", {name: "Home"}));
+    await waitFor(() => expect(editing().slice(-1)[0]).toBe(false));
+  });
+
   describe("tuning", () => {
     it("asks the plugin to tune COM1's active frequency", async () => {
       await mountReady();
@@ -523,7 +540,7 @@ describe("the panel", () => {
       });
 
       await userEvent.click(screen.getByRole("tab", {name: "Settings"}));
-      await userEvent.click(screen.getByRole("tab", {name: "Home"}));
+    await userEvent.click(screen.getByRole("tab", {name: "Home"}));
 
       expect(screen.getByText("1 aircraft")).toBeInTheDocument();
     });
