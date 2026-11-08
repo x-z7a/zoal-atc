@@ -36,6 +36,10 @@ constexpr const char *kReadyChannel = "console.ready";
 // The HUD page reports how tall it is drawing, so the window can be exactly
 // that tall: see hud_layout.hpp for why that matters.
 constexpr const char *kHudLayoutChannel = "hud.layout";
+// The HUD asks for this after every click in it. X-Plane gives a clicked
+// browser window the keyboard and keeps it there; the HUD has nothing to type
+// into, so holding it only swallows the pilot's sim shortcuts.
+constexpr const char *kHudFocusChannel = "hud.release_focus";
 // A frame's worth of posts. The browser is a display, not a consumer the sim
 // waits on: capping the drain keeps a backlog from stretching a flight frame.
 constexpr std::size_t kMaxPostsPerFrame = 16;
@@ -141,6 +145,14 @@ void hud_layout_handler(const char *, const char *payload, char **out_response,
     g_hud_content_height = *height;
     place_hud();
   }
+  *out_response = dup_c_string("{\"ok\":true}");
+}
+
+void hud_focus_handler(const char *, const char *, char **out_response,
+                       char **, void *) {
+  // Nullptr hands the keyboard back to X-Plane itself. Only the HUD posts
+  // this, straight after a click in it, so the focus it takes is the HUD's own.
+  XPLMTakeKeyboardFocus(nullptr);
   *out_response = dup_c_string("{\"ok\":true}");
 }
 
@@ -254,6 +266,8 @@ void create_hud(const std::string &home) {
     register_view(g_hud, GuiView::hud);
   }
   skyscript_app_on_message(g_hud, kHudLayoutChannel, hud_layout_handler,
+                           nullptr);
+  skyscript_app_on_message(g_hud, kHudFocusChannel, hud_focus_handler,
                            nullptr);
   g_hud_command =
       XPLMCreateCommand(kHudCommandName, "zoal-atc: Toggle the radio HUD");

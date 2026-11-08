@@ -25,7 +25,6 @@ html.hud-window {
 .hud {
   /* One tint for all of it, so the HUD reads as one instrument. */
   --hud-glass: color-mix(in srgb, var(--surface-sunken) 72%, transparent);
-  --hud-glass-strong: color-mix(in srgb, var(--surface-sunken) 86%, transparent);
   --hud-edge: color-mix(in srgb, var(--accent) 22%, transparent);
 
   display: flex;
@@ -45,10 +44,11 @@ html.hud-window {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 30px;
-  padding: 0 4px 0 10px;
+  height: 32px;
+  padding: 0 3px 0 11px;
+  flex: none;
   border: 1px solid var(--hud-edge);
-  border-radius: 15px;
+  border-radius: 16px;
   background: var(--hud-glass);
 }
 
@@ -83,65 +83,122 @@ html.hud-window {
 }
 
 .hud-handle {
-  height: 22px;
-  padding: 0 10px;
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border: 1px solid var(--hud-edge);
-  border-radius: 11px;
+  border-radius: 50%;
   background: transparent;
-  color: var(--accent);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   cursor: pointer;
 }
 
+.hud-handle .hud-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- Menu ---------------------------------------------------------------- */
+
+/* The bar and the menu share one row, so the HUD is the same height open or
+   closed. The menu is the same glass and the same pill as the bar it opens
+   from: a row of icon-and-label pills, not a panel of form buttons. */
+.hud-top {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.hud-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 2px;
+  border: 1px solid var(--hud-edge);
+  border-radius: 16px;
+  background: var(--hud-glass);
+}
+
+.hud-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.hud-icon {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  fill: var(--accent);
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 60%));
+}
+
+.hud-action:hover:not(:disabled),
 .hud-handle:hover,
 .hud-handle[aria-expanded="true"] {
+  border-color: var(--hud-edge);
   background: color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
+.hud-action:focus-visible,
 .hud-handle:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-/* ---- Drawer -------------------------------------------------------------- */
-
-.hud-drawer {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-  max-width: 100%;
-  padding: 8px;
-  border: 1px solid var(--hud-edge);
-  border-radius: var(--radius-lg);
-  background: var(--hud-glass-strong);
-  text-shadow: none;
+.hud-action:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
-.hud-drawer .btn {
-  height: 30px;
+.hud-action.is-done {
+  color: var(--active);
+}
+
+.hud-action.is-done .hud-icon {
+  fill: var(--active);
 }
 
 /* Armed is a warning colour, because the next press throws a clearance away. */
-.hud-drawer .btn.is-armed {
-  background: var(--warn);
+.hud-action.is-armed {
+  background: color-mix(in srgb, var(--warn) 85%, transparent);
   color: #1f1600;
+  text-shadow: none;
 }
 
-.hud-note,
-.hud-drawer .action-error {
-  flex-basis: 100%;
+.hud-action.is-armed .hud-icon {
+  fill: #1f1600;
+  filter: none;
+}
+
+/* A refusal is the one thing that earns a line of its own, and with it a
+   resize: it is rare, and it must be read. */
+.hud-drawer-error {
+  max-width: 100%;
+  padding: 3px 12px;
+  border-radius: 12px;
+  background: var(--hud-glass);
+  text-shadow: none;
+}
+
+.hud-drawer-error .action-error {
   margin: 0;
   font-size: 12px;
-  text-align: right;
-}
-
-.hud-note {
-  color: var(--active);
 }
 
 /* ---- Feed ---------------------------------------------------------------- */
@@ -156,8 +213,10 @@ html.hud-window {
   list-style: none;
 }
 
-/* The radio log's bubbles, made of glass. Both sides are right-aligned here:
-   the HUD is a column in a corner, not a conversation with two sides. */
+/* The radio log's bubbles, made of glass. Every row hugs the right edge -- the
+   HUD is a column in a corner -- but the speaker's name keeps its side: a
+   controller's on the left, this cockpit's on the right, so whose words they
+   were is readable before the words are. */
 .hud-feed .bubble-row {
   max-width: 100%;
   align-self: flex-end;
@@ -180,6 +239,10 @@ html.hud-window {
 
 .hud-feed .is-overheard .bubble {
   background: color-mix(in srgb, var(--surface-sunken) 45%, transparent);
+}
+
+.hud-feed .from-atc {
+  align-items: flex-start;
 }
 
 /* The last seconds of a line's minute. The transition is the fade's length,
