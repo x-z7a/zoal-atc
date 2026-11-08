@@ -55,6 +55,8 @@ export type FlightPlanView = {
 // facility, so two connected pilots each keep their own.
 export type SettingsView = {
   simbriefPilotId?: string;
+  // One of THEMES in domain/theme.ts; anything else is drawn as the default.
+  theme?: string;
 };
 
 // What the *plugin* holds, not the console: the credential and address of the

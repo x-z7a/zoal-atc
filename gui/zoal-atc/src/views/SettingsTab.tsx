@@ -6,6 +6,7 @@ import {type ConnectionView, type FlightPlanView, type SettingsView} from "../br
 import {ErrorText} from "../components/ErrorText";
 import {FieldRow} from "../components/FieldRow";
 import {formatFlightPlanDetail, formatFlightPlanRoute} from "../domain/format";
+import {applyTheme, currentTheme, isThemeId, THEMES, type ThemeId} from "../domain/theme";
 import {useConsole} from "../state/ConsoleProvider";
 import {useConsoleAction, useConsoleEvent} from "../state/hooks";
 
@@ -93,6 +94,32 @@ export function SettingsTab() {
       .catch(() => {});
   }
 
+  // Shown at once, saved behind it: a theme is judged by looking at it. A
+  // refused save puts the old one back, so the screen never shows a choice the
+  // plugin did not keep.
+  const [theme, setTheme] = useState<ThemeId>(currentTheme);
+  function pickTheme(next: ThemeId): void {
+    const previous = theme;
+    setTheme(next);
+    applyTheme(next);
+    clearLocalError();
+    void runLocal(LOCAL_ACTIONS.saveSettings, {theme: next})
+      .then((payload) => setSettings(payload as SettingsView))
+      .catch(() => {
+        setTheme(previous);
+        applyTheme(previous);
+      });
+  }
+
+  // A theme saved from another window, or read after this one mounted.
+  // Only a new answer from the plugin moves the selection.
+  const storedTheme = settings?.theme;
+  useEffect(() => {
+    if (isThemeId(storedTheme)) {
+      setTheme(storedTheme);
+    }
+  }, [storedTheme]);
+
   function savePilotID(simbriefPilotId: string): void {
     save({...settings, simbriefPilotId});
   }
@@ -109,6 +136,44 @@ export function SettingsTab() {
 
   return (
     <section className="controls settings" aria-label="Settings">
+      <h2 className="section-title">Appearance</h2>
+
+      <div className="setting">
+        <span className="label" id="theme-label">
+          Theme
+        </span>
+        <div className="theme-picker" role="radiogroup" aria-labelledby="theme-label">
+          {THEMES.map((option) => (
+            <label
+              key={option.id}
+              className={`theme-option${theme === option.id ? " is-selected" : ""}`}
+              data-theme-preview={option.id}
+            >
+              <span className="theme-swatch" aria-hidden="true">
+                <span />
+                <span />
+                <span />
+              </span>
+              <span className="theme-name">{option.label}</span>
+              <span className="theme-description">{option.description}</span>
+              {/* Last, not first: Materialize draws its own radio on any span
+                  that follows a radio input. */}
+              <input
+                type="radio"
+                name="theme"
+                value={option.id}
+                checked={theme === option.id}
+                disabled={boot !== "ready"}
+                onChange={() => pickTheme(option.id)}
+              />
+            </label>
+          ))}
+        </div>
+        <p className="setting-help">
+          Applies to this panel and the HUD, and is remembered for this aircraft.
+        </p>
+      </div>
+
       <h2 className="section-title">Connection</h2>
 
       <div className="setting">

@@ -1,8 +1,10 @@
 import {useCallback, useEffect, useState, useSyncExternalStore} from "react";
 
+import {LOCAL_ACTIONS} from "../bridge/actions";
 import type {ConsoleStatus} from "../bridge/types";
-import type {CommLogEntry, PanelTelemetry} from "../bridge/views";
-import {EVENTS} from "../bridge/types";
+import type {CommLogEntry, PanelTelemetry, SettingsView} from "../bridge/views";
+import {EVENTS, SETTINGS_CHANGED_CHANNEL} from "../bridge/types";
+import {applyTheme, themeOrDefault} from "../domain/theme";
 import {
   freshnessOf,
   isConsoleReachable,
@@ -101,4 +103,38 @@ export function useTelemetryFreshness(): Freshness {
     lastTelemetryAt,
     now,
   });
+}
+
+// useThemeSync keeps this window's theme on the one the plugin has stored: read
+// once the host is up, then followed whenever the plugin says it changed --
+// which is how a pick in the panel reaches the HUD, a separate page.
+export function useThemeSync(): void {
+  const {bridge, boot} = useConsole();
+
+  useEffect(() => {
+    if (!bridge || boot !== "ready") {
+      return;
+    }
+    let cancelled = false;
+    bridge
+      .request(LOCAL_ACTIONS.settings)
+      .then((payload) => {
+        if (!cancelled) {
+          applyTheme(themeOrDefault((payload as SettingsView | null)?.theme));
+        }
+      })
+      .catch(() => {
+        // The cached theme stays; a failed read is not a reason to repaint.
+      });
+    const stop = bridge.onHostMessage(SETTINGS_CHANGED_CHANNEL, (payload) => {
+      const theme = (payload as SettingsView | null)?.theme;
+      if (theme !== undefined) {
+        applyTheme(themeOrDefault(theme));
+      }
+    });
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [bridge, boot]);
 }

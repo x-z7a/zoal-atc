@@ -51,10 +51,13 @@ yourself, see *Console endpoint* below.
 - **The in-sim panel.** A React + TypeScript app hosted by SkyScript in an X-Plane browser window, with
   Home and Settings tabs. The panel never talks to the console directly —
   everything goes through the plugin's socket over the `console.request` /
-  `console.event` bridge, so credentials stay out of the page.
+  `console.event` bridge, so credentials stay out of the page. Three colour
+  themes (Graphite, Daylight and Night) are picked on Settings and apply to the
+  panel and the HUD together; the choice is stored as `panel_theme` in
+  `zoal_atc.cfg`.
 - **The HUD.** A second, frameless SkyScript window pinned to the top right of
   the screen, transparent except for what it draws: the last three
-  transmissions, each for a minute, and a drawer to reload the flight plan,
+  transmissions, each for a minute, and a menu to reload the flight plan,
   start a new flight or open the panel. It stays up while the panel is closed.
   Toggle it from Plugins > zoal-atc > Toggle HUD or bind `zoal_atc/hud_toggle`.
 

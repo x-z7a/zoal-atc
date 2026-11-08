@@ -423,4 +423,13 @@ void tick_skyscript_panel() {
 
 void show_skyscript_panel() { show_panel(); }
 
+void post_to_skyscript_windows(const char *channel,
+                               const std::string &payload) {
+  for (SkyScriptApp app : {g_panel, g_hud}) {
+    if (app) {
+      skyscript_app_post_message(app, channel, payload.c_str());
+    }
+  }
+}
+
 } // namespace zoal_atc::gui

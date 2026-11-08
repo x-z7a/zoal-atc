@@ -35,7 +35,7 @@ html.hud-window {
   padding: 2px 2px 4px;
   color: var(--text);
   font-family: var(--font-sans);
-  text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
+  text-shadow: var(--hud-text-shadow);
 }
 
 /* ---- Bar ----------------------------------------------------------------- */
@@ -67,7 +67,7 @@ html.hud-window {
 }
 
 .hud-title {
-  color: var(--active);
+  color: var(--text);
   font-family: var(--font-readout);
   font-size: 13px;
   font-weight: 700;
@@ -177,12 +177,12 @@ html.hud-window {
 /* Armed is a warning colour, because the next press throws a clearance away. */
 .hud-action.is-armed {
   background: color-mix(in srgb, var(--warn) 85%, transparent);
-  color: #1f1600;
+  color: var(--on-warn);
   text-shadow: none;
 }
 
 .hud-action.is-armed .hud-icon {
-  fill: #1f1600;
+  fill: var(--on-warn);
   filter: none;
 }
 
@@ -233,8 +233,10 @@ html.hud-window {
   font-size: 14px;
 }
 
+/* The panel's pilot bubble is a faint wash over its glass; over the sky it
+   would vanish, so the HUD mixes the sage into its own glass instead. */
 .hud-feed .from-pilot .bubble {
-  background: color-mix(in srgb, var(--pilot-bubble) 72%, transparent);
+  background: color-mix(in srgb, var(--active) 16%, var(--hud-glass));
 }
 
 .hud-feed .is-overheard .bubble {
