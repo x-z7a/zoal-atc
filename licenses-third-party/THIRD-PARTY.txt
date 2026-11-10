@@ -30,6 +30,14 @@ Dear ImGui v1.92.9b (MIT)
   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
   IN THE SOFTWARE.
 
+FreeType 2.14.3 (FreeType License, FTL)
+  https://freetype.org
+  Linked into the plugin; rasterizes the radio HUD's text.
+  This software is based in part on the work of the FreeType Team.
+  Portions of this software are copyright (c) 2026 The FreeType Project
+  (www.freetype.org). All rights reserved.
+  The full license is docs/FTL.TXT in the FreeType source distribution.
+
 sherpa-onnx v1.13.8 (Apache-2.0)
   https://github.com/k2-fsa/sherpa-onnx
   Synthesises the controllers' voices. Linked statically on macOS; shipped as

@@ -57,7 +57,7 @@ yourself, see *Console endpoint* below.
   `zoal_atc.cfg`.
 - **The HUD.** One window pinned to the top right of the screen, drawn
   natively by the plugin with Dear ImGui (X-Plane 12.4.4's panel-graphics
-  ImGui helpers) and transparent except for what it draws: a bar with the
+  ImGui helpers), its text hinted by FreeType, and transparent except for what it draws: a bar with the
   callsign, the console light and a menu to reload the flight plan, start a new
   flight or open the panel, and under it the last three transmissions, each for
   a minute. It is exactly as big as what it shows, and stays up while the panel
@@ -213,7 +213,7 @@ make gate       # core tests + panel build + panel tests — the pre-done gate
 | --- | --- |
 | `make test` | Builds and runs the SDK-free C++ core tests (no SDK, no SkyScript) |
 | `make gui-build` / `make gui-test` | Builds / tests the in-sim panel |
-| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, SkyScript into `.cache/skyscript/`, whisper.cpp into `.cache/whisper.cpp-*`, Dear ImGui into `.cache/imgui-*`, and sherpa-onnx into `.cache/sherpa-onnx-*` |
+| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, SkyScript into `.cache/skyscript/`, whisper.cpp into `.cache/whisper.cpp-*`, Dear ImGui into `.cache/imgui-*`, FreeType into `.cache/freetype-*`, and sherpa-onnx into `.cache/sherpa-onnx-*` |
 | `make install-plugin` | Builds and installs into X-Plane (`LOCAL_XPLANE_PLUGIN_DIR=` to override the path) |
 | `make models` | Fetches the transcription model and the controller voices into `.cache/models` |
 | `make release-plugin` / `make archive-plugin` | Assembles / zips the release tree in `dist/` |
