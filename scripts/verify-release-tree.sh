@@ -98,6 +98,12 @@ require_dir "assets/icons"
 require_file "assets/icons/x-circle.svg"
 require_file "licenses/skyscript/LICENSE"
 require_file "licenses/THIRD-PARTY.txt"
+# The HUD's typeface. Without it the HUD falls back to X-Plane's Roboto, which
+# ImGui sets unevenly -- a release that looks broken without being broken.
+require_file "fonts/Inter-Regular.ttf"
+require_file "fonts/Inter-SemiBold.ttf"
+require_file "fonts/Inter-Bold.ttf"
+require_file "licenses/inter/LICENSE.txt"
 
 # --- things that must NOT be there -------------------------------------------
 if [ -e "${release_dir}/${platform_dir}/cef" ] ||

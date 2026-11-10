@@ -50,6 +50,17 @@ cmake -E copy "${models_dir}/ggml-small.en-q5_1.bin" "${release_dir}/models/ggml
 cmake -E copy_directory "${models_dir}/kokoro-multi-lang-v1_0" "${release_dir}/models/kokoro-multi-lang-v1_0"
 cmake -E make_directory "${release_dir}/licenses"
 cmake -E copy "${repo_root}/licenses-third-party/THIRD-PARTY.txt" "${release_dir}/licenses/THIRD-PARTY.txt"
+# Inter, the radio HUD's typeface. The plugin finds it beside itself in fonts/
+# and falls back to X-Plane's Roboto without it, so a missing font is ugly, not
+# broken -- which is exactly why verify-release-tree.sh requires it.
+inter_version="$(cut -d' ' -f1 "${repo_root}/scripts/inter-version.txt")"
+inter_dir="${ZOAL_ATC_INTER:-${repo_root}/.cache/inter-${inter_version}}"
+ZOAL_ATC_INTER="${inter_dir}" "${repo_root}/scripts/ensure-inter.sh"
+cmake -E make_directory "${release_dir}/fonts" "${release_dir}/licenses/inter"
+for weight in Inter-Regular.ttf Inter-SemiBold.ttf Inter-Bold.ttf; do
+  cmake -E copy "${inter_dir}/${weight}" "${release_dir}/fonts/${weight}"
+done
+cmake -E copy "${inter_dir}/LICENSE.txt" "${release_dir}/licenses/inter/LICENSE.txt"
 cmake -E copy_directory "${repo_root}/gui/zoal-atc/dist" "${release_dir}/apps/zoal-atc"
 # Skyscript is not optional: a release without it ships a plugin with no GUI.
 "${repo_root}/scripts/package-skyscript-runtime.sh" \
