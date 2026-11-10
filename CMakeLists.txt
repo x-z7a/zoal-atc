@@ -19,6 +19,8 @@ option(ZOAL_ATC_BUILD_PLUGIN "Build the X-Plane plugin module" OFF)
 set(ZOAL_ATC_WHISPER_SOURCE "" CACHE PATH "whisper.cpp source tree (see scripts/ensure-whisper-src.sh)")
 set(ZOAL_ATC_SHERPA_ONNX "" CACHE PATH "sherpa-onnx build (see scripts/ensure-sherpa-onnx.sh)")
 set(ATC_XPLANE_SDK "${CMAKE_CURRENT_SOURCE_DIR}/sdk" CACHE PATH "Path to the X-Plane SDK root")
+set(ZOAL_ATC_IMGUI_SOURCE "" CACHE PATH "Dear ImGui source tree (see scripts/ensure-imgui.sh)")
+set(ZOAL_ATC_FREETYPE_SOURCE "" CACHE PATH "FreeType source tree (see scripts/ensure-freetype.sh)")
 set(ZOAL_ATC_SKYSCRIPT_ROOT "" CACHE PATH "Path to the Skyscript library bundle (see scripts/ensure-skyscript-lib.sh)")
 
 # Skyscript is not optional. The in-sim panel is the ATC GUI, so a plugin
@@ -31,6 +33,8 @@ find_package(Threads REQUIRED)
 add_library(zoal_atc_core STATIC
     src/gui/gui_bridge.cpp
     src/gui/hud_layout.cpp
+    src/gui/hud_model.cpp
+    src/gui/hud_session.cpp
     src/gui/panel_theme.cpp
     src/gui/gui_frames.cpp
     src/gui/panel_paths.cpp
@@ -86,9 +90,53 @@ if(ZOAL_ATC_BUILD_PLUGIN)
 
     add_library(zoal_atc MODULE
         src/ptt/miniaudio_audio_recorder.cpp
+        src/xplane/hud_window.cpp
+        src/xplane/imgui_window.cpp
         src/xplane/skyscript_panel.cpp
         src/xplane/xplane_plugin.cpp
     )
+
+    # Dear ImGui, for the HUD. Only the core: X-Plane renders its draw lists
+    # through the panel-graphics ImGui helpers and the plugin feeds it input, so
+    # no backend is built. Static and position-independent, inside the .xpl.
+    if(NOT EXISTS "${ZOAL_ATC_IMGUI_SOURCE}/imgui.h")
+        message(FATAL_ERROR "Dear ImGui source not found at '${ZOAL_ATC_IMGUI_SOURCE}'. "
+            "Run scripts/ensure-imgui.sh.")
+    endif()
+    # FreeType rasterizes the text, hinted to the pixel grid: stb_truetype, the
+    # default, leaves small UI text thin and soft. Built from source with every
+    # optional dependency off, so it needs nothing from the system.
+    if(NOT EXISTS "${ZOAL_ATC_FREETYPE_SOURCE}/include/ft2build.h")
+        message(FATAL_ERROR "FreeType source not found at '${ZOAL_ATC_FREETYPE_SOURCE}'. "
+            "Run scripts/ensure-freetype.sh.")
+    endif()
+    foreach(_ft_dependency ZLIB BZIP2 PNG HARFBUZZ BROTLI)
+        set(FT_DISABLE_${_ft_dependency} ON CACHE BOOL "" FORCE)
+    endforeach()
+    set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+    add_subdirectory("${ZOAL_ATC_FREETYPE_SOURCE}" "${CMAKE_BINARY_DIR}/freetype" EXCLUDE_FROM_ALL)
+    set_target_properties(freetype PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+    add_library(zoal_atc_imgui STATIC
+        "${ZOAL_ATC_IMGUI_SOURCE}/imgui.cpp"
+        "${ZOAL_ATC_IMGUI_SOURCE}/imgui_draw.cpp"
+        "${ZOAL_ATC_IMGUI_SOURCE}/imgui_tables.cpp"
+        "${ZOAL_ATC_IMGUI_SOURCE}/imgui_widgets.cpp"
+        "${ZOAL_ATC_IMGUI_SOURCE}/misc/freetype/imgui_freetype.cpp"
+    )
+    target_include_directories(zoal_atc_imgui SYSTEM PUBLIC
+        "${ZOAL_ATC_IMGUI_SOURCE}"
+        "${ZOAL_ATC_IMGUI_SOURCE}/misc/freetype")
+    # The demo window and the debug tools are not shipped. FreeType is the font
+    # loader for every atlas, so no stb_truetype is compiled in.
+    target_compile_definitions(zoal_atc_imgui PUBLIC
+        IMGUI_DISABLE_DEMO_WINDOWS IMGUI_DISABLE_DEBUG_TOOLS IMGUI_ENABLE_FREETYPE)
+    target_link_libraries(zoal_atc_imgui PUBLIC freetype)
+    set_target_properties(zoal_atc_imgui PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    if(NOT MSVC)
+        target_compile_options(zoal_atc_imgui PRIVATE -fvisibility=hidden)
+    endif()
+    target_link_libraries(zoal_atc PRIVATE zoal_atc_imgui)
 
     target_link_libraries(zoal_atc PRIVATE zoal_atc_core)
     target_include_directories(zoal_atc PRIVATE
@@ -101,6 +149,10 @@ if(ZOAL_ATC_BUILD_PLUGIN)
         XPLM300=1
         XPLM301=1
         XPLM400=1
+        XPLM410=1
+        XPLM420=1
+        XPLM430=1
+        XPLM440=1
         ZOAL_ATC_VERSION="${PROJECT_VERSION}"
     )
 
@@ -276,6 +328,8 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_gui_frames_tests tests/gui_frames_test.cpp)
     zoal_atc_add_test(zoal_atc_gui_bridge_tests tests/gui_bridge_test.cpp)
     zoal_atc_add_test(zoal_atc_hud_layout_tests tests/hud_layout_test.cpp)
+    zoal_atc_add_test(zoal_atc_hud_model_tests tests/hud_model_test.cpp)
+    zoal_atc_add_test(zoal_atc_hud_session_tests tests/hud_session_test.cpp)
     zoal_atc_add_test(zoal_atc_panel_theme_tests tests/panel_theme_test.cpp)
     zoal_atc_add_test(zoal_atc_local_stt_tests tests/local_stt_test.cpp)
     zoal_atc_add_test(zoal_atc_tts_tests tests/tts_test.cpp)

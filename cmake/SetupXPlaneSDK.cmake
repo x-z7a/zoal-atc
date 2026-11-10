@@ -6,15 +6,17 @@ if(NOT DEFINED ATC_XPLANE_SDK OR ATC_XPLANE_SDK STREQUAL "")
 endif()
 
 if(NOT DEFINED SDK_VERSION OR SDK_VERSION STREQUAL "")
-    set(SDK_VERSION "430")
+    set(SDK_VERSION "440-b5")
 endif()
 
 if(NOT DEFINED SDK_ZIP_URL OR SDK_ZIP_URL STREQUAL "")
-    set(SDK_ZIP_URL "https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK${SDK_VERSION}.zip")
+    set(SDK_ZIP_URL "https://www.x-plane.com/wp-content/uploads/2026/10/XPSDK440-b5.zip")
 endif()
 
 get_filename_component(ATC_XPLANE_SDK "${ATC_XPLANE_SDK}" ABSOLUTE)
-set(_sentinel "${ATC_XPLANE_SDK}/XPLM/XPLMPlugin.h")
+# A 4.4-only header: the HUD needs SDK 4.4.0's panel-graphics ImGui helpers,
+# so an older SDK already in the tree is replaced rather than accepted.
+set(_sentinel "${ATC_XPLANE_SDK}/XPLM/XPLMPanelGraphics.h")
 
 if(EXISTS "${_sentinel}")
     message(STATUS "X-Plane SDK already present at ${ATC_XPLANE_SDK}")

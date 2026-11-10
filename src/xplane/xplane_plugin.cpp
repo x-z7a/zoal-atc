@@ -16,6 +16,7 @@
 #include "zoal_atc/transport/speech_text.hpp"
 #include "zoal_atc/transport/websocket_client.hpp"
 #include "zoal_atc/weather/metar.hpp"
+#include "hud_window.hpp"
 
 #include <XPLMDataAccess.h>
 #include <XPLMNavigation.h>
@@ -498,10 +499,12 @@ handle_local_gui_action(const std::string &action,
         return zoal_atc::gui::LocalAnswer{false, "null",
                                           "could not write " + g_config_path};
       }
-      // The panel and the HUD are two pages; the one that saved knows from
-      // this answer, the other learns here.
-      zoal_atc::gui::post_to_skyscript_windows(
-          "settings.changed", R"({"theme":")" + *theme + R"("})");
+      // The panel saved it and knows from this answer; the HUD, drawn by the
+      // plugin, learns here. The post to the panel keeps a second panel page
+      // (a reload mid-save) in step too.
+      const std::string changed = R"({"theme":")" + *theme + R"("})";
+      zoal_atc::gui::post_to_skyscript_panel("settings.changed", changed);
+      zoal_atc::xplane::hud_settings_changed(changed);
     }
 
     return zoal_atc::gui::LocalAnswer{true, settings_json(), ""};
@@ -1749,6 +1752,7 @@ void process_gui_bridge() {
     log_line(line);
   }
   zoal_atc::gui::tick_skyscript_panel();
+  zoal_atc::xplane::tick_hud();
 }
 
 float flight_loop_callback(float, float, int, void *) {
@@ -1797,6 +1801,8 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
 #endif
   panel_config.bridge = &g_gui_bridge;
   panel_config.now_ms = monotonic_ms;
+  // The HUD first: the panel's menu finds the HUD's toggle command by name.
+  zoal_atc::xplane::start_hud(g_gui_bridge, monotonic_ms);
   zoal_atc::gui::start_skyscript_panel(panel_config);
 
   char system_path[1024] = {};
@@ -1903,6 +1909,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
 }
 
 PLUGIN_API void XPluginStop() {
+  zoal_atc::xplane::stop_hud();
   zoal_atc::gui::stop_skyscript_panel();
 
   if (g_terrain_probe) {

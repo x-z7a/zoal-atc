@@ -1,9 +1,10 @@
 // The panel's colour themes.
 //
-// Both windows -- the panel and the HUD -- are separate pages, so the choice is
-// stored by the plugin (panel_theme in zoal_atc.cfg, checked against the same
-// names in panel_theme.cpp) and each page applies it to <html> as
-// data-zoal-theme. tokens.css holds the colours.
+// The choice is stored by the plugin (panel_theme in zoal_atc.cfg, checked
+// against the same names in panel_theme.cpp), so the panel and the radio HUD
+// -- which the plugin draws itself, with the same colours copied into
+// hud_window.cpp -- wear the same one. The page applies it to <html> as
+// data-zoal-theme; tokens.css holds the colours.
 //
 // The page also keeps the last theme in localStorage, and applies that before
 // React draws anything, so a window does not flash the default while the

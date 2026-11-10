@@ -9,6 +9,10 @@ miniaudio_dir="${repo_root}/vendor/miniaudio"
 skyscript_root="${ZOAL_ATC_SKYSCRIPT_ROOT:-${repo_root}/.cache/skyscript/SkyScript-lib}"
 whisper_version="$(cut -d' ' -f1 "${repo_root}/scripts/whisper-version.txt")"
 whisper_source="${ZOAL_ATC_WHISPER_SOURCE:-${repo_root}/.cache/whisper.cpp-${whisper_version}}"
+imgui_version="$(cut -d' ' -f1 "${repo_root}/scripts/imgui-version.txt")"
+imgui_source="${ZOAL_ATC_IMGUI_SOURCE:-${repo_root}/.cache/imgui-${imgui_version}}"
+freetype_version="$(cut -d' ' -f1 "${repo_root}/scripts/freetype-version.txt")"
+freetype_source="${ZOAL_ATC_FREETYPE_SOURCE:-${repo_root}/.cache/freetype-${freetype_version}}"
 sherpa_flavour=win-x64-shared-MT-Release-lib
 sherpa_version="$(tr -d '\r' < "${repo_root}/scripts/sherpa-onnx-version.txt" | awk '$1 == "version" { print $2 }')"
 sherpa_root="${repo_root}/.cache/sherpa-onnx-${sherpa_version}-${sherpa_flavour}"
@@ -50,6 +54,8 @@ ZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
 
 echo "==> Ensuring whisper.cpp and the Windows speech runtime"
 ZOAL_ATC_WHISPER_SOURCE="${whisper_source}" "${repo_root}/scripts/ensure-whisper-src.sh"
+ZOAL_ATC_IMGUI_SOURCE="${imgui_source}" "${repo_root}/scripts/ensure-imgui.sh"
+ZOAL_ATC_FREETYPE_SOURCE="${freetype_source}" "${repo_root}/scripts/ensure-freetype.sh"
 ZOAL_ATC_SHERPA_ONNX="${sherpa_root}" "${repo_root}/scripts/ensure-sherpa-onnx.sh" "${sherpa_flavour}"
 
 echo "==> Cross-building the Windows x64 X-Plane plugin"
@@ -68,6 +74,8 @@ cmake \
   -DATC_MINIAUDIO_INCLUDE_DIR="${miniaudio_dir}" \
   -DZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
   -DZOAL_ATC_WHISPER_SOURCE="${whisper_source}" \
+  -DZOAL_ATC_IMGUI_SOURCE="${imgui_source}" \
+  -DZOAL_ATC_FREETYPE_SOURCE="${freetype_source}" \
   -DZOAL_ATC_SHERPA_ONNX="${sherpa_root}"
 cmake --build "${plugin_build_dir}" --parallel --target zoal_atc
 

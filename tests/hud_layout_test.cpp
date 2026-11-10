@@ -61,35 +61,13 @@ void follows_an_offset_desktop() {
   expect_int(rect.right, -16, "right edge of the offset desktop");
 }
 
-void reads_the_page_report() {
-  const auto height = zoal_atc::gui::parse_hud_layout(R"({"height":212.4})");
-  expect_true(height.has_value() && *height == 213, "rounds up to whole boxels");
-  expect_true(!zoal_atc::gui::parse_hud_layout(R"({"height":0})").has_value(),
-              "zero is not a height");
-  expect_true(!zoal_atc::gui::parse_hud_layout(R"({"height":-5})").has_value(),
-              "negative is not a height");
-  expect_true(!zoal_atc::gui::parse_hud_layout("not json").has_value(),
-              "garbage is ignored");
-}
-
-// The feed hangs under the bar, so the bar's window never has to change size
-// for a line to come or go.
-void the_feed_hangs_under_the_bar() {
-  const auto bar = zoal_atc::gui::hud_rect(kScreen, 38);
-  const auto feed = zoal_atc::gui::hud_feed_rect(kScreen, bar, 312);
-  expect_int(feed.left, bar.left, "same left edge");
-  expect_int(feed.right, bar.right, "same right edge");
-  expect_int(feed.top, bar.bottom - 6, "a gap below the bar");
-  expect_int(feed.top - feed.bottom, 312, "as tall as asked");
-}
-
-// Empty, it is a strip that takes no clicks; it never runs off the screen.
-void the_feed_collapses_and_stays_on_screen() {
-  const auto bar = zoal_atc::gui::hud_rect(kScreen, 38);
-  const auto empty = zoal_atc::gui::hud_feed_rect(kScreen, bar, 1);
-  expect_int(empty.top - empty.bottom, 1, "a one-boxel strip");
-  const auto huge = zoal_atc::gui::hud_feed_rect(kScreen, bar, 5000);
-  expect_true(huge.bottom >= kScreen.bottom, "stays on screen");
+// The HUD narrows its window to what it is drawing; the right edge stays put.
+void narrows_to_its_content() {
+  zoal_atc::gui::HudPlacement placement;
+  placement.width = 120;
+  const auto rect = zoal_atc::gui::hud_rect(kScreen, 36, placement);
+  expect_int(rect.right, 1920 - 16, "right edge unchanged");
+  expect_int(rect.right - rect.left, 120, "as wide as the content");
 }
 
 } // namespace
@@ -99,8 +77,6 @@ int main() {
   an_empty_hud_is_only_its_handle();
   never_runs_off_the_screen();
   follows_an_offset_desktop();
-  reads_the_page_report();
-  the_feed_hangs_under_the_bar();
-  the_feed_collapses_and_stays_on_screen();
+  narrows_to_its_content();
   return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

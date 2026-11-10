@@ -833,7 +833,7 @@ describe("the panel", () => {
         await waitFor(() => expect(document.documentElement.dataset.zoalTheme).toBe("night"));
       });
 
-      // How a pick in the panel reaches the HUD, which is another page.
+      // The plugin posts settings.changed on every save; a page follows it.
       it("follows a theme saved from the other window", async () => {
         await mountReady();
 

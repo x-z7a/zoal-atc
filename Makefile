@@ -28,12 +28,24 @@ SHERPA_ONNX_VERSION := $(shell tr -d '\r' < "$(ROOT_DIR)/scripts/sherpa-onnx-ver
 # The two models every plugin ships with, inside its own folder. Pinned in
 # scripts/ensure-models.sh and downloaded once.
 ZOAL_ATC_MODELS ?= $(ROOT_DIR)/.cache/models
+# Dear ImGui, which the HUD is drawn with. Pinned with its archive checksum in
+# scripts/imgui-version.txt.
+IMGUI_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/imgui-version.txt")
+ZOAL_ATC_IMGUI_SOURCE ?= $(ROOT_DIR)/.cache/imgui-$(IMGUI_VERSION)
+# FreeType, which rasterizes the HUD's text with hinting. Pinned with its
+# archive checksum in scripts/freetype-version.txt.
+FREETYPE_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/freetype-version.txt")
+ZOAL_ATC_FREETYPE_SOURCE ?= $(ROOT_DIR)/.cache/freetype-$(FREETYPE_VERSION)
 LOCAL_XPLANE_PLUGIN_DIR ?= $(HOME)/X-Plane 12/Resources/plugins/zoal-atc
 
-SDK_VERSION ?= 430
-SDK_ZIP_URL ?= https://developer.x-plane.com/wp-content/plugins/code-sample-generation/sdk_zip_files/XPSDK$(SDK_VERSION).zip
+# SDK 4.4.0 (X-Plane 12.4.4): browser windows, which Skyscript needs, and the
+# panel-graphics ImGui helpers the HUD is drawn with. The same build Skyscript's
+# CI uses. The sentinel is a 4.4-only header, so a tree that still holds an
+# older SDK fetches this one rather than building against what it has.
+SDK_VERSION ?= 440-b5
+SDK_ZIP_URL ?= https://www.x-plane.com/wp-content/uploads/2026/10/XPSDK440-b5.zip
 ATC_XPLANE_SDK ?= $(ROOT_DIR)/sdk
-SDK_SENTINEL := $(ATC_XPLANE_SDK)/XPLM/XPLMPlugin.h
+SDK_SENTINEL := $(ATC_XPLANE_SDK)/XPLM/XPLMPanelGraphics.h
 MINIAUDIO_SENTINEL := $(ROOT_DIR)/vendor/miniaudio/miniaudio.h
 
 PLUGIN_XPL := $(PLUGIN_BUILD_DIR)/zoal_atc.xpl
@@ -79,7 +91,7 @@ else
 CMAKE_GENERATOR :=
 endif
 
-.PHONY: help build test plugin gui-build gui-test gate skyscript-lib whisper-src sherpa-onnx models \
+.PHONY: help build test plugin gui-build gui-test gate skyscript-lib whisper-src imgui-src freetype-src sherpa-onnx models \
 	install-plugin release-plugin archive-plugin release-all clean
 
 .DEFAULT_GOAL := help
@@ -138,6 +150,12 @@ skyscript-lib:
 whisper-src:
 	ZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" "$(ROOT_DIR)/scripts/ensure-whisper-src.sh"
 
+imgui-src:
+	ZOAL_ATC_IMGUI_SOURCE="$(ZOAL_ATC_IMGUI_SOURCE)" "$(ROOT_DIR)/scripts/ensure-imgui.sh"
+
+freetype-src:
+	ZOAL_ATC_FREETYPE_SOURCE="$(ZOAL_ATC_FREETYPE_SOURCE)" "$(ROOT_DIR)/scripts/ensure-freetype.sh"
+
 sherpa-onnx:
 	ZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)" "$(ROOT_DIR)/scripts/ensure-sherpa-onnx.sh" $(SHERPA_ONNX_FLAVOUR)
 
@@ -146,8 +164,8 @@ sherpa-onnx:
 models:
 	ZOAL_ATC_MODELS="$(ZOAL_ATC_MODELS)" "$(ROOT_DIR)/scripts/ensure-models.sh"
 
-plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) skyscript-lib whisper-src sherpa-onnx
-	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" -DZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)"
+plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) skyscript-lib whisper-src imgui-src freetype-src sherpa-onnx
+	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" -DZOAL_ATC_IMGUI_SOURCE="$(ZOAL_ATC_IMGUI_SOURCE)" -DZOAL_ATC_FREETYPE_SOURCE="$(ZOAL_ATC_FREETYPE_SOURCE)" -DZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)"
 	cmake --build "$(PLUGIN_BUILD_DIR)" --target zoal_atc
 
 $(SDK_SENTINEL):
