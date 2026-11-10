@@ -107,7 +107,7 @@ export function useTelemetryFreshness(): Freshness {
 
 // useThemeSync keeps this window's theme on the one the plugin has stored: read
 // once the host is up, then followed whenever the plugin says it changed --
-// which is how a pick in the panel reaches the HUD, a separate page.
+// which is how a save from another panel page (a reload mid-save) catches up.
 export function useThemeSync(): void {
   const {bridge, boot} = useConsole();
 

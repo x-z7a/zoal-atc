@@ -61,8 +61,9 @@ export const LOCAL_ACTIONS = {
   // is the sim doing what the pilot asked, not a request a console can refuse,
   // and it keeps working while the console is unreachable.
   tuneRadio: "tune_radio",
-  // Brings up the full panel from the HUD. A window on this computer, so the
-  // plugin opens it, console or no console.
+  // Brings up the full panel. The radio HUD (drawn by the plugin, not a page)
+  // asks for it the same way; a window on this computer, so the plugin opens
+  // it, console or no console.
   openPanel: "open_panel",
 } as const;
 

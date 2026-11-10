@@ -2,29 +2,11 @@ import {StrictMode} from "react";
 import {createRoot} from "react-dom/client";
 
 import {App} from "./app/App";
-import {readShellParams} from "./domain/shell";
 import {applyTheme, cachedTheme} from "./domain/theme";
-import {HudApp} from "./hud/HudApp";
-import {HudFeedApp} from "./hud/HudFeedApp";
 import {ConsoleProvider} from "./state/ConsoleProvider";
 import "./styles/index.css";
 
 const container = document.getElementById("root");
-// One bundle, two windows. The HUD's window is transparent wherever the page
-// paints nothing, so its document must not paint a background at all -- which
-// is decided on <html>, before React draws anything over it.
-const shell = readShellParams(window.location.search);
-if (shell.view !== "panel") {
-  document.documentElement.classList.add("hud-window");
-  // The HUD's windows log to X-Plane's Log.txt (skyscript_panel.cpp), and an
-  // uncaught error is otherwise the one thing that does not reach it.
-  window.addEventListener("error", (event) => {
-    console.error(`[zoal-atc ${shell.view}] uncaught: ${event.message}`);
-  });
-  window.addEventListener("unhandledrejection", (event) => {
-    console.error(`[zoal-atc ${shell.view}] unhandled rejection: ${String(event.reason)}`);
-  });
-}
 // The last theme this browser saw, before the first paint; the plugin's stored
 // one replaces it as soon as the bridge is up (useThemeSync).
 applyTheme(cachedTheme());
@@ -32,13 +14,7 @@ if (container) {
   createRoot(container).render(
     <StrictMode>
       <ConsoleProvider>
-        {shell.view === "hud" ? (
-          <HudApp />
-        ) : shell.view === "hud-feed" ? (
-          <HudFeedApp />
-        ) : (
-          <App search={window.location.search} />
-        )}
+        <App search={window.location.search} />
       </ConsoleProvider>
     </StrictMode>,
   );

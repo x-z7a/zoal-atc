@@ -56,14 +56,8 @@ export type SkyscriptHost = {
 export const REQUEST_CHANNEL = "console.request";
 export const READY_CHANNEL = "console.ready";
 export const EVENT_CHANNEL = "console.event";
-// The HUD reports how tall it is drawing, so the plugin can size its window to
-// exactly that (hud_layout.hpp): a browser window takes every click inside it.
-export const HUD_LAYOUT_CHANNEL = "hud.layout";
-// The HUD's feed window asks for its height here: full while it has lines,
-// 1px when it has none (skyscript_panel.cpp, hud_feed_rect).
-export const HUD_FEED_LAYOUT_CHANNEL = "hud.feed_layout";
-// The plugin posts here to every window when a setting changes, so a theme
-// picked in the panel reaches the HUD -- a separate page -- straight away.
+// The plugin posts here when a setting is saved. The radio HUD, drawn by the
+// plugin, hears of it directly; the panel page follows it here.
 export const SETTINGS_CHANGED_CHANNEL = "settings.changed";
 export const PANEL_LOG_PREFIX = "[zoal-atc panel]";
 

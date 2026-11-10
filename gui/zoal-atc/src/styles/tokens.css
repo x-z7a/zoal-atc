@@ -51,7 +51,7 @@
   /* No tint: Material's tinted elevation would turn every card faintly amber. */
   --md-sys-color-surface-tint: #222224;
 
-  /* Pills, the same shape as the HUD: one radio, one look. */
+  /* Pills, the same shape as the radio HUD's: one radio, one look. */
   --btn-height: 34px;
   --btn-padding: 16px;
   --btn-border-radius: 999px;
@@ -113,10 +113,6 @@
   --radius: 10px;
   --radius-lg: 14px;
   --radius-pill: 999px;
-
-  /* The HUD sits over the sky with no glass behind its text, so it carries a
-     shadow in the opposite tone to the text. */
-  --hud-text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
 }
 
 /* ---- Other themes ----------------------------------------------------------
@@ -178,8 +174,6 @@ html:root[data-zoal-theme="daylight"] {
   --delivery: #6d53a6;
   --surface-seat: #ad552a;
   --tower: #2d6a9b;
-
-  --hud-text-shadow: 0 1px 1px rgb(255 255 255 / 55%);
 }
 
 /* Night: dim, low-glare and shifted warm, the way cockpit night lighting is,

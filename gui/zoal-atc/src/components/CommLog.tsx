@@ -13,9 +13,9 @@ type Props = {
 // slack, so a stray wheel notch does not stop the log following the radio.
 const STICK_SLACK_PX = 48;
 
-// One transmission, as a chat bubble. Exported for the HUD, which shows the
-// same lines the same way -- a pilot should not have to learn two looks for
-// one radio.
+// One transmission, as a chat bubble. The radio HUD (src/xplane/hud_window.cpp)
+// draws the same bubble natively -- a pilot should not have to learn two looks
+// for one radio, so a change here belongs there too.
 export function CommBubble({
   entry,
   ownCallsign,
@@ -59,8 +59,6 @@ export function CommBubble({
           </span>
         ) : null}
       </span>
-      {/* The text in a span of its own, so the HUD can clamp it to three lines
-          without the next line showing through the bubble's padding. */}
       <div className="bubble">
         <span className="bubble-text">{entry.text || ""}</span>
       </div>

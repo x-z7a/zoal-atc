@@ -25,6 +25,10 @@ struct SkyscriptPanelConfig {
 void start_skyscript_panel(const SkyscriptPanelConfig &config);
 void stop_skyscript_panel();
 
+// The panel is the only Skyscript window: the radio HUD is drawn natively with
+// Dear ImGui (src/xplane/hud_window.hpp), because clicking any X-Plane browser
+// window blanks other plugins' UIs until a non-browser window is clicked.
+//
 // tick_skyscript_panel is the only place messages reach the browser. It runs on
 // the X-Plane main thread, which is where CEF is pumped: the websocket receiver
 // thread queues into the bridge and never touches Skyscript itself.
@@ -34,10 +38,10 @@ void tick_skyscript_panel();
 // control. Main thread only, like every other Skyscript call.
 void show_skyscript_panel();
 
-// post_to_skyscript_windows sends one plugin message to every window, panel and
-// HUD alike: how a setting saved in one reaches the other. Skyscript queues it
-// for a hidden window. Main thread only.
-void post_to_skyscript_windows(const char *channel, const std::string &payload);
+// post_to_skyscript_panel sends the panel one plugin message outside the
+// bridge's request/answer flow (settings.changed). Skyscript queues it for a
+// hidden window. Main thread only.
+void post_to_skyscript_panel(const char *channel, const std::string &payload);
 
 } // namespace zoal_atc::gui
 
