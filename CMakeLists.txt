@@ -36,6 +36,7 @@ add_library(zoal_atc_core STATIC
     src/gui/hud_model.cpp
     src/gui/hud_session.cpp
     src/gui/panel_theme.cpp
+    src/gui/font_metrics.cpp
     src/gui/gui_frames.cpp
     src/gui/panel_paths.cpp
     src/ptt/noop_audio_recorder.cpp
@@ -328,6 +329,7 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_gui_frames_tests tests/gui_frames_test.cpp)
     zoal_atc_add_test(zoal_atc_gui_bridge_tests tests/gui_bridge_test.cpp)
     zoal_atc_add_test(zoal_atc_hud_layout_tests tests/hud_layout_test.cpp)
+    zoal_atc_add_test(zoal_atc_font_metrics_tests tests/font_metrics_test.cpp)
     zoal_atc_add_test(zoal_atc_hud_model_tests tests/hud_model_test.cpp)
     zoal_atc_add_test(zoal_atc_hud_session_tests tests/hud_session_test.cpp)
     zoal_atc_add_test(zoal_atc_panel_theme_tests tests/panel_theme_test.cpp)

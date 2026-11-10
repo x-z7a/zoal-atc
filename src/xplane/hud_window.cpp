@@ -1,11 +1,14 @@
 #include "hud_window.hpp"
 
 #include "imgui_window.hpp"
+#include "zoal_atc/gui/font_metrics.hpp"
 #include "zoal_atc/gui/hud_layout.hpp"
 #include "zoal_atc/gui/hud_session.hpp"
+#include "zoal_atc/gui/panel_paths.hpp"
 
 #include <XPLMDataAccess.h>
 #include <XPLMDisplay.h>
+#include <XPLMPlugin.h>
 #include <XPLMUtilities.h>
 
 #include <algorithm>
@@ -13,6 +16,8 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
@@ -46,19 +51,14 @@ constexpr float kBubblePadX = 13.0f;
 constexpr float kBubblePadY = 8.0f;
 constexpr float kBubbleRadius = 12.0f;
 constexpr float kSpeakerGap = 3.0f;
-// Type sizes are the React HUD's CSS sizes, converted. CSS sizes a font by its
-// em; ImGui sizes it by its whole line, ascender to descender. Roboto's line
-// is 1.171875 em (2400 of 2048 units), so an ImGui size of 14 draws the glyphs
-// CSS draws at 12px -- every label came out a sixth too small without this.
-constexpr float kEmToLine = 1.171875f;
-constexpr float css(float px) { return px * kEmToLine; }
-
-constexpr float kTitleSize = css(13.0f);
-constexpr float kWarnSize = css(11.0f);
-constexpr float kActionSize = css(12.0f);
-constexpr float kBubbleSize = css(14.0f);
-constexpr float kSpeakerSize = css(11.0f);
-constexpr float kTagSize = css(10.0f);
+// Type sizes are the React HUD's CSS sizes, in CSS px; css() converts them
+// (see Hud::em_to_line).
+constexpr float kTitlePx = 13.0f;
+constexpr float kWarnPx = 11.0f;
+constexpr float kActionPx = 12.0f;
+constexpr float kBubblePx = 14.0f;
+constexpr float kSpeakerPx = 11.0f;
+constexpr float kTagPx = 10.0f;
 // The bubbles' CSS line-height (1.45): ImGui would set lines at the font's own
 // 1.17, which reads cramped in a two-line clearance.
 constexpr float kBubbleLine = 14.0f * 1.45f;
@@ -153,7 +153,13 @@ struct Hud {
   std::unique_ptr<HudSession> session;
   std::function<std::uint64_t()> steady_ms;
   ImFont *regular = nullptr;
+  ImFont *semibold = nullptr;
   ImFont *bold = nullptr;
+  // CSS sizes a font by its em; ImGui (FreeType too) by its whole line,
+  // ascender to descender. This is the HUD face's line in ems -- Inter's is
+  // 1.21, Roboto's 1.17 -- so an ImGui size of css(14) draws what CSS's 14px
+  // did. Read from the font file at load (font_metrics.hpp).
+  float em_to_line = 1.2f;
   XPLMCommandRef command = nullptr;
   XPLMDataRef ui_scale = nullptr;
   // A button pressed while drawing, run from the flight loop: an action may
@@ -165,6 +171,9 @@ struct Hud {
 };
 
 std::unique_ptr<Hud> g_hud;
+
+// A CSS px size as an ImGui font size, for the face the HUD is set in.
+float css(float px) { return px * g_hud->em_to_line; }
 
 void hud_log(const std::string &message) {
   XPLMDebugString(("[zoal-atc hud] " + message + "\n").c_str());
@@ -238,7 +247,7 @@ float tracked_width(ImFont *font, float size, const std::string &value,
       ++next;
     }
     width += font->CalcTextSizeA(size, FLT_MAX, 0.0f, at, next).x +
-             tracking * size / kEmToLine;
+             tracking * size / g_hud->em_to_line;
     at = next;
   }
   return width;
@@ -257,7 +266,7 @@ void tracked_text(ImDrawList *draw, ImFont *font, float size, ImVec2 pos,
     const std::string glyph(at, next);
     text(draw, font, size, pos, colour, glyph, p, opacity);
     pos.x += font->CalcTextSizeA(size, FLT_MAX, 0.0f, at, next).x +
-             tracking * size / kEmToLine;
+             tracking * size / g_hud->em_to_line;
     at = next;
   }
 }
@@ -411,7 +420,7 @@ std::vector<ActionButton> action_buttons(const HudSession &session) {
                      menu.open_panel_enabled(), false, false});
   for (ActionButton &button : buttons) {
     button.width = 8.0f + kIcon + 5.0f +
-                   measure(g_hud->bold, kActionSize, button.label).x + 10.0f;
+                   measure(g_hud->semibold, css(kActionPx), button.label).x + 10.0f;
   }
   return buttons;
 }
@@ -422,6 +431,7 @@ void build() {
   HudSession &session = *g_hud->session;
   const Palette &p = palette(session.theme());
   ImFont *regular = g_hud->regular;
+  ImFont *semibold = g_hud->semibold;
   ImFont *bold = g_hud->bold;
   const std::int64_t wall = wall_now();
 
@@ -453,9 +463,9 @@ void build() {
   const std::string warn = "CONSOLE UNREACHABLE";
   float bar_width = 11.0f + kLed + 8.0f + kHandle + 3.0f;
   if (!open) {
-    bar_width += tracked_width(bold, kTitleSize, title, kTitleTracking) + 8.0f;
+    bar_width += tracked_width(bold, css(kTitlePx), title, kTitleTracking) + 8.0f;
     if (!reachable) {
-      bar_width += tracked_width(bold, kWarnSize, warn, kWarnTracking) + 8.0f;
+      bar_width += tracked_width(bold, css(kWarnPx), warn, kWarnTracking) + 8.0f;
     }
   }
   const ImVec2 bar_min(right - bar_width, top);
@@ -470,13 +480,13 @@ void build() {
   draw->AddCircleFilled(ImVec2(x + kLed * 0.5f, mid), kLed * 0.5f, rgba(led));
   x += kLed + 8.0f;
   if (!open) {
-    tracked_text(draw, bold, kTitleSize, ImVec2(x, mid - kTitleSize * 0.5f),
+    tracked_text(draw, bold, css(kTitlePx), ImVec2(x, mid - css(kTitlePx) * 0.5f),
                  rgba(p.text), title, p, kTitleTracking);
-    x += tracked_width(bold, kTitleSize, title, kTitleTracking) + 8.0f;
+    x += tracked_width(bold, css(kTitlePx), title, kTitleTracking) + 8.0f;
     if (!reachable) {
-      tracked_text(draw, bold, kWarnSize, ImVec2(x, mid - kWarnSize * 0.5f),
+      tracked_text(draw, bold, css(kWarnPx), ImVec2(x, mid - css(kWarnPx) * 0.5f),
                    rgba(p.warn), warn, p, kWarnTracking);
-      x += tracked_width(bold, kWarnSize, warn, kWarnTracking) + 8.0f;
+      x += tracked_width(bold, css(kWarnPx), warn, kWarnTracking) + 8.0f;
     }
   }
   {
@@ -501,9 +511,9 @@ void build() {
   if (open && !menu.error().empty()) {
     const float text_room = kErrorMaxWidth - 10.0f - kIcon - 6.0f - 6.0f -
                             kHandle - 3.0f;
-    const std::string shown = fit(bold, kActionSize, menu.error(), text_room);
+    const std::string shown = fit(semibold, css(kActionPx), menu.error(), text_room);
     const float width = 10.0f + kIcon + 6.0f +
-                        measure(bold, kActionSize, shown).x + 6.0f + kHandle +
+                        measure(semibold, css(kActionPx), shown).x + 6.0f + kHandle +
                         3.0f;
     const ImVec2 min(bar_min.x - kGap - width, top);
     const ImVec2 max(bar_min.x - kGap, top + kBarHeight);
@@ -513,7 +523,7 @@ void build() {
     icon(draw, Icon::warn, ImVec2(ex, mid - kIcon * 0.5f), kIcon,
          rgba(p.danger));
     ex += kIcon + 6.0f;
-    text(draw, bold, kActionSize, ImVec2(ex, mid - kActionSize * 0.5f),
+    text(draw, semibold, css(kActionPx), ImVec2(ex, mid - css(kActionPx) * 0.5f),
          rgba(p.danger), shown, p);
     const ImVec2 dismiss_min(max.x - 3.0f - kHandle, mid - kHandle * 0.5f);
     bool hovered = false;
@@ -575,10 +585,10 @@ void build() {
            faded(icon_colour, alpha));
       const float tx = bx + 8.0f + kIcon + 5.0f;
       if (button.armed) {
-        draw->AddText(bold, kActionSize, ImVec2(tx, mid - kActionSize * 0.5f),
+        draw->AddText(semibold, css(kActionPx), ImVec2(tx, mid - css(kActionPx) * 0.5f),
                       faded(fg, alpha), button.label.c_str());
       } else {
-        text(draw, bold, kActionSize, ImVec2(tx, mid - kActionSize * 0.5f), fg,
+        text(draw, semibold, css(kActionPx), ImVec2(tx, mid - css(kActionPx) * 0.5f), fg,
              button.label, p, alpha);
       }
       bx += button.width + 2.0f;
@@ -607,19 +617,19 @@ void build() {
             : "";
 
     const std::vector<std::string> lines =
-        wrap_lines(regular, kBubbleSize, entry.text, wrap);
+        wrap_lines(regular, css(kBubblePx), entry.text, wrap);
     float words_w = 0.0f;
     for (const std::string &part : lines) {
-      words_w = std::max(words_w, measure(regular, kBubbleSize, part).x);
+      words_w = std::max(words_w, measure(regular, css(kBubblePx), part).x);
     }
     const float bubble_w = std::min(bubble_max, words_w + kBubblePadX * 2.0f);
     const float bubble_h =
         kBubbleLine * static_cast<float>(lines.size()) + kBubblePadY * 2.0f;
     const float speaker_w =
-        tracked_width(bold, kSpeakerSize, speaker, kSpeakerTracking);
+        tracked_width(bold, css(kSpeakerPx), speaker, kSpeakerTracking);
     float label_w = speaker_w + 8.0f;
     const float tag_w =
-        tag.empty() ? 0.0f : measure(regular, kTagSize, tag).x + 14.0f;
+        tag.empty() ? 0.0f : measure(regular, css(kTagPx), tag).x + 14.0f;
     if (!tag.empty()) {
       label_w += 6.0f + tag_w;
     }
@@ -631,8 +641,8 @@ void build() {
     // A controller's name sits on the left of its row, this cockpit's on the
     // right, so whose words they were reads before the words do.
     float lx = from_pilot ? right - label_w + 4.0f : row_left + 4.0f;
-    tracked_text(draw, bold, kSpeakerSize,
-                 ImVec2(lx, y + (label_h - kSpeakerSize) * 0.5f), rgba(seat),
+    tracked_text(draw, bold, css(kSpeakerPx),
+                 ImVec2(lx, y + (label_h - css(kSpeakerPx)) * 0.5f), rgba(seat),
                  speaker, p, kSpeakerTracking, opacity);
     if (!tag.empty()) {
       lx += speaker_w + 6.0f;
@@ -640,8 +650,8 @@ void build() {
       const ImVec2 tmax(lx + tag_w, y + label_h);
       draw->AddRectFilled(tmin, tmax, faded(rgba(p.raised), opacity),
                           label_h * 0.5f);
-      draw->AddText(regular, kTagSize,
-                    ImVec2(lx + 7.0f, y + (label_h - kTagSize) * 0.5f),
+      draw->AddText(regular, css(kTagPx),
+                    ImVec2(lx + 7.0f, y + (label_h - css(kTagPx)) * 0.5f),
                     faded(rgba(p.text_dim), opacity), tag.c_str());
     }
     y += label_h + kSpeakerGap;
@@ -669,9 +679,9 @@ void build() {
     draw->AddRectFilled(bmin, bmax, faded(fill, opacity), kBubbleRadius, corners);
     draw->AddRect(bmin, bmax, faded(border, opacity), kBubbleRadius, 1.0f,
                   corners);
-    float ly = bmin.y + kBubblePadY + (kBubbleLine - kBubbleSize) * 0.5f;
+    float ly = bmin.y + kBubblePadY + (kBubbleLine - css(kBubblePx)) * 0.5f;
     for (const std::string &part : lines) {
-      text(draw, regular, kBubbleSize, ImVec2(bmin.x + kBubblePadX, ly),
+      text(draw, regular, css(kBubblePx), ImVec2(bmin.x + kBubblePadX, ly),
            words_colour, part, p, opacity);
       ly += kBubbleLine;
     }
@@ -715,27 +725,64 @@ int toggle_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
   return 1;
 }
 
-// X-Plane's own UI face, which every install has: Roboto, regular and bold.
+std::string read_file(const std::filesystem::path &path) {
+  std::ifstream in(path, std::ios::binary);
+  return std::string(std::istreambuf_iterator<char>(in),
+                     std::istreambuf_iterator<char>());
+}
+
+std::filesystem::path plugin_fonts_dir() {
+  char binary[1024] = {};
+  XPLMGetPluginInfo(XPLMGetMyID(), nullptr, binary, nullptr, nullptr);
+  return std::filesystem::path(gui::plugin_root_from_binary_path(binary)) /
+         "fonts";
+}
+
+// The HUD is set in Inter, shipped in the plugin's fonts/ folder: drawn for
+// screens at small sizes, and evenly spaced without kerning, which ImGui does
+// not do. Without it, X-Plane's own UI face, Roboto, which every install has
+// (it has no semibold, so bold stands in).
 void load_fonts() {
-  char system_path[1024] = {};
-  XPLMGetSystemPath(system_path);
-  const std::filesystem::path fonts =
-      std::filesystem::path(system_path) / "Resources" / "fonts";
   ImGuiIO &io = ImGui::GetIO();
   // Light hinting snaps glyphs to the pixel grid vertically only: stems and
   // baselines land on whole pixels, so small text is crisp rather than thin and
   // soft, while letter spacing keeps the font's own widths.
   io.Fonts->FontLoaderFlags = ImGuiFreeTypeLoaderFlags_LightHinting;
-  for (auto [name, slot] :
-       {std::pair{"Roboto-Regular.ttf", &g_hud->regular},
-        std::pair{"Roboto-Bold.ttf", &g_hud->bold}}) {
-    const std::filesystem::path path = fonts / name;
-    if (std::filesystem::exists(path)) {
-      *slot = io.Fonts->AddFontFromFileTTF(path.string().c_str(), kBubbleSize);
+
+  const std::filesystem::path inter = plugin_fonts_dir();
+  char system_path[1024] = {};
+  XPLMGetSystemPath(system_path);
+  const std::filesystem::path roboto =
+      std::filesystem::path(system_path) / "Resources" / "fonts";
+
+  struct Face {
+    std::filesystem::path path;
+    ImFont **slot;
+  };
+  std::vector<Face> faces;
+  if (std::filesystem::exists(inter / "Inter-Regular.ttf")) {
+    faces = {{inter / "Inter-Regular.ttf", &g_hud->regular},
+             {inter / "Inter-SemiBold.ttf", &g_hud->semibold},
+             {inter / "Inter-Bold.ttf", &g_hud->bold}};
+  } else {
+    hud_log("no Inter in " + inter.string() + "; using X-Plane's Roboto");
+    faces = {{roboto / "Roboto-Regular.ttf", &g_hud->regular},
+             {roboto / "Roboto-Bold.ttf", &g_hud->semibold},
+             {roboto / "Roboto-Bold.ttf", &g_hud->bold}};
+  }
+
+  if (const auto ratio = gui::font_line_to_em(read_file(faces.front().path))) {
+    g_hud->em_to_line = *ratio;
+  }
+  for (const Face &face : faces) {
+    if (std::filesystem::exists(face.path)) {
+      *face.slot = io.Fonts->AddFontFromFileTTF(face.path.string().c_str(),
+                                                css(kBubblePx));
     }
-    if (*slot == nullptr) {
-      hud_log("no " + path.string() + "; using ImGui's built-in font");
-      *slot = io.Fonts->AddFontDefault();
+    if (*face.slot == nullptr) {
+      hud_log("could not load " + face.path.string() +
+              "; using ImGui's built-in font");
+      *face.slot = io.Fonts->AddFontDefault();
     }
   }
 }

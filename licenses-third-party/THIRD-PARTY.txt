@@ -38,6 +38,12 @@ FreeType 2.14.3 (FreeType License, FTL)
   (www.freetype.org). All rights reserved.
   The full license is docs/FTL.TXT in the FreeType source distribution.
 
+Inter v4.1 (SIL Open Font License 1.1)
+  https://rsms.me/inter
+  fonts/Inter-Regular.ttf, Inter-SemiBold.ttf and Inter-Bold.ttf, unmodified;
+  the radio HUD is set in them. Copyright (c) 2016 The Inter Project Authors.
+  The license is licenses/inter/LICENSE.txt.
+
 sherpa-onnx v1.13.8 (Apache-2.0)
   https://github.com/k2-fsa/sherpa-onnx
   Synthesises the controllers' voices. Linked statically on macOS; shipped as

@@ -24,8 +24,8 @@ said and what the simulator is doing, sends both, and renders what comes back.
 4. Open the panel with **Plugins → zoal-atc → Toggle In-Sim Panel**, or bind
    `zoal_atc/gui_toggle`.
 
-The archive contains the `.xpl`, the SkyScript runtime it links, and the in-sim
-panel. It ships no browser: since SkyScript v0.12.0 the panel is an X-Plane
+The archive contains the `.xpl`, the SkyScript runtime it links, the in-sim
+panel, and the HUD's typeface. It ships no browser: since SkyScript v0.12.0 the panel is an X-Plane
 browser window, so **X-Plane 12.4.4 or newer is required**.
 
 Out of the box the plugin talks to the hosted console at `ws://atc.zoal.app/plugin`,
@@ -57,7 +57,7 @@ yourself, see *Console endpoint* below.
   `zoal_atc.cfg`.
 - **The HUD.** One window pinned to the top right of the screen, drawn
   natively by the plugin with Dear ImGui (X-Plane 12.4.4's panel-graphics
-  ImGui helpers), its text hinted by FreeType, and transparent except for what it draws: a bar with the
+  ImGui helpers), set in Inter (shipped in `fonts/`) and hinted by FreeType, and transparent except for what it draws: a bar with the
   callsign, the console light and a menu to reload the flight plan, start a new
   flight or open the panel, and under it the last three transmissions, each for
   a minute. It is exactly as big as what it shows, and stays up while the panel
