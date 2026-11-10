@@ -11,8 +11,8 @@ fi
 
 cmake -E rm -rf "${work_dir}"
 cmake -E make_directory "${work_dir}"
-# .cache is deliberately NOT excluded: it carries the pinned Skyscript bundle in
-# from the host, which is what lets this container build without gh or a token.
+# .cache is deliberately NOT excluded: it carries the pinned downloads in from
+# the host, so the container does not fetch them again.
 rsync -a \
   --exclude .git \
   --exclude '/dist' \
@@ -22,7 +22,7 @@ rsync -a \
   --exclude node_modules \
   /src/ "${work_dir}/"
 
-make -C "${work_dir}" plugin gui-build
+make -C "${work_dir}" plugin
 "${work_dir}/scripts/package-release.sh" \
   lin_x64 \
   "${work_dir}/build-plugin/zoal_atc.xpl" \

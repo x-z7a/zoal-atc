@@ -58,6 +58,11 @@ std::optional<std::string> json_raw_field(const std::string &json,
 // or nullopt when `raw` is not a well-formed string.
 std::optional<std::string> json_unquote(const std::string &raw);
 
+// json_array_elements splits a raw JSON array into its elements, each still
+// raw JSON. nullopt when `raw` is not one well-formed array.
+std::optional<std::vector<std::string>>
+json_array_elements(const std::string &raw);
+
 } // namespace zoal_atc::transport
 
 #endif // ZOAL_ATC_TRANSPORT_JSON_UTIL_HPP

@@ -80,14 +80,9 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
-      # No Go: packaging archives with `cmake -E tar`, and cmake is already a
-      # hard dependency of the plugin build on all three platforms.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: gui/zoal-atc/package-lock.json
-
+      # No Go and no Node: packaging archives with `cmake -E tar`, and cmake
+      # is already a hard dependency of the plugin build on all three
+      # platforms. The panel is C++ now, built with the plugin.
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -108,11 +103,6 @@ jobs:
       # job went straight from checkout to packaging, so a tag pushed from a
       # branch that never opened a PR shipped unproven.
       #
-      # `make test` and not `make gate`: the C++ core is the platform-specific
-      # half and is worth proving on all three runners, while the panel is
-      # identical JavaScript everywhere - its unit tests run once in CI, and
-      # `archive-plugin` below builds it here regardless, so a panel that does
-      # not build still fails this job.
       - name: Test
         shell: bash
         run: make test

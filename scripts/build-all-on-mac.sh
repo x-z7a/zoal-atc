@@ -7,7 +7,6 @@ stage_dir="${dist_dir}/.release-all-stage"
 release_dir="${dist_dir}/zoal-atc"
 archive_path="${dist_dir}/zoal-atc.zip"
 linux_builder_image="${ZOAL_ATC_LINUX_BUILDER_IMAGE:-zoal-atc-linux-release:local}"
-skyscript_root="${ZOAL_ATC_SKYSCRIPT_ROOT:-${repo_root}/.cache/skyscript/SkyScript-lib}"
 
 cleanup() {
   cmake -E rm -rf "${stage_dir}"
@@ -20,7 +19,7 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 1
 fi
 
-required_commands=(cmake docker make npm)
+required_commands=(cmake docker make)
 for command_name in "${required_commands[@]}"; do
   if ! command -v "${command_name}" >/dev/null 2>&1; then
     echo "Missing required command: ${command_name}" >&2
@@ -54,20 +53,16 @@ cmake -E rm -rf \
 cmake -E make_directory "${release_dir}"
 
 echo "==> Building macOS ${mac_arch} release"
-make -C "${repo_root}" plugin gui-build \
-  ZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}"
-ZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
+make -C "${repo_root}" plugin
 "${repo_root}/scripts/package-release.sh" \
   mac_x64 \
   "${repo_root}/build-plugin/zoal_atc.xpl" \
   "${release_dir}"
-ZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
-  "${repo_root}/scripts/verify-release-tree.sh" "${release_dir}" mac_x64
+"${repo_root}/scripts/verify-release-tree.sh" "${release_dir}" mac_x64
 
 echo "==> Building Windows x64 release"
 windows_stage="${stage_dir}/windows-x64"
 "${repo_root}/scripts/build-windows-on-mac.sh" "${windows_stage}"
-ZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
 "${repo_root}/scripts/package-release.sh" \
   win_x64 \
   "${windows_stage}/win_x64/zoal-atc.xpl" \

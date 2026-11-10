@@ -3,15 +3,14 @@ set -euo pipefail
 
 # Verify an assembled release tree is complete.
 #
-# A release is four things that have to arrive together: the plugin, the
-# Skyscript library it links, the assets that library loads, and the in-sim
-# panel app. Miss any one and the failure surfaces inside X-Plane as a window
-# that will not open, which is the most expensive place to discover it and the
-# hardest to read.
+# A release is the plugin, the runtime libraries it loads, the typeface its
+# panel and HUD are set in, and the models. Miss any one and the failure
+# surfaces inside X-Plane, which is the most expensive place to discover it and
+# the hardest to read.
 #
-# CEF is deliberately absent: since Skyscript v0.5.0 the library resolves it
-# against X-Plane's own install, so a release that shipped one would be sending
-# ~200MB that is never loaded.
+# There is no browser and no panel app: the panel and the HUD are drawn by the
+# plugin itself with Dear ImGui, so a tree still carrying the old Skyscript
+# runtime or apps/ folder was assembled from something stale.
 #
 # The models are present on every platform: the plugin hears the pilot with
 # whisper and speaks the controllers with Kokoro, and nothing else does either.
@@ -38,13 +37,11 @@ fi
 
 speech_runtime=()
 case "${platform_dir}" in
-  mac_x64) skyscript_library="libSkyScriptLib.dylib" ;;
+  mac_x64) ;;
   lin_x64)
-    skyscript_library="libSkyScriptLib.so"
     speech_runtime=(libsherpa-onnx-c-api.so libonnxruntime.so)
     ;;
   win_x64)
-    skyscript_library="SkyScriptLib.dll"
     speech_runtime=(sherpa-onnx-c-api.dll onnxruntime.dll onnxruntime_providers_shared.dll)
     ;;
   *)
@@ -71,7 +68,6 @@ require_dir() {
 
 # --- the manifest ------------------------------------------------------------
 require_file "${platform_dir}/zoal-atc.xpl"
-require_file "${platform_dir}/${skyscript_library}"
 for runtime in "${speech_runtime[@]+"${speech_runtime[@]}"}"; do
   require_file "${platform_dir}/${runtime}"
 done
@@ -83,36 +79,25 @@ require_file "models/kokoro-multi-lang-v1_0/tokens.txt"
 require_dir "models/kokoro-multi-lang-v1_0/espeak-ng-data"
 require_file "models/kokoro-multi-lang-v1_0/lexicon-us-en.txt"
 require_file "models/kokoro-multi-lang-v1_0/lexicon-gb-en.txt"
-# The panel is a real page, not a placeholder directory. Since phase 24 the
-# bundler emits exactly these two files from one entry point, so the manifest is
-# the whole panel rather than most of it: the old layout also shipped bridge.js,
-# which was never listed here, and a release missing it passed this check and
-# produced a window that threw on load.
-require_file "apps/zoal-atc/index.html"
-require_file "apps/zoal-atc/main.js"
-require_file "apps/zoal-atc/main.css"
-# Skyscript loads these at runtime; without them the window renders without its
-# own chrome and the failure looks like a broken page rather than a packaging
-# mistake.
-require_dir "assets/icons"
-require_file "assets/icons/x-circle.svg"
-require_file "licenses/skyscript/LICENSE"
 require_file "licenses/THIRD-PARTY.txt"
-# The HUD's typeface. Without it the HUD falls back to X-Plane's Roboto, which
-# ImGui sets unevenly -- a release that looks broken without being broken.
+# The panel's and the HUD's typeface. Without it they fall back to X-Plane's
+# Roboto, which ImGui sets unevenly -- a release that looks broken without
+# being broken.
 require_file "fonts/Inter-Regular.ttf"
 require_file "fonts/Inter-SemiBold.ttf"
 require_file "fonts/Inter-Bold.ttf"
 require_file "licenses/inter/LICENSE.txt"
 
 # --- things that must NOT be there -------------------------------------------
-if [ -e "${release_dir}/${platform_dir}/cef" ] ||
-   [ -e "${release_dir}/${platform_dir}/Chromium Embedded Framework.framework" ] ||
-   [ -e "${release_dir}/${platform_dir}/libcef.so" ] ||
-   [ -e "${release_dir}/${platform_dir}/libcef.dll" ]; then
-  echo "release ships a CEF runtime; Skyscript loads X-Plane's own since v0.5.0" >&2
-  failures=$((failures + 1))
-fi
+for stale in "${platform_dir}/libSkyScriptLib.dylib" \
+             "${platform_dir}/libSkyScriptLib.so" \
+             "${platform_dir}/SkyScriptLib.dll" \
+             "apps" "assets" "licenses/skyscript"; do
+  if [ -e "${release_dir}/${stale}" ]; then
+    echo "release ships ${stale}, left from the Skyscript panel" >&2
+    failures=$((failures + 1))
+  fi
+done
 
 if [ "${failures}" -ne 0 ]; then
   echo "release tree incomplete: ${failures} problem(s) under ${release_dir}" >&2

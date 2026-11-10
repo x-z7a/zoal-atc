@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ZOAL_ATC_BUILD_TESTS "Build SDK-free unit tests" ON)
 option(ZOAL_ATC_BUILD_PLUGIN "Build the X-Plane plugin module" OFF)
+option(ZOAL_ATC_BUILD_PREVIEW "Build tools/panel_preview, which renders the panel off-screen" OFF)
 # The plugin hears the pilot with whisper.cpp and speaks the controllers with
 # Kokoro through sherpa-onnx, on every platform. Neither is optional: the
 # console no longer transcribes audio, and nothing else in the cockpit speaks,
@@ -21,12 +22,6 @@ set(ZOAL_ATC_SHERPA_ONNX "" CACHE PATH "sherpa-onnx build (see scripts/ensure-sh
 set(ATC_XPLANE_SDK "${CMAKE_CURRENT_SOURCE_DIR}/sdk" CACHE PATH "Path to the X-Plane SDK root")
 set(ZOAL_ATC_IMGUI_SOURCE "" CACHE PATH "Dear ImGui source tree (see scripts/ensure-imgui.sh)")
 set(ZOAL_ATC_FREETYPE_SOURCE "" CACHE PATH "FreeType source tree (see scripts/ensure-freetype.sh)")
-set(ZOAL_ATC_SKYSCRIPT_ROOT "" CACHE PATH "Path to the Skyscript library bundle (see scripts/ensure-skyscript-lib.sh)")
-
-# Skyscript is not optional. The in-sim panel is the ATC GUI, so a plugin
-# without it is not a lighter build, it is a broken one - and a configuration we
-# never build is a configuration we never test. The SDK-free core stays
-# Skyscript-free and needs none of this.
 
 find_package(Threads REQUIRED)
 
@@ -35,6 +30,7 @@ add_library(zoal_atc_core STATIC
     src/gui/hud_layout.cpp
     src/gui/hud_model.cpp
     src/gui/hud_session.cpp
+    src/gui/panel_session.cpp
     src/gui/panel_theme.cpp
     src/gui/font_metrics.cpp
     src/gui/gui_frames.cpp
@@ -80,26 +76,11 @@ else()
     )
 endif()
 
-if(ZOAL_ATC_BUILD_PLUGIN)
-    include(cmake/XPlaneSDK.cmake)
-    include(cmake/SkyScript.cmake)
-
-    set(ATC_MINIAUDIO_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/miniaudio" CACHE PATH "Path containing miniaudio.h")
-    if(NOT EXISTS "${ATC_MINIAUDIO_INCLUDE_DIR}/miniaudio.h")
-        message(FATAL_ERROR "miniaudio.h not found. Run `make -C atc setup` first.")
-    endif()
-
-    add_library(zoal_atc MODULE
-        src/ptt/miniaudio_audio_recorder.cpp
-        src/xplane/hud_window.cpp
-        src/xplane/imgui_window.cpp
-        src/xplane/skyscript_panel.cpp
-        src/xplane/xplane_plugin.cpp
-    )
-
-    # Dear ImGui, for the HUD. Only the core: X-Plane renders its draw lists
-    # through the panel-graphics ImGui helpers and the plugin feeds it input, so
-    # no backend is built. Static and position-independent, inside the .xpl.
+if(ZOAL_ATC_BUILD_PLUGIN OR ZOAL_ATC_BUILD_PREVIEW)
+    # Dear ImGui, for the HUD and the panel. Only the core: X-Plane renders its
+    # draw lists through the panel-graphics ImGui helpers and the plugin feeds
+    # it input, so no backend is built. Static and position-independent, inside
+    # the .xpl.
     if(NOT EXISTS "${ZOAL_ATC_IMGUI_SOURCE}/imgui.h")
         message(FATAL_ERROR "Dear ImGui source not found at '${ZOAL_ATC_IMGUI_SOURCE}'. "
             "Run scripts/ensure-imgui.sh.")
@@ -133,11 +114,54 @@ if(ZOAL_ATC_BUILD_PLUGIN)
     target_compile_definitions(zoal_atc_imgui PUBLIC
         IMGUI_DISABLE_DEMO_WINDOWS IMGUI_DISABLE_DEBUG_TOOLS IMGUI_ENABLE_FREETYPE)
     target_link_libraries(zoal_atc_imgui PUBLIC freetype)
+    # The panel's fields paste: a token is pasted far more often than typed.
+    # Windows has ImGui's own clipboard; on a Mac it is the system pasteboard.
+    if(APPLE)
+        target_compile_definitions(zoal_atc_imgui PRIVATE IMGUI_ENABLE_OSX_DEFAULT_CLIPBOARD_FUNCTIONS)
+        target_link_libraries(zoal_atc_imgui PUBLIC "-framework ApplicationServices")
+    elseif(WIN32)
+        target_link_libraries(zoal_atc_imgui PUBLIC user32 imm32)
+    endif()
     set_target_properties(zoal_atc_imgui PROPERTIES POSITION_INDEPENDENT_CODE ON)
     if(NOT MSVC)
         target_compile_options(zoal_atc_imgui PRIVATE -fvisibility=hidden)
     endif()
-    target_link_libraries(zoal_atc PRIVATE zoal_atc_imgui)
+
+    # The HUD's and the panel's drawing: Dear ImGui and the SDK-free core,
+    # no X-Plane, so tools/panel_preview can render the same frames.
+    add_library(zoal_atc_ui STATIC
+        src/ui/kit.cpp
+        src/ui/panel_view.cpp
+    )
+    target_link_libraries(zoal_atc_ui PUBLIC zoal_atc_imgui zoal_atc_core)
+    set_target_properties(zoal_atc_ui PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    if(NOT MSVC)
+        target_compile_options(zoal_atc_ui PRIVATE -Wall -Wextra -Wpedantic -fvisibility=hidden)
+    endif()
+endif()
+
+if(ZOAL_ATC_BUILD_PREVIEW)
+    add_executable(panel_preview tools/panel_preview.cpp)
+    target_link_libraries(panel_preview PRIVATE zoal_atc_ui)
+endif()
+
+if(ZOAL_ATC_BUILD_PLUGIN)
+    include(cmake/XPlaneSDK.cmake)
+
+    set(ATC_MINIAUDIO_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendor/miniaudio" CACHE PATH "Path containing miniaudio.h")
+    if(NOT EXISTS "${ATC_MINIAUDIO_INCLUDE_DIR}/miniaudio.h")
+        message(FATAL_ERROR "miniaudio.h not found. Run `make -C atc setup` first.")
+    endif()
+
+    add_library(zoal_atc MODULE
+        src/ptt/miniaudio_audio_recorder.cpp
+        src/xplane/hud_window.cpp
+        src/xplane/imgui_window.cpp
+        src/xplane/panel_window.cpp
+        src/xplane/xplane_plugin.cpp
+    )
+
+    target_link_libraries(zoal_atc PRIVATE zoal_atc_ui)
 
     target_link_libraries(zoal_atc PRIVATE zoal_atc_core)
     target_include_directories(zoal_atc PRIVATE
@@ -248,10 +272,8 @@ if(ZOAL_ATC_BUILD_PLUGIN)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${_runtime}" "$<TARGET_FILE_DIR:zoal_atc>")
     endforeach()
 
-    target_include_directories(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_INCLUDE_DIR})
-    target_link_libraries(zoal_atc PRIVATE ${ZOAL_ATC_SKYSCRIPT_LIBRARY})
-    # The Skyscript library ships beside the .xpl. There is no browser runtime
-    # to find: X-Plane renders the panel itself.
+    # The voice runtime's shared libraries ship beside the .xpl, where these
+    # find them.
     if(APPLE)
         set_target_properties(zoal_atc PROPERTIES
             BUILD_WITH_INSTALL_RPATH TRUE
@@ -332,6 +354,7 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_font_metrics_tests tests/font_metrics_test.cpp)
     zoal_atc_add_test(zoal_atc_hud_model_tests tests/hud_model_test.cpp)
     zoal_atc_add_test(zoal_atc_hud_session_tests tests/hud_session_test.cpp)
+    zoal_atc_add_test(zoal_atc_panel_session_tests tests/panel_session_test.cpp)
     zoal_atc_add_test(zoal_atc_panel_theme_tests tests/panel_theme_test.cpp)
     zoal_atc_add_test(zoal_atc_local_stt_tests tests/local_stt_test.cpp)
     zoal_atc_add_test(zoal_atc_tts_tests tests/tts_test.cpp)

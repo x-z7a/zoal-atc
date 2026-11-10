@@ -7,20 +7,23 @@
 #include <string>
 #include <vector>
 
-// The GUI half of the plugin<->console wire protocol, plus the plugin<->browser
-// envelopes Skyscript carries.
+// The GUI half of the plugin<->console wire protocol, plus the envelopes the
+// plugin's views (the panel and the HUD) read and write.
 //
 // Three hops, one request:
 //
-//   browser  --console.request-->  plugin  --gui_request-->  console
-//   browser  <--console.event---   plugin  <--gui_response-  console
+//   view  --console.request-->  bridge  --gui_request-->  console
+//   view  <--console.event---   bridge  <--gui_response-  console
+//
+// The envelopes are JSON because they were once posted to a browser page; the
+// views are C++ now (PanelSession, HudSession) and read them the same way.
 //
 // The console payload is opaque here. The plugin forwards it verbatim in both
 // directions and never parses it: the GUI is a projection of console state, and
 // a second copy of that state in C++ is exactly what the phase must not grow.
 //
 // No frame carries a flight id. A GUI request is attributed to the socket it
-// arrived on, which is what makes "the browser may request my session; it may
+// arrived on, which is what makes "the panel may request my session; it may
 // not name another flight and get it" true by construction rather than by check.
 namespace zoal_atc::gui {
 
@@ -81,16 +84,15 @@ struct GuiStatus {
   std::size_t dropped_events = 0;
 };
 
-// The console.event envelopes. Skyscript inlines the payload into a JavaScript
-// statement, so every builder emits a complete JSON value - `null` rather than
-// nothing when there is no payload.
+// The console.event envelopes. Every builder emits a complete JSON value -
+// `null` rather than nothing when there is no payload.
 std::string build_js_response(const GuiResponse &response);
 std::string build_js_event(const GuiEvent &event);
 std::string build_js_status(const GuiStatus &status);
 
 // build_request_ack is what a console.request call resolves to. It is only the
-// receipt: the answer arrives later on console.event, because the Skyscript
-// handler runs on the X-Plane main thread and must never wait on a socket.
+// receipt: the answer arrives later on console.event, because a view runs on
+// the X-Plane main thread and must never wait on a socket.
 std::string build_request_ack(bool accepted, std::uint64_t request_id,
                               const std::string &error);
 

@@ -1,10 +1,10 @@
 #include "hud_window.hpp"
 
 #include "imgui_window.hpp"
-#include "zoal_atc/gui/font_metrics.hpp"
 #include "zoal_atc/gui/hud_layout.hpp"
 #include "zoal_atc/gui/hud_session.hpp"
 #include "zoal_atc/gui/panel_paths.hpp"
+#include "../ui/kit.hpp"
 
 #include <XPLMDataAccess.h>
 #include <XPLMDisplay.h>
@@ -12,19 +12,15 @@
 #include <XPLMUtilities.h>
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "imgui.h"
-#include "imgui_freetype.h"
 
 namespace zoal_atc::xplane {
 
@@ -52,7 +48,7 @@ constexpr float kBubblePadY = 8.0f;
 constexpr float kBubbleRadius = 12.0f;
 constexpr float kSpeakerGap = 3.0f;
 // Type sizes are the React HUD's CSS sizes, in CSS px; css() converts them
-// (see Hud::em_to_line).
+// (see ui::Typeface::em_to_line).
 constexpr float kTitlePx = 13.0f;
 constexpr float kWarnPx = 11.0f;
 constexpr float kActionPx = 12.0f;
@@ -69,16 +65,15 @@ constexpr float kSpeakerTracking = 0.07f;
 
 // --- colours ---------------------------------------------------------------
 
-ImU32 rgba(unsigned hex, float alpha = 1.0f) {
-  return IM_COL32((hex >> 16) & 0xFF, (hex >> 8) & 0xFF, hex & 0xFF,
-                  static_cast<int>(std::lround(alpha * 255.0f)));
-}
-
-ImU32 faded(ImU32 colour, float opacity) {
-  const auto alpha = static_cast<float>((colour >> IM_COL32_A_SHIFT) & 0xFF);
-  const auto scaled = static_cast<ImU32>(std::lround(alpha * opacity));
-  return (colour & ~IM_COL32_A_MASK) | (scaled << IM_COL32_A_SHIFT);
-}
+using ui::blend;
+using ui::faded;
+using ui::fit;
+using ui::Icon;
+using ui::icon;
+using ui::measure;
+using ui::rgba;
+using ui::upper;
+using ui::wrap_lines;
 
 // The roles the HUD uses from tokens.css, per theme.
 struct Palette {
@@ -118,15 +113,6 @@ const Palette &palette(HudTheme theme) {
 ImU32 glass(const Palette &p) { return rgba(p.sunken, 0.72f); }
 ImU32 edge(const Palette &p) { return rgba(p.accent, 0.22f); }
 
-unsigned blend(unsigned a, unsigned b, float t) {
-  auto channel = [&](int shift) {
-    const float x = static_cast<float>((a >> shift) & 0xFF);
-    const float y = static_cast<float>((b >> shift) & 0xFF);
-    return static_cast<unsigned>(std::lround(x + (y - x) * t)) << shift;
-  };
-  return channel(16) | channel(8) | channel(0);
-}
-
 unsigned seat_colour(const Palette &p, HudTone tone) {
   switch (tone) {
   case HudTone::pilot:
@@ -152,14 +138,8 @@ struct Hud {
   std::unique_ptr<ImguiWindow> window;
   std::unique_ptr<HudSession> session;
   std::function<std::uint64_t()> steady_ms;
-  ImFont *regular = nullptr;
-  ImFont *semibold = nullptr;
-  ImFont *bold = nullptr;
-  // CSS sizes a font by its em; ImGui (FreeType too) by its whole line,
-  // ascender to descender. This is the HUD face's line in ems -- Inter's is
-  // 1.21, Roboto's 1.17 -- so an ImGui size of css(14) draws what CSS's 14px
-  // did. Read from the font file at load (font_metrics.hpp).
-  float em_to_line = 1.2f;
+  // Inter, or Roboto without it; the panel is set in the same.
+  ui::Typeface face;
   XPLMCommandRef command = nullptr;
   XPLMDataRef ui_scale = nullptr;
   // A button pressed while drawing, run from the flight loop: an action may
@@ -173,7 +153,7 @@ struct Hud {
 std::unique_ptr<Hud> g_hud;
 
 // A CSS px size as an ImGui font size, for the face the HUD is set in.
-float css(float px) { return px * g_hud->em_to_line; }
+float css(float px) { return g_hud->face.css(px); }
 
 void hud_log(const std::string &message) {
   XPLMDebugString(("[zoal-atc hud] " + message + "\n").c_str());
@@ -187,198 +167,31 @@ std::int64_t wall_now() {
       .count();
 }
 
-std::string upper(std::string text) {
-  for (char &c : text) {
-    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-  }
-  return text;
-}
-
 // --- drawing helpers ---------------------------------------------------------
-
-ImVec2 measure(ImFont *font, float size, const std::string &text,
-               float wrap = 0.0f) {
-  return font->CalcTextSizeA(size, FLT_MAX, wrap, text.c_str());
-}
 
 // The HUD sits over the sky with no glass behind some of its text, so text
 // carries a shadow in the opposite tone.
+ImU32 shadow_of(const Palette &p, float opacity) {
+  return faded(rgba(p.shadow, p.shadow_alpha), opacity);
+}
+
 void text(ImDrawList *draw, ImFont *font, float size, ImVec2 pos, ImU32 colour,
           const std::string &value, const Palette &p, float opacity = 1.0f,
           float wrap = 0.0f) {
-  draw->AddText(font, size, ImVec2(pos.x, pos.y + 1.0f),
-                faded(rgba(p.shadow, p.shadow_alpha), opacity), value.c_str(),
-                nullptr, wrap);
-  draw->AddText(font, size, pos, faded(colour, opacity), value.c_str(), nullptr,
-                wrap);
+  ui::text(draw, font, size, pos, faded(colour, opacity), value,
+           shadow_of(p, opacity), wrap);
 }
 
-// Cuts `value` to fit `width`, ending it with an ellipsis.
-std::string fit(ImFont *font, float size, const std::string &value,
-                float width) {
-  if (measure(font, size, value).x <= width) {
-    return value;
-  }
-  const std::string ellipsis = "\xE2\x80\xA6";
-  std::string cut = value;
-  while (!cut.empty() && measure(font, size, cut + ellipsis).x > width) {
-    cut.pop_back();
-    // Never leave half a UTF-8 sequence behind.
-    while (!cut.empty() &&
-           (static_cast<unsigned char>(cut.back()) & 0xC0) == 0x80) {
-      cut.pop_back();
-    }
-    if (!cut.empty() && (static_cast<unsigned char>(cut.back()) & 0x80) != 0) {
-      cut.pop_back();
-    }
-  }
-  return cut + ellipsis;
-}
-
-// Text with CSS letter-spacing: `tracking` em added after every glyph.
 float tracked_width(ImFont *font, float size, const std::string &value,
                     float tracking) {
-  float width = 0.0f;
-  const char *at = value.c_str();
-  const char *end = at + value.size();
-  while (at < end) {
-    const char *next = at + 1;
-    while (next < end && (static_cast<unsigned char>(*next) & 0xC0) == 0x80) {
-      ++next;
-    }
-    width += font->CalcTextSizeA(size, FLT_MAX, 0.0f, at, next).x +
-             tracking * size / g_hud->em_to_line;
-    at = next;
-  }
-  return width;
+  return ui::tracked_width(g_hud->face, font, size, value, tracking);
 }
 
 void tracked_text(ImDrawList *draw, ImFont *font, float size, ImVec2 pos,
                   ImU32 colour, const std::string &value, const Palette &p,
                   float tracking, float opacity = 1.0f) {
-  const char *at = value.c_str();
-  const char *end = at + value.size();
-  while (at < end) {
-    const char *next = at + 1;
-    while (next < end && (static_cast<unsigned char>(*next) & 0xC0) == 0x80) {
-      ++next;
-    }
-    const std::string glyph(at, next);
-    text(draw, font, size, pos, colour, glyph, p, opacity);
-    pos.x += font->CalcTextSizeA(size, FLT_MAX, 0.0f, at, next).x +
-             tracking * size / g_hud->em_to_line;
-    at = next;
-  }
-}
-
-// Word-wraps `value` to `width`, a line per entry, so each can be set on the
-// HUD's own line height.
-std::vector<std::string> wrap_lines(ImFont *font, float size,
-                                    const std::string &value, float width) {
-  std::vector<std::string> lines;
-  const char *at = value.c_str();
-  const char *end = at + value.size();
-  while (at < end) {
-    const char *newline = std::find(at, end, '\n');
-    if (newline == at) {
-      lines.emplace_back();
-      ++at;
-      continue;
-    }
-    const char *cut = font->CalcWordWrapPosition(size, at, newline, width);
-    if (cut == at) {
-      // A word wider than the bubble: break it rather than loop.
-      cut = at + 1;
-    }
-    lines.emplace_back(at, cut);
-    at = cut;
-    while (at < end && (*at == ' ' || *at == '\n')) {
-      ++at;
-    }
-  }
-  if (lines.empty()) {
-    lines.emplace_back();
-  }
-  return lines;
-}
-
-// --- icons: Material Symbols' shapes, drawn in a box -------------------------
-
-enum class Icon { menu, close, reload, plane, panel, check, warn };
-
-void icon(ImDrawList *draw, Icon which, ImVec2 at, float size, ImU32 colour) {
-  const float s = size;
-  const float w = std::max(1.5f, s / 9.0f);
-  auto P = [&](float x, float y) { return ImVec2(at.x + x * s, at.y + y * s); };
-  switch (which) {
-  case Icon::menu:
-    for (const float y : {0.25f, 0.5f, 0.75f}) {
-      draw->AddLine(P(0.15f, y), P(0.85f, y), colour, w);
-    }
-    break;
-  case Icon::close:
-    draw->AddLine(P(0.22f, 0.22f), P(0.78f, 0.78f), colour, w);
-    draw->AddLine(P(0.78f, 0.22f), P(0.22f, 0.78f), colour, w);
-    break;
-  case Icon::reload: {
-    const ImVec2 centre = P(0.5f, 0.5f);
-    draw->PathArcTo(centre, s * 0.32f, -0.6f, 4.4f, 20);
-    draw->PathStroke(colour, w);
-    // The arrowhead at the arc's open end.
-    const ImVec2 tip = P(0.80f, 0.20f);
-    draw->AddTriangleFilled(tip, P(0.84f, 0.48f), P(0.56f, 0.30f), colour);
-    break;
-  }
-  case Icon::plane: {
-    // Material Symbols' "flight", traced from its path (viewBox 960): the nose
-    // is two quadratic curves, everything else straight edges.
-    const float k = 1.0f / 960.0f;
-    auto V = [&](float x, float y) { return P(x * k, y * k); };
-    draw->PathLineTo(V(280, 880));
-    draw->PathLineTo(V(280, 780));
-    draw->PathLineTo(V(400, 696));
-    draw->PathLineTo(V(400, 552));
-    draw->PathLineTo(V(80, 680));
-    draw->PathLineTo(V(80, 560));
-    draw->PathLineTo(V(400, 336));
-    draw->PathLineTo(V(400, 160));
-    draw->PathBezierQuadraticCurveTo(V(400, 127), V(423.5f, 103.5f), 4);
-    draw->PathBezierQuadraticCurveTo(V(447, 80), V(480, 80), 4);
-    draw->PathBezierQuadraticCurveTo(V(513, 80), V(536.5f, 103.5f), 4);
-    draw->PathBezierQuadraticCurveTo(V(560, 127), V(560, 160), 4);
-    draw->PathLineTo(V(560, 336));
-    draw->PathLineTo(V(880, 560));
-    draw->PathLineTo(V(880, 680));
-    draw->PathLineTo(V(560, 552));
-    draw->PathLineTo(V(560, 696));
-    draw->PathLineTo(V(680, 780));
-    draw->PathLineTo(V(680, 880));
-    draw->PathLineTo(V(480, 820));
-    draw->PathFillConcave(colour);
-    break;
-  }
-  case Icon::panel: {
-    const ImVec2 points[] = {P(0.45f, 0.15f), P(0.15f, 0.15f), P(0.15f, 0.85f),
-                             P(0.85f, 0.85f), P(0.85f, 0.55f)};
-    draw->AddPolyline(points, 5, colour, w);
-    draw->AddLine(P(0.42f, 0.58f), P(0.85f, 0.15f), colour, w);
-    draw->AddLine(P(0.60f, 0.15f), P(0.85f, 0.15f), colour, w);
-    draw->AddLine(P(0.85f, 0.15f), P(0.85f, 0.40f), colour, w);
-    break;
-  }
-  case Icon::check: {
-    const ImVec2 points[] = {P(0.16f, 0.52f), P(0.40f, 0.76f), P(0.86f, 0.28f)};
-    draw->AddPolyline(points, 3, colour, w * 1.2f);
-    break;
-  }
-  case Icon::warn: {
-    draw->AddTriangle(P(0.5f, 0.10f), P(0.06f, 0.88f), P(0.94f, 0.88f), colour,
-                      w);
-    draw->AddLine(P(0.5f, 0.38f), P(0.5f, 0.62f), colour, w);
-    draw->AddCircleFilled(P(0.5f, 0.74f), w * 0.7f, colour);
-    break;
-  }
-  }
+  ui::tracked_text(draw, g_hud->face, font, size, pos, faded(colour, opacity),
+                   value, tracking, shadow_of(p, opacity));
 }
 
 // A hit area at `min`, `size` big. Returns whether it was clicked, and says
@@ -420,7 +233,7 @@ std::vector<ActionButton> action_buttons(const HudSession &session) {
                      menu.open_panel_enabled(), false, false});
   for (ActionButton &button : buttons) {
     button.width = 8.0f + kIcon + 5.0f +
-                   measure(g_hud->semibold, css(kActionPx), button.label).x + 10.0f;
+                   measure(g_hud->face.semibold, css(kActionPx), button.label).x + 10.0f;
   }
   return buttons;
 }
@@ -430,9 +243,9 @@ std::vector<ActionButton> action_buttons(const HudSession &session) {
 void build() {
   HudSession &session = *g_hud->session;
   const Palette &p = palette(session.theme());
-  ImFont *regular = g_hud->regular;
-  ImFont *semibold = g_hud->semibold;
-  ImFont *bold = g_hud->bold;
+  ImFont *regular = g_hud->face.regular;
+  ImFont *semibold = g_hud->face.semibold;
+  ImFont *bold = g_hud->face.bold;
   const std::int64_t wall = wall_now();
 
   ImGuiIO &io = ImGui::GetIO();
@@ -725,12 +538,6 @@ int toggle_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
   return 1;
 }
 
-std::string read_file(const std::filesystem::path &path) {
-  std::ifstream in(path, std::ios::binary);
-  return std::string(std::istreambuf_iterator<char>(in),
-                     std::istreambuf_iterator<char>());
-}
-
 std::filesystem::path plugin_fonts_dir() {
   char binary[1024] = {};
   XPLMGetPluginInfo(XPLMGetMyID(), nullptr, binary, nullptr, nullptr);
@@ -738,53 +545,14 @@ std::filesystem::path plugin_fonts_dir() {
          "fonts";
 }
 
-// The HUD is set in Inter, shipped in the plugin's fonts/ folder: drawn for
-// screens at small sizes, and evenly spaced without kerning, which ImGui does
-// not do. Without it, X-Plane's own UI face, Roboto, which every install has
-// (it has no semibold, so bold stands in).
+// Inter, shipped in the plugin's fonts/ folder; without it, X-Plane's own UI
+// face, Roboto, which every install has.
 void load_fonts() {
-  ImGuiIO &io = ImGui::GetIO();
-  // Light hinting snaps glyphs to the pixel grid vertically only: stems and
-  // baselines land on whole pixels, so small text is crisp rather than thin and
-  // soft, while letter spacing keeps the font's own widths.
-  io.Fonts->FontLoaderFlags = ImGuiFreeTypeLoaderFlags_LightHinting;
-
-  const std::filesystem::path inter = plugin_fonts_dir();
   char system_path[1024] = {};
   XPLMGetSystemPath(system_path);
-  const std::filesystem::path roboto =
-      std::filesystem::path(system_path) / "Resources" / "fonts";
-
-  struct Face {
-    std::filesystem::path path;
-    ImFont **slot;
-  };
-  std::vector<Face> faces;
-  if (std::filesystem::exists(inter / "Inter-Regular.ttf")) {
-    faces = {{inter / "Inter-Regular.ttf", &g_hud->regular},
-             {inter / "Inter-SemiBold.ttf", &g_hud->semibold},
-             {inter / "Inter-Bold.ttf", &g_hud->bold}};
-  } else {
-    hud_log("no Inter in " + inter.string() + "; using X-Plane's Roboto");
-    faces = {{roboto / "Roboto-Regular.ttf", &g_hud->regular},
-             {roboto / "Roboto-Bold.ttf", &g_hud->semibold},
-             {roboto / "Roboto-Bold.ttf", &g_hud->bold}};
-  }
-
-  if (const auto ratio = gui::font_line_to_em(read_file(faces.front().path))) {
-    g_hud->em_to_line = *ratio;
-  }
-  for (const Face &face : faces) {
-    if (std::filesystem::exists(face.path)) {
-      *face.slot = io.Fonts->AddFontFromFileTTF(face.path.string().c_str(),
-                                                css(kBubblePx));
-    }
-    if (*face.slot == nullptr) {
-      hud_log("could not load " + face.path.string() +
-              "; using ImGui's built-in font");
-      *face.slot = io.Fonts->AddFontDefault();
-    }
-  }
+  g_hud->face = ui::load_typeface(
+      plugin_fonts_dir(),
+      std::filesystem::path(system_path) / "Resources" / "fonts", hud_log);
 }
 
 } // namespace

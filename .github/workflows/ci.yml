@@ -45,8 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The release build uses MinGW on Windows, which is the whole reason
-      # Skyscript is consumed through a C ABI. Building MSVC here would leave
+      # The release build uses MinGW on Windows. Building MSVC here would leave
       # the toolchain that actually ships proven only at tag time.
       - name: Install Windows build dependencies
         if: runner.os == 'Windows'
@@ -58,41 +57,6 @@ jobs:
         run: |
           "C:\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      # Skyscript is not optional, so CI builds what ships. Building the
-      # Skyscript-free path here would leave the only configuration we release
-      # unproven on every platform.
-      - name: Read Skyscript version pin
-        id: skyscript
-        shell: bash
-        run: echo "version=$(tr -d '[:space:]' < scripts/skyscript-version.txt)" >> "$GITHUB_OUTPUT"
-
-      - name: Cache Skyscript ${{ steps.skyscript.outputs.version }}
-        uses: actions/cache@v4
-        with:
-          path: .cache/skyscript
-          key: skyscript-${{ runner.os }}-${{ steps.skyscript.outputs.version }}
-
       - name: Build plugin
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: make plugin
-
-  gui-shell:
-    name: GUI shell
-    runs-on: ubuntu-24.04
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: gui/zoal-atc/package-lock.json
-
-      - name: Build GUI shell
-        run: make gui-build
-
-      - name: Test GUI shell
-        run: make gui-test

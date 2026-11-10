@@ -354,4 +354,38 @@ std::vector<std::string> json_string_array_field(const std::string &json,
   return out;
 }
 
+std::optional<std::vector<std::string>>
+json_array_elements(const std::string &raw) {
+  std::size_t pos = 0;
+  skip_ws(raw, pos);
+  if (pos >= raw.size() || raw[pos] != '[') {
+    return std::nullopt;
+  }
+  ++pos;
+  std::vector<std::string> elements;
+  skip_ws(raw, pos);
+  if (pos < raw.size() && raw[pos] == ']') {
+    return elements;
+  }
+  for (;;) {
+    skip_ws(raw, pos);
+    const std::size_t start = pos;
+    if (!skip_value(raw, pos)) {
+      return std::nullopt;
+    }
+    elements.push_back(raw.substr(start, pos - start));
+    skip_ws(raw, pos);
+    if (pos >= raw.size()) {
+      return std::nullopt;
+    }
+    if (raw[pos] == ']') {
+      return elements;
+    }
+    if (raw[pos] != ',') {
+      return std::nullopt;
+    }
+    ++pos;
+  }
+}
+
 } // namespace zoal_atc::transport

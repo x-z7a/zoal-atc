@@ -21,12 +21,12 @@ said and what the simulator is doing, sends both, and renders what comes back.
 2. Drop the `zoal-atc` folder into `<X-Plane>/Resources/plugins/`.
 3. Launch X-Plane. In **Settings → Keyboard** (or Joystick), bind the command
    `zoal_atc/ptt` ("zoal-atc: Push-to-Talk") to your push-to-talk key or button.
-4. Open the panel with **Plugins → zoal-atc → Toggle In-Sim Panel**, or bind
+4. Open the panel with **Plugins → zoal-atc → Toggle Panel**, or bind
    `zoal_atc/gui_toggle`.
 
-The archive contains the `.xpl`, the SkyScript runtime it links, the in-sim
-panel, and the HUD's typeface. It ships no browser: since SkyScript v0.12.0 the panel is an X-Plane
-browser window, so **X-Plane 12.4.4 or newer is required**.
+The archive contains the `.xpl`, the models and the typeface the panel and the
+HUD are set in. Both are drawn natively with X-Plane's panel-graphics ImGui
+helpers, so **X-Plane 12.4.4 or newer is required**.
 
 Out of the box the plugin talks to the hosted console at `ws://atc.zoal.app/plugin`,
 so a fresh install needs no configuration. To point it at a console you run
@@ -48,23 +48,27 @@ yourself, see *Console endpoint* below.
 - **Weather.** The newest METAR from X-Plane's real-weather download, sent on
   airport change, on reconnect and every ten minutes. Navdata (airports,
   procedures, airspace, fixes) is the console's job; the plugin ships none.
-- **The in-sim panel.** A React + TypeScript app hosted by SkyScript in an X-Plane browser window, with
-  Home and Settings tabs. The panel never talks to the console directly —
-  everything goes through the plugin's socket over the `console.request` /
-  `console.event` bridge, so credentials stay out of the page. Three colour
-  themes (Graphite, Daylight and Night) are picked on Settings and apply to the
-  panel and the HUD together; the choice is stored as `panel_theme` in
-  `zoal_atc.cfg`.
+- **The panel.** One resizable Dear ImGui window, drawn natively by the
+  plugin like the HUD and set in the same Inter, with Home (own-ship readouts,
+  the radio log and a composer to type a transmission or tune COM1) and
+  Settings tabs. Drag it from anywhere that is not a control, resize it from its edges. It takes the
+  keyboard only while a field is being typed into, and gives it back on Enter,
+  Escape or a click elsewhere; Cmd/Ctrl+V pastes (macOS and Windows). The
+  panel never talks to the console directly — everything goes through the
+  plugin's socket over the `console.request` / `console.event` bridge
+  (`PanelSession`), so credentials stay in the plugin. Three colour themes
+  (Graphite, Daylight and Night) are picked on Settings and apply to the panel
+  and the HUD together; the choice is stored as `panel_theme` in
+  `zoal_atc.cfg`. Neither window is a browser window: clicking any X-Plane
+  browser window blanks other plugins' UIs (Airfoillabs' XJet sidebar, for
+  one) until a non-browser window is clicked.
 - **The HUD.** One window pinned to the top right of the screen, drawn
   natively by the plugin with Dear ImGui (X-Plane 12.4.4's panel-graphics
   ImGui helpers), set in Inter (shipped in `fonts/`) and hinted by FreeType, and transparent except for what it draws: a bar with the
   callsign, the console light and a menu to reload the flight plan, start a new
   flight or open the panel, and under it the last three transmissions, each for
   a minute. It is exactly as big as what it shows, and stays up while the panel
-  is closed. It is deliberately not a browser window: clicking any X-Plane
-  browser window blanks other plugins' UIs (Airfoillabs' XJet sidebar, for
-  one) until a non-browser window is clicked.
-  Toggle it from Plugins > zoal-atc > Toggle HUD or bind `zoal_atc/hud_toggle`.
+  is closed. Toggle it from Plugins > zoal-atc > Toggle HUD or bind `zoal_atc/hud_toggle`.
 
 ## Console endpoint
 
@@ -201,19 +205,20 @@ fetch them once into `.cache/models` (checksums pinned in
 
 ## Build
 
-Requires **CMake ≥ 3.24**, a **C++17 toolchain** (MinGW on Windows), **Node 20+**
-for the panel, and the **`gh` CLI** to fetch the pinned SkyScript release.
+Requires **CMake ≥ 3.24** and a **C++17 toolchain** (MinGW on Windows). No
+Node, no browser runtime.
 
 ```sh
 make            # list targets
-make gate       # core tests + panel build + panel tests — the pre-done gate
+make gate       # the core tests (panel and HUD models included) — the pre-done gate
+make preview    # renders the panel in every theme to build-preview/*.png, no X-Plane
 ```
 
 | Target | What it does |
 | --- | --- |
-| `make test` | Builds and runs the SDK-free C++ core tests (no SDK, no SkyScript) |
-| `make gui-build` / `make gui-test` | Builds / tests the in-sim panel |
-| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, SkyScript into `.cache/skyscript/`, whisper.cpp into `.cache/whisper.cpp-*`, Dear ImGui into `.cache/imgui-*`, FreeType into `.cache/freetype-*`, and sherpa-onnx into `.cache/sherpa-onnx-*` |
+| `make test` | Builds and runs the SDK-free C++ core tests (no SDK, no ImGui) |
+| `make preview` | Renders the panel off-screen with `tools/panel_preview` — the same `PanelSession` and drawing code the plugin runs, fed a scripted console |
+| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, whisper.cpp into `.cache/whisper.cpp-*`, Dear ImGui into `.cache/imgui-*`, FreeType into `.cache/freetype-*`, and sherpa-onnx into `.cache/sherpa-onnx-*` |
 | `make install-plugin` | Builds and installs into X-Plane (`LOCAL_XPLANE_PLUGIN_DIR=` to override the path) |
 | `make models` | Fetches the transcription model and the controller voices into `.cache/models` |
 | `make release-plugin` / `make archive-plugin` | Assembles / zips the release tree in `dist/` |
@@ -222,22 +227,12 @@ make gate       # core tests + panel build + panel tests — the pre-done gate
 `make install-plugin` assembles and verifies with the same two scripts that guard
 the shipped artifact, so what you fly locally is what a release contains.
 
-The SkyScript library is provisioned from a pinned GitHub release by
-`scripts/ensure-skyscript-lib.sh`, which `make plugin` runs for you. The pin lives
-in `scripts/skyscript-version.txt` — edit that one line to take a new SkyScript.
-To see what the newest release is without changing the pin:
-
-```sh
-ZOAL_ATC_SKYSCRIPT_VERSION=latest ./scripts/ensure-skyscript-lib.sh
-```
-
-To use a prepared SkyScript tree instead, set `ZOAL_ATC_SKYSCRIPT_ROOT`. To use a
-preinstalled X-Plane SDK, pass `ATC_XPLANE_SDK=/path/to/XPSDK`; the SDK root may
+To use a preinstalled X-Plane SDK, pass `ATC_XPLANE_SDK=/path/to/XPSDK`; the SDK root may
 be the official layout containing `CHeaders/XPLM` and `Libraries`, or a flattened
 folder containing `XPLM` and `Libraries`.
 
-CI builds and tests the core, the plugin and the panel on macOS, Linux and
-Windows for every pull request.
+CI builds and tests the core and builds the plugin on macOS, Linux and Windows
+for every pull request.
 
 ## Relationship to the console
 
@@ -249,11 +244,12 @@ on both sides — change one and change the other in the same breath:
 - the telemetry frame `src/telemetry/telemetry_frame.cpp` builds
   (`tests/telemetry_frame_test.cpp`, `tests/traffic_test.cpp`), and
 - the GUI frame codec in `src/gui/gui_frames.cpp` (`tests/gui_frames_test.cpp`),
-  whose action strings are pinned by `gui/zoal-atc/src/bridge/actions.ts`.
+  and the action and event names the panel and the HUD use, in
+  `src/gui/panel_session.cpp` and `src/gui/hud_session.cpp`.
 
 ## License
 
 GPL-3.0-or-later, with an **X-Plane SDK linking exception** — see [`LICENSE`](LICENSE)
-and [`LICENSE-EXCEPTION`](LICENSE-EXCEPTION). SkyScript (MIT) and miniaudio
-(public domain / MIT-0) are downloaded at build time; SkyScript's notice travels
-in every release at `licenses/skyscript/LICENSE`.
+and [`LICENSE-EXCEPTION`](LICENSE-EXCEPTION). Dear ImGui (MIT), FreeType (FTL),
+Inter (OFL) and miniaudio (public domain / MIT-0) are downloaded at build time;
+their notices travel in every release at `licenses/`.

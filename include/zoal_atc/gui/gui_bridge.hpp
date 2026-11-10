@@ -15,22 +15,23 @@
 
 namespace zoal_atc::gui {
 
-// The channel every plugin->browser message travels on. Responses, pushed
-// events, and bridge status share it, discriminated by the envelope's "kind".
+// The channel every bridge->view message travels on. Responses, pushed events,
+// and bridge status share it, discriminated by the envelope's "kind".
 inline constexpr const char *kConsoleEventChannel = "console.event";
 
 // GuiView names a view the bridge serves. Each is attached, shown and owed
 // messages on its own -- but they share one console subscription and one event
 // cache.
 //
-//   - panel: the full radio panel, a Skyscript page opened and closed by the
+//   - panel: the full radio panel (PanelSession), opened and closed by the
 //            pilot;
 //   - hud:   the radio HUD, drawn natively by the plugin (HudSession), which
 //            stays up while the panel is closed.
 enum class GuiView : std::size_t { panel = 0, hud = 1 };
 inline constexpr std::size_t kGuiViewCount = 2;
 
-// JsMessage is one Skyscript post the main thread still owes the browser.
+// JsMessage is one envelope the bridge still owes a view. (The name is from
+// when the panel was a browser page; the envelope is the same JSON.)
 struct JsMessage {
   std::string channel;
   std::string payload;
@@ -70,32 +71,32 @@ struct GuiBridgeConfig {
   //
   // Called on the X-Plane main thread and outside the bridge's lock, so a
   // handler may touch the filesystem without blocking the socket thread. It
-  // must still be quick: it runs inside a Skyscript handler.
+  // must still be quick: it runs inside a view's frame.
   std::function<std::optional<LocalAnswer>(const std::string &action,
                                            const std::string &payload_json)>
       local_action;
 };
 
-// SubmitResult is what a console.request call resolves to in the browser.
+// SubmitResult is the receipt a view gets for a console.request.
 struct SubmitResult {
   bool accepted = false;
   std::uint64_t request_id = 0;
   std::string ack_json;
 };
 
-// GuiBridge is the plugin's whole GUI proxy: it turns browser requests into
+// GuiBridge is the plugin's whole GUI proxy: it turns view requests into
 // console frames, matches the answers back, and holds what the panel should see
 // when it is next looked at.
 //
 // Three threads touch it and the split is the point:
 //
 //   - the websocket receiver thread only *feeds* it (on_socket_frame,
-//     set_connected). It never reaches Skyscript, because CEF is pumped from
-//     X-Plane's main thread and calling into it from a socket thread is how a
+//     set_connected). It never reaches a view, because the views draw on
+//     X-Plane's main thread and touching them from a socket thread is how a
 //     sim crashes;
-//   - the X-Plane main thread runs the Skyscript handlers (submit, attach) and
-//     the flight loop (tick, take_*), which is the only place messages are
-//     handed to the browser and frames are handed to the socket;
+//   - the X-Plane main thread runs the views (submit, attach) and the flight
+//     loop (tick, take_*), which is the only place messages are handed to a
+//     view and frames are handed to the socket;
 //   - nothing here blocks on either. Every queue is bounded and every drop is
 //     counted, so a panel that is hidden, never opened, or wedged cannot stall
 //     the radio.
@@ -109,7 +110,7 @@ public:
   GuiBridge(const GuiBridge &) = delete;
   GuiBridge &operator=(const GuiBridge &) = delete;
 
-  // --- X-Plane main thread: Skyscript message handlers ----------------------
+  // --- X-Plane main thread: the views' requests -----------------------------
 
   // submit turns one console.request envelope into a pending console request.
   // The answer goes back to the view that asked.

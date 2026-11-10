@@ -8,7 +8,7 @@ set -euo pipefail
 # console does, pinned with the checksum of its source archive in
 # scripts/whisper-version.txt, so a turn is heard the same way whichever end
 # transcribes it. The source is a download, not ours to commit, and lives in
-# .cache beside the Skyscript bundle.
+# .cache beside the other pinned downloads.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pin_file="${repo_root}/scripts/whisper-version.txt"
