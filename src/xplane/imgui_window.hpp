@@ -4,6 +4,7 @@
 #include <XPLMDisplay.h>
 
 #include <functional>
+#include <utility>
 
 struct ImGuiContext;
 struct ImTextureData;
@@ -19,15 +20,30 @@ namespace zoal_atc::xplane {
 // holds it.
 //
 // Each window owns its own ImGui context. It is the platform (geometry, time,
-// mouse) and the renderer (textures, draw calls) for that context; `build` is
-// called once a frame between NewFrame and Render to lay out the contents.
-// The keyboard is never taken: nothing drawn here is typed into.
+// mouse, keyboard) and the renderer (textures, draw calls) for that context;
+// `build` is called once a frame between NewFrame and Render to lay out the
+// contents.
 class ImguiWindow {
 public:
   using BuildFn = std::function<void()>;
 
+  struct Options {
+    // Takes X-Plane's keyboard focus while ImGui is editing text, and gives it
+    // back the moment it stops: a sim's keys are the pilot's commands, so the
+    // window holds them only while a field is being typed into.
+    bool keyboard = false;
+    // X-Plane resizes the window from its edges (the window still draws its
+    // own chrome).
+    bool resizable = false;
+    int min_width = 0;
+    int min_height = 0;
+  };
+
   // Created hidden, at the given global boxel rectangle (y up).
-  ImguiWindow(int left, int top, int right, int bottom, BuildFn build);
+  ImguiWindow(int left, int top, int right, int bottom, BuildFn build,
+              Options options);
+  ImguiWindow(int left, int top, int right, int bottom, BuildFn build)
+      : ImguiWindow(left, top, right, bottom, std::move(build), Options{}) {}
   ~ImguiWindow();
 
   ImguiWindow(const ImguiWindow &) = delete;
@@ -36,6 +52,7 @@ public:
   bool valid() const { return window_ != nullptr; }
   bool visible() const;
   void set_visible(bool visible);
+  void bring_to_front();
   void set_geometry(int left, int top, int right, int bottom);
   void geometry(int *left, int *top, int *right, int *bottom) const;
 
@@ -61,6 +78,8 @@ private:
 
   void draw();
   int click(int x, int y, XPLMMouseStatus status, int button);
+  void key(char key, XPLMKeyFlags flags, char virtual_key, bool losing_focus);
+  void sync_keyboard_focus();
   void mouse_to_local(int x, int y, float *out_x, float *out_y) const;
   void update_texture(ImTextureData *texture);
   void destroy_textures();
@@ -68,6 +87,12 @@ private:
   XPLMWindowID window_ = nullptr;
   ImGuiContext *context_ = nullptr;
   BuildFn build_;
+  Options options_;
+  // The cursor ImGui asked for last frame, for X-Plane's cursor callback.
+  int cursor_ = 0;
+  // Set while this window hands the keyboard back itself, so the lost-focus
+  // callback that follows is not mistaken for the pilot clicking away.
+  bool releasing_focus_ = false;
   float last_time_ = 0.0f;
   float framebuffer_scale_ = 1.0f;
 };

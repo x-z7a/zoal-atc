@@ -1,22 +1,17 @@
 SHELL := /bin/bash
 
-# Nothing here is worth running in parallel at this level - cmake and npm
-# parallelise inside their own steps, and the release targets read build outputs
-# that the targets above them write.
+# Nothing here is worth running in parallel at this level - cmake parallelises
+# inside its own steps, and the release targets read build outputs that the
+# targets above them write.
 .NOTPARALLEL:
 
 ROOT_DIR := $(CURDIR)
 BUILD_DIR ?= $(ROOT_DIR)/build
 PLUGIN_BUILD_DIR ?= $(ROOT_DIR)/build-plugin
+PREVIEW_BUILD_DIR ?= $(ROOT_DIR)/build-preview
 DIST_DIR ?= $(ROOT_DIR)/dist
 RELEASE_DIR ?= $(DIST_DIR)/zoal-atc
 BUILD_TYPE ?= Release
-NPM ?= npm
-
-# Skyscript is not optional: the in-sim panel is the ATC GUI. There is no
-# opt-out, because a configuration nobody builds is a configuration nobody
-# tests, and the plugin it produces has no GUI at all.
-ZOAL_ATC_SKYSCRIPT_ROOT ?= $(ROOT_DIR)/.cache/skyscript/SkyScript-lib
 # whisper.cpp, for transcribing push-to-talk in the cockpit. Pinned with its
 # archive checksum in scripts/whisper-version.txt.
 WHISPER_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/whisper-version.txt")
@@ -28,20 +23,24 @@ SHERPA_ONNX_VERSION := $(shell tr -d '\r' < "$(ROOT_DIR)/scripts/sherpa-onnx-ver
 # The two models every plugin ships with, inside its own folder. Pinned in
 # scripts/ensure-models.sh and downloaded once.
 ZOAL_ATC_MODELS ?= $(ROOT_DIR)/.cache/models
-# Dear ImGui, which the HUD is drawn with. Pinned with its archive checksum in
+# Dear ImGui, which the panel and the HUD are drawn with. Pinned with its archive checksum in
 # scripts/imgui-version.txt.
 IMGUI_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/imgui-version.txt")
 ZOAL_ATC_IMGUI_SOURCE ?= $(ROOT_DIR)/.cache/imgui-$(IMGUI_VERSION)
-# FreeType, which rasterizes the HUD's text with hinting. Pinned with its
+# FreeType, which rasterizes the panel's and the HUD's text with hinting. Pinned with its
 # archive checksum in scripts/freetype-version.txt.
 FREETYPE_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/freetype-version.txt")
 ZOAL_ATC_FREETYPE_SOURCE ?= $(ROOT_DIR)/.cache/freetype-$(FREETYPE_VERSION)
+# Inter, the typeface the panel and the HUD are set in. Pinned with its archive
+# checksum in scripts/inter-version.txt.
+INTER_VERSION := $(shell cut -d' ' -f1 "$(ROOT_DIR)/scripts/inter-version.txt")
+ZOAL_ATC_INTER ?= $(ROOT_DIR)/.cache/inter-$(INTER_VERSION)
 LOCAL_XPLANE_PLUGIN_DIR ?= $(HOME)/X-Plane 12/Resources/plugins/zoal-atc
 
-# SDK 4.4.0 (X-Plane 12.4.4): browser windows, which Skyscript needs, and the
-# panel-graphics ImGui helpers the HUD is drawn with. The same build Skyscript's
-# CI uses. The sentinel is a 4.4-only header, so a tree that still holds an
-# older SDK fetches this one rather than building against what it has.
+# SDK 4.4.0 (X-Plane 12.4.4): the panel-graphics ImGui helpers the panel and
+# the HUD are drawn with. The sentinel is a 4.4-only header, so a tree that
+# still holds an older SDK fetches this one rather than building against what
+# it has.
 SDK_VERSION ?= 440-b5
 SDK_ZIP_URL ?= https://www.x-plane.com/wp-content/uploads/2026/10/XPSDK440-b5.zip
 ATC_XPLANE_SDK ?= $(ROOT_DIR)/sdk
@@ -91,7 +90,7 @@ else
 CMAKE_GENERATOR :=
 endif
 
-.PHONY: help build test plugin gui-build gui-test gate skyscript-lib whisper-src imgui-src freetype-src sherpa-onnx models \
+.PHONY: help build test plugin preview gate whisper-src imgui-src freetype-src inter sherpa-onnx models \
 	install-plugin release-plugin archive-plugin release-all clean
 
 .DEFAULT_GOAL := help
@@ -100,10 +99,9 @@ help:
 	@echo "zoal-atc - the X-Plane plugin"
 	@echo
 	@echo "  test            build and run the SDK-free C++ core tests"
-	@echo "  plugin          build the .xpl (fetches the X-Plane SDK, miniaudio, Skyscript)"
-	@echo "  gui-build       build the in-sim panel"
-	@echo "  gui-test        run the in-sim panel's unit tests"
-	@echo "  gate            the pre-done gate: core tests, panel build + tests"
+	@echo "  plugin          build the .xpl (fetches the X-Plane SDK, miniaudio, ImGui, FreeType)"
+	@echo "  preview         render the panel off-screen to PNGs in build-preview/ (no X-Plane)"
+	@echo "  gate            the pre-done gate: the core tests"
 	@echo "  install-plugin  build and install into X-Plane (LOCAL_XPLANE_PLUGIN_DIR=)"
 	@echo "  models          fetch the transcription model and the controller voices"
 	@echo "  release-plugin  assemble the release tree in dist/zoal-atc"
@@ -113,8 +111,8 @@ help:
 
 # --- build -------------------------------------------------------------------
 
-# The SDK-free core. Builds and runs with no X-Plane SDK, no Skyscript and no
-# CEF, which is what lets CI run it on three platforms in seconds.
+# The SDK-free core. Builds and runs with no X-Plane SDK and no ImGui, which is
+# what lets CI run it on three platforms in seconds.
 # --config and -C are what make this work on Windows, where the default CMake
 # generator is Visual Studio: a multi-config generator ignores CMAKE_BUILD_TYPE,
 # builds Debug, and drops the executables in build/<Config>/. Without them cmake
@@ -128,25 +126,14 @@ build:
 test: build
 	ctest --test-dir "$(BUILD_DIR)" -C "$(BUILD_TYPE)" --output-on-failure
 
-gui-build:
-	cd gui/zoal-atc && $(NPM) ci && $(NPM) run build
-
-# The panel's own unit tests: bridge, store, formatters and components, all
-# against fakes. No X-Plane, no Skyscript host, no console.
-gui-test:
-	cd gui/zoal-atc && $(NPM) ci && $(NPM) test
-
 # gate is the full pre-done gate for this repo. Run before considering work
-# done; CI runs the same three targets.
-gate: test gui-build gui-test
+# done; CI runs the same target.
+gate: test
 	@echo "gate: all checks passed"
 
-skyscript-lib:
-	ZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)" "$(ROOT_DIR)/scripts/ensure-skyscript-lib.sh"
-
 # The .xpl. The two sentinel prerequisites fetch the X-Plane SDK and miniaudio
-# once; skyscript-lib re-checks the pinned Skyscript on every build because the
-# pin can move under a tree that already has one.
+# once; the ensure scripts re-check their pins on every build, because a pin can
+# move under a tree that already has one.
 whisper-src:
 	ZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" "$(ROOT_DIR)/scripts/ensure-whisper-src.sh"
 
@@ -156,6 +143,9 @@ imgui-src:
 freetype-src:
 	ZOAL_ATC_FREETYPE_SOURCE="$(ZOAL_ATC_FREETYPE_SOURCE)" "$(ROOT_DIR)/scripts/ensure-freetype.sh"
 
+inter:
+	ZOAL_ATC_INTER="$(ZOAL_ATC_INTER)" "$(ROOT_DIR)/scripts/ensure-inter.sh"
+
 sherpa-onnx:
 	ZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)" "$(ROOT_DIR)/scripts/ensure-sherpa-onnx.sh" $(SHERPA_ONNX_FLAVOUR)
 
@@ -164,9 +154,21 @@ sherpa-onnx:
 models:
 	ZOAL_ATC_MODELS="$(ZOAL_ATC_MODELS)" "$(ROOT_DIR)/scripts/ensure-models.sh"
 
-plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) skyscript-lib whisper-src imgui-src freetype-src sherpa-onnx
-	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_SKYSCRIPT_ROOT="$(ZOAL_ATC_SKYSCRIPT_ROOT)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" -DZOAL_ATC_IMGUI_SOURCE="$(ZOAL_ATC_IMGUI_SOURCE)" -DZOAL_ATC_FREETYPE_SOURCE="$(ZOAL_ATC_FREETYPE_SOURCE)" -DZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)"
+plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) whisper-src imgui-src freetype-src sherpa-onnx
+	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" -DZOAL_ATC_IMGUI_SOURCE="$(ZOAL_ATC_IMGUI_SOURCE)" -DZOAL_ATC_FREETYPE_SOURCE="$(ZOAL_ATC_FREETYPE_SOURCE)" -DZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)"
 	cmake --build "$(PLUGIN_BUILD_DIR)" --target zoal_atc
+
+# The panel rendered off-screen in every theme, Home and Settings, from the
+# same code the plugin runs: a look at a change without starting the sim.
+PREVIEW_THEMES := graphite daylight night
+preview: imgui-src freetype-src inter
+	cmake -S . -B "$(PREVIEW_BUILD_DIR)" -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PREVIEW=ON -DZOAL_ATC_BUILD_TESTS=OFF -DZOAL_ATC_IMGUI_SOURCE="$(ZOAL_ATC_IMGUI_SOURCE)" -DZOAL_ATC_FREETYPE_SOURCE="$(ZOAL_ATC_FREETYPE_SOURCE)"
+	cmake --build "$(PREVIEW_BUILD_DIR)" --target panel_preview --parallel
+	@for theme in $(PREVIEW_THEMES); do for tab in home settings; do \
+		"$(PREVIEW_BUILD_DIR)/panel_preview" "$(ZOAL_ATC_INTER)" "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.ppm" $$tab $$theme 1120 740 2 || exit 1; \
+		if command -v sips >/dev/null; then sips -s format png "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.ppm" --out "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.png" >/dev/null; fi; \
+	done; done
+	@echo "panel previews in $(PREVIEW_BUILD_DIR)"
 
 $(SDK_SENTINEL):
 	@echo "Downloading X-Plane SDK $(SDK_VERSION)..."
@@ -185,7 +187,7 @@ $(MINIAUDIO_SENTINEL):
 # assembled and verified by the same two scripts that guard the shipped
 # artifact, so what you fly is what ships.
 
-install-plugin: plugin gui-build models
+install-plugin: plugin models
 	@plugins_dir="$$(dirname "$(LOCAL_XPLANE_PLUGIN_DIR)")"; \
 	if [ ! -d "$$plugins_dir" ]; then \
 		echo "no X-Plane plugins folder at $$plugins_dir" >&2; \
@@ -197,7 +199,7 @@ install-plugin: plugin gui-build models
 	./scripts/verify-release-tree.sh "$(LOCAL_XPLANE_PLUGIN_DIR)" "$(PLUGIN_PLATFORM_DIR)"
 	@echo "installed into $(LOCAL_XPLANE_PLUGIN_DIR)"
 
-release-plugin: plugin gui-build models
+release-plugin: plugin models
 	rm -rf "$(RELEASE_DIR)"
 	ZOAL_ATC_MODELS="$(ZOAL_ATC_MODELS)" ./scripts/package-release.sh "$(PLUGIN_PLATFORM_DIR)" "$(PLUGIN_XPL)" "$(RELEASE_DIR)"
 	./scripts/verify-release-tree.sh "$(RELEASE_DIR)" "$(PLUGIN_PLATFORM_DIR)"
@@ -218,7 +220,6 @@ endif
 release-all:
 	DIST_DIR="$(DIST_DIR)" ./scripts/build-all-on-mac.sh
 
-# .cache/ survives: it holds the pinned Skyscript library, which is a download
-# rather than a build output.
+# .cache/ survives: it holds the pinned downloads, which are not build outputs.
 clean:
-	cmake -E rm -rf "$(BUILD_DIR)" "$(PLUGIN_BUILD_DIR)" "$(DIST_DIR)" "$(ROOT_DIR)/gui/zoal-atc/dist"
+	cmake -E rm -rf "$(BUILD_DIR)" "$(PLUGIN_BUILD_DIR)" "$(PREVIEW_BUILD_DIR)" "$(DIST_DIR)"

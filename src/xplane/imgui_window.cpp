@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 
 namespace zoal_atc::xplane {
 
@@ -48,8 +49,8 @@ private:
 } // namespace
 
 ImguiWindow::ImguiWindow(int left, int top, int right, int bottom,
-                         BuildFn build)
-    : build_(std::move(build)) {
+                         BuildFn build, Options options)
+    : build_(std::move(build)), options_(options) {
   context_ = ImGui::CreateContext();
   {
     ContextScope scope(context_);
@@ -63,6 +64,10 @@ ImguiWindow::ImguiWindow(int left, int top, int right, int bottom,
     // (update_texture), so fonts can be rasterized at any size and density.
     io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
     io.Fonts->TexDesiredFormat = ImTextureFormat_RGBA32;
+    // X-Plane reports the Command key as control on a Mac, so ImGui is told
+    // nothing about Macs: Cmd+V arrives as Ctrl+V, which is what pastes.
+    io.ConfigMacOSXBehaviors = false;
+    io.ConfigInputTrickleEventQueue = true;
   }
 
   XPLMCreateWindow_t params = {};
@@ -80,14 +85,23 @@ ImguiWindow::ImguiWindow(int left, int top, int right, int bottom,
   params.handleMouseWheelFunc = wheel_cb;
   params.refcon = this;
   // No chrome of X-Plane's, and clicks inside the window stop here.
-  params.decorateAsFloatingWindow = xplm_WindowDecorationSelfDecorated;
+  params.decorateAsFloatingWindow =
+      options_.resizable ? xplm_WindowDecorationSelfDecoratedResizable
+                         : xplm_WindowDecorationSelfDecorated;
   params.layer = xplm_WindowLayerFloatingWindows;
   params.contentType = xplm_WindowContentTypePanelGraphics;
   window_ = XPLMCreateWindowEx(&params);
+  if (window_ && options_.resizable) {
+    XPLMSetWindowResizingLimits(window_, options_.min_width, options_.min_height,
+                                100000, 100000);
+  }
 }
 
 ImguiWindow::~ImguiWindow() {
   if (window_) {
+    if (XPLMHasKeyboardFocus(window_)) {
+      XPLMTakeKeyboardFocus(nullptr);
+    }
     XPLMDestroyWindow(window_);
     window_ = nullptr;
   }
@@ -103,8 +117,25 @@ bool ImguiWindow::visible() const {
 }
 
 void ImguiWindow::set_visible(bool visible) {
+  if (!window_) {
+    return;
+  }
+  if (!visible) {
+    // A hidden window must not keep the sim's keys, nor come back mid-edit.
+    if (XPLMHasKeyboardFocus(window_)) {
+      releasing_focus_ = true;
+      XPLMTakeKeyboardFocus(nullptr);
+      releasing_focus_ = false;
+    }
+    ContextScope scope(context_);
+    ImGui::ClearActiveID();
+  }
+  XPLMSetWindowIsVisible(window_, visible ? 1 : 0);
+}
+
+void ImguiWindow::bring_to_front() {
   if (window_) {
-    XPLMSetWindowIsVisible(window_, visible ? 1 : 0);
+    XPLMBringWindowToFront(window_);
   }
 }
 
@@ -153,10 +184,26 @@ int ImguiWindow::right_click_cb(XPLMWindowID, int x, int y,
   return static_cast<ImguiWindow *>(refcon)->click(x, y, status, 1);
 }
 
-void ImguiWindow::key_cb(XPLMWindowID, char, XPLMKeyFlags, char, void *, int) {}
+void ImguiWindow::key_cb(XPLMWindowID, char key, XPLMKeyFlags flags,
+                         char virtual_key, void *refcon, int losing_focus) {
+  static_cast<ImguiWindow *>(refcon)->key(key, flags, virtual_key,
+                                          losing_focus != 0);
+}
 
-XPLMCursorStatus ImguiWindow::cursor_cb(XPLMWindowID, int, int, void *) {
-  return xplm_CursorArrow;
+XPLMCursorStatus ImguiWindow::cursor_cb(XPLMWindowID, int, int, void *refcon) {
+  switch (static_cast<ImguiWindow *>(refcon)->cursor_) {
+  case ImGuiMouseCursor_TextInput:
+    return xplm_CursorText;
+  case ImGuiMouseCursor_Hand:
+    return xplm_CursorButton;
+  case ImGuiMouseCursor_ResizeAll:
+    return xplm_CursorFourArrows;
+  default:
+    break;
+  }
+  // X-Plane's own: on a resizable window it shows the resize cursor at the
+  // edges it handles.
+  return xplm_CursorDefault;
 }
 
 int ImguiWindow::wheel_cb(XPLMWindowID, int x, int y, int wheel, int clicks,
@@ -191,6 +238,8 @@ int ImguiWindow::click(int x, int y, XPLMMouseStatus status, int button) {
   ImGuiIO &io = ImGui::GetIO();
   io.AddMousePosEvent(lx, ly);
   if (status == xplm_MouseDown) {
+    // Clicked windows come forward, as X-Plane's own do.
+    bring_to_front();
     io.AddMouseButtonEvent(button, true);
   } else if (status == xplm_MouseUp) {
     io.AddMouseButtonEvent(button, false);
@@ -199,6 +248,105 @@ int ImguiWindow::click(int x, int y, XPLMMouseStatus status, int button) {
   // clicks through a window breaks its mouse tracking. The window is kept no
   // bigger than what it shows, so nothing else is covered.
   return 1;
+}
+
+// --- keyboard ---------------------------------------------------------------
+
+namespace {
+
+ImGuiKey imgui_key(unsigned char virtual_key) {
+  switch (virtual_key) {
+  case XPLM_VK_BACK:
+    return ImGuiKey_Backspace;
+  case XPLM_VK_TAB:
+    return ImGuiKey_Tab;
+  case XPLM_VK_RETURN:
+  case XPLM_VK_ENTER:
+    return ImGuiKey_Enter;
+  case XPLM_VK_NUMPAD_ENT:
+    return ImGuiKey_KeypadEnter;
+  case XPLM_VK_ESCAPE:
+    return ImGuiKey_Escape;
+  case XPLM_VK_DELETE:
+    return ImGuiKey_Delete;
+  case XPLM_VK_HOME:
+    return ImGuiKey_Home;
+  case XPLM_VK_END:
+    return ImGuiKey_End;
+  case XPLM_VK_LEFT:
+    return ImGuiKey_LeftArrow;
+  case XPLM_VK_RIGHT:
+    return ImGuiKey_RightArrow;
+  case XPLM_VK_UP:
+    return ImGuiKey_UpArrow;
+  case XPLM_VK_DOWN:
+    return ImGuiKey_DownArrow;
+  default:
+    break;
+  }
+  if (virtual_key >= XPLM_VK_A && virtual_key <= XPLM_VK_Z) {
+    return static_cast<ImGuiKey>(ImGuiKey_A + (virtual_key - XPLM_VK_A));
+  }
+  return ImGuiKey_None;
+}
+
+} // namespace
+
+void ImguiWindow::key(char key, XPLMKeyFlags flags, char virtual_key,
+                      bool losing_focus) {
+  ContextScope scope(context_);
+  if (losing_focus) {
+    // The pilot clicked the sim, or another window took the keys: stop
+    // editing, keeping what was typed. Only an edit: when this window gives
+    // the keys back itself, ImGui has already moved on -- often to the button
+    // the pilot just pressed, whose click must not be cancelled under them.
+    ImGuiContext &g = *ImGui::GetCurrentContext();
+    if (!releasing_focus_ && g.ActiveId != 0 &&
+        g.ActiveId == g.InputTextState.ID) {
+      ImGui::ClearActiveID();
+    }
+    return;
+  }
+  if ((flags & xplm_DownFlag) == 0) {
+    // Presses only. Each press -- the OS's repeats included -- is sent as a
+    // press and its release together, so a release X-Plane never delivers
+    // cannot leave Backspace held down eating the field.
+    return;
+  }
+  ImGuiIO &io = ImGui::GetIO();
+  const bool ctrl = (flags & xplm_ControlFlag) != 0;
+  const bool shift = (flags & xplm_ShiftFlag) != 0;
+  const bool alt = (flags & xplm_OptionAltFlag) != 0;
+  io.AddKeyEvent(ImGuiMod_Ctrl, ctrl);
+  io.AddKeyEvent(ImGuiMod_Shift, shift);
+  io.AddKeyEvent(ImGuiMod_Alt, alt);
+  const ImGuiKey mapped = imgui_key(static_cast<unsigned char>(virtual_key));
+  if (mapped != ImGuiKey_None) {
+    io.AddKeyEvent(mapped, true);
+    io.AddKeyEvent(mapped, false);
+  }
+  const auto character = static_cast<unsigned char>(key);
+  if (!ctrl && character >= 32 && character != 127) {
+    io.AddInputCharacter(character);
+  }
+  io.AddKeyEvent(ImGuiMod_Ctrl, false);
+  io.AddKeyEvent(ImGuiMod_Shift, false);
+  io.AddKeyEvent(ImGuiMod_Alt, false);
+}
+
+void ImguiWindow::sync_keyboard_focus() {
+  if (!options_.keyboard || !window_) {
+    return;
+  }
+  const bool wants = ImGui::GetIO().WantTextInput;
+  const bool has = XPLMHasKeyboardFocus(window_) != 0;
+  if (wants && !has) {
+    XPLMTakeKeyboardFocus(window_);
+  } else if (!wants && has) {
+    releasing_focus_ = true;
+    XPLMTakeKeyboardFocus(nullptr);
+    releasing_focus_ = false;
+  }
 }
 
 // --- frame ------------------------------------------------------------------
@@ -235,7 +383,9 @@ void ImguiWindow::draw() {
   if (build_) {
     build_();
   }
+  cursor_ = ImGui::GetMouseCursor();
   ImGui::Render();
+  sync_keyboard_focus();
 
   ImDrawData *data = ImGui::GetDrawData();
   if (data->Textures != nullptr) {

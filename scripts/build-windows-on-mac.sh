@@ -6,7 +6,6 @@ output_dir="${1:-${repo_root}/dist/zoal-atc-windows-x64}"
 plugin_build_dir="${repo_root}/build-plugin-windows"
 sdk_dir="${repo_root}/sdk"
 miniaudio_dir="${repo_root}/vendor/miniaudio"
-skyscript_root="${ZOAL_ATC_SKYSCRIPT_ROOT:-${repo_root}/.cache/skyscript/SkyScript-lib}"
 whisper_version="$(cut -d' ' -f1 "${repo_root}/scripts/whisper-version.txt")"
 whisper_source="${ZOAL_ATC_WHISPER_SOURCE:-${repo_root}/.cache/whisper.cpp-${whisper_version}}"
 imgui_version="$(cut -d' ' -f1 "${repo_root}/scripts/imgui-version.txt")"
@@ -47,11 +46,6 @@ else
   echo "-- miniaudio already present at ${miniaudio_dir}/miniaudio.h"
 fi
 
-echo "==> Ensuring the Skyscript library for win_x64"
-ZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
-  ZOAL_ATC_SKYSCRIPT_PLATFORM=win_x64 \
-  "${repo_root}/scripts/ensure-skyscript-lib.sh"
-
 echo "==> Ensuring whisper.cpp and the Windows speech runtime"
 ZOAL_ATC_WHISPER_SOURCE="${whisper_source}" "${repo_root}/scripts/ensure-whisper-src.sh"
 ZOAL_ATC_IMGUI_SOURCE="${imgui_source}" "${repo_root}/scripts/ensure-imgui.sh"
@@ -72,7 +66,6 @@ cmake \
   -DZOAL_ATC_BUILD_TESTS=OFF \
   -DATC_XPLANE_SDK="${sdk_dir}" \
   -DATC_MINIAUDIO_INCLUDE_DIR="${miniaudio_dir}" \
-  -DZOAL_ATC_SKYSCRIPT_ROOT="${skyscript_root}" \
   -DZOAL_ATC_WHISPER_SOURCE="${whisper_source}" \
   -DZOAL_ATC_IMGUI_SOURCE="${imgui_source}" \
   -DZOAL_ATC_FREETYPE_SOURCE="${freetype_source}" \

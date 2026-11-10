@@ -13,8 +13,8 @@ using zoal_atc::transport::json_raw_field;
 using zoal_atc::transport::json_unquote;
 
 // json_value returns a payload that is safe to inline as a JSON value. An empty
-// payload becomes `null` rather than nothing, so a frame is never malformed and
-// the JavaScript statement Skyscript builds around it never fails to parse.
+// payload becomes `null` rather than nothing, so a frame or an envelope is
+// never malformed.
 std::string json_value(const std::string &raw) {
   return raw.empty() ? "null" : raw;
 }

@@ -1,7 +1,6 @@
 #include "zoal_atc/gui/gui_bridge.hpp"
 #include "zoal_atc/gui/panel_paths.hpp"
 #include "zoal_atc/gui/panel_theme.hpp"
-#include "zoal_atc/gui/skyscript_panel.hpp"
 #include "zoal_atc/ptt/miniaudio_audio_recorder.hpp"
 #include "zoal_atc/ptt/push_to_talk_controller.hpp"
 #include "zoal_atc/stt/transcriber.hpp"
@@ -17,6 +16,7 @@
 #include "zoal_atc/transport/websocket_client.hpp"
 #include "zoal_atc/weather/metar.hpp"
 #include "hud_window.hpp"
+#include "panel_window.hpp"
 
 #include <XPLMDataAccess.h>
 #include <XPLMNavigation.h>
@@ -115,9 +115,9 @@ std::atomic_bool g_reply_receiver_stopping{false};
 std::thread g_reply_receiver_thread;
 std::mutex g_reply_mutex;
 
-// The in-sim panel's proxy to the console. It outlives every connection and is
-// safe to hand to Skyscript before the socket exists, because it is only ever a
-// queue: the receiver thread feeds it, the flight loop drains it, and neither
+// The panel's and the HUD's proxy to the console. It outlives every connection
+// and is safe to hand to them before the socket exists, because it is only
+// ever a queue: the receiver thread feeds it, the flight loop drains it, and neither
 // waits on the other.
 zoal_atc::gui::GuiBridge g_gui_bridge;
 
@@ -427,7 +427,7 @@ handle_local_gui_action(const std::string &action,
     // The HUD's way into the full panel. Local because it is a window on this
     // computer, and because the moment a pilot reaches for the panel may well
     // be the moment the console has gone quiet.
-    zoal_atc::gui::show_skyscript_panel();
+    zoal_atc::xplane::show_panel();
     return zoal_atc::gui::LocalAnswer{true, R"({"opened":true})", ""};
   }
   if (action == "tune_radio") {
@@ -499,11 +499,9 @@ handle_local_gui_action(const std::string &action,
         return zoal_atc::gui::LocalAnswer{false, "null",
                                           "could not write " + g_config_path};
       }
-      // The panel saved it and knows from this answer; the HUD, drawn by the
-      // plugin, learns here. The post to the panel keeps a second panel page
-      // (a reload mid-save) in step too.
+      // The panel saved it and knows from this answer; the HUD learns here.
       const std::string changed = R"({"theme":")" + *theme + R"("})";
-      zoal_atc::gui::post_to_skyscript_panel("settings.changed", changed);
+      zoal_atc::xplane::panel_settings_changed(changed);
       zoal_atc::xplane::hud_settings_changed(changed);
     }
 
@@ -913,8 +911,8 @@ void reply_receiver_loop() {
     // the console speaks, and after a reconnect the console may have nothing
     // to say until it is asked -- which the panel would not do while it
     // believed the socket was down. sync_gui_connection reads the socket.
-    // GUI frames are queued, never delivered from here: Skyscript is pumped on
-    // the main thread and this is not it.
+    // GUI frames are queued, never delivered from here: the panel and the HUD
+    // are drawn on the main thread and this is not it.
     if (g_gui_bridge.on_socket_frame(payload, monotonic_ms())) {
       continue;
     }
@@ -1714,7 +1712,7 @@ int ptt_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
 
 // process_gui_bridge is the main-thread half of the GUI proxy: it expires stale
 // panel requests, publishes whatever the panel asked for, and lets the panel
-// owner post the results. Everything the browser sees passes through here.
+// and the HUD drain the results. Everything they see passes through here.
 // sync_gui_connection tells the GUI bridge whether the socket is up, from the
 // socket itself and every frame.
 //
@@ -1751,7 +1749,7 @@ void process_gui_bridge() {
   for (const auto &line : g_gui_bridge.take_log_lines()) {
     log_line(line);
   }
-  zoal_atc::gui::tick_skyscript_panel();
+  zoal_atc::xplane::tick_panel();
   zoal_atc::xplane::tick_hud();
 }
 
@@ -1793,17 +1791,17 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   std::snprintf(sig, 256, "ai.zoal.atc");
   std::snprintf(desc, 256, "Audio-driven ATC AI edge plugin");
 
-  zoal_atc::gui::SkyscriptPanelConfig panel_config;
+  zoal_atc::xplane::PanelConfig panel_config;
 #ifdef ZOAL_ATC_VERSION
   panel_config.plugin_version = ZOAL_ATC_VERSION;
 #else
   panel_config.plugin_version = "dev";
 #endif
   panel_config.bridge = &g_gui_bridge;
-  panel_config.now_ms = monotonic_ms;
+  panel_config.steady_ms = monotonic_ms;
   // The HUD first: the panel's menu finds the HUD's toggle command by name.
   zoal_atc::xplane::start_hud(g_gui_bridge, monotonic_ms);
-  zoal_atc::gui::start_skyscript_panel(panel_config);
+  zoal_atc::xplane::start_panel(panel_config);
 
   char system_path[1024] = {};
   XPLMGetSystemPath(system_path);
@@ -1910,7 +1908,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
 
 PLUGIN_API void XPluginStop() {
   zoal_atc::xplane::stop_hud();
-  zoal_atc::gui::stop_skyscript_panel();
+  zoal_atc::xplane::stop_panel();
 
   if (g_terrain_probe) {
     XPLMDestroyProbe(g_terrain_probe);

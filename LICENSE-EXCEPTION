@@ -30,16 +30,17 @@ statement from your version.
 Notes on the other components this plugin uses
 ----------------------------------------------
 
-Neither of the following requires the exception above; both are GPL-compatible
-and are recorded here so the combined work's licensing is legible.
+None of the following requires the exception above; all are GPL-compatible
+and are recorded here so the combined work's licensing is legible. Their full
+notices travel in every release at licenses/THIRD-PARTY.txt.
 
-  * SkyScript (https://github.com/x-z7a/SkyScript) — MIT. The library is
-    downloaded at build time and ships beside the .xpl; its notice travels in
-    every release at licenses/skyscript/LICENSE.
+  * Dear ImGui (https://github.com/ocornut/imgui) — MIT, and FreeType
+    (https://freetype.org) — the FreeType License. Both are built from source
+    into the .xpl; the panel and the HUD are drawn with them.
 
   * miniaudio (https://github.com/mackron/miniaudio) — public domain, or MIT-0
     at your option. A single header, downloaded at build time.
 
-No browser runtime is distributed with this plugin: since SkyScript v0.12.0
-the panel is rendered by X-Plane's own browser window support (X-Plane 12.4.4
-and newer).
+No browser runtime is distributed with this plugin, and none is used: the
+panel and the HUD are drawn natively through X-Plane's panel-graphics ImGui
+helpers (X-Plane 12.4.4 and newer).

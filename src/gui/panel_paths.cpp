@@ -1,8 +1,5 @@
 #include "zoal_atc/gui/panel_paths.hpp"
 
-#include <cctype>
-#include <iomanip>
-#include <sstream>
 
 namespace zoal_atc::gui {
 
@@ -22,24 +19,6 @@ char preferred_separator(std::string_view path) {
 
 bool is_platform_directory(std::string_view name) {
   return name == "mac_x64" || name == "win_x64" || name == "lin_x64";
-}
-
-std::string percent_escape(std::string_view value, bool keep_path_separators) {
-  std::ostringstream out;
-  out << std::uppercase << std::hex;
-  for (const char raw : value) {
-    const unsigned char ch = static_cast<unsigned char>(raw);
-    const bool alpha_num = std::isalnum(ch) != 0;
-    const bool safe = alpha_num || ch == '-' || ch == '_' || ch == '.';
-    const bool path_safe =
-        keep_path_separators && (ch == '/' || ch == ':' || ch == '\\');
-    if (safe || path_safe) {
-      out << static_cast<char>(ch == '\\' ? '/' : ch);
-      continue;
-    }
-    out << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(ch);
-  }
-  return out.str();
 }
 
 } // namespace
@@ -95,40 +74,6 @@ std::string plugin_root_from_binary_path(std::string_view plugin_binary_path) {
     return directory_name(binary_dir);
   }
   return binary_dir;
-}
-
-std::string apps_dir(std::string_view plugin_root) {
-  return join_path(plugin_root, "apps");
-}
-
-std::string assets_dir(std::string_view plugin_root) {
-  return join_path(plugin_root, "assets");
-}
-
-std::string shell_index_path(std::string_view plugin_root) {
-  return join_path(join_path(apps_dir(plugin_root), "zoal-atc"), "index.html");
-}
-
-std::string file_url(std::string_view path) {
-  const std::string escaped = percent_escape(path, true);
-  if (!escaped.empty() && escaped.front() == '/') {
-    return "file://" + escaped;
-  }
-  return "file:///" + escaped;
-}
-
-std::string query_escape(std::string_view value) {
-  return percent_escape(value, false);
-}
-
-std::string shell_home_url(std::string_view plugin_root,
-                           std::string_view plugin_version) {
-  // Only facts that are true for the life of the page belong in the URL. The
-  // console's state arrives live over the bridge (phase 23 M2), so baking a
-  // starting value in here would only give the panel something stale to show.
-  return file_url(shell_index_path(plugin_root)) +
-         "?plugin_version=" + query_escape(plugin_version) +
-         "&skyscript=ready";
 }
 
 } // namespace zoal_atc::gui
