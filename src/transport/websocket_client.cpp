@@ -242,7 +242,14 @@ bool connect_within(SocketHandle handle, const addrinfo *ai, int timeout_ms) {
 WebSocketClient::WebSocketClient(WebSocketEndpoint endpoint)
     : endpoint_(std::move(endpoint)) {}
 
-WebSocketClient::~WebSocketClient() { close(); }
+WebSocketClient::~WebSocketClient() {
+  close();
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (retired_ != -1) {
+    close_socket(retired_);
+    retired_ = -1;
+  }
+}
 
 WebSocketStatus WebSocketClient::connect() {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -365,7 +372,14 @@ std::string WebSocketClient::auth_token() const {
 void WebSocketClient::close_locked() {
   if (socket_ != -1) {
     shutdown_socket(socket_);
-    close_socket(socket_);
+    if (socket_ == reading_) {
+      // The reply thread is inside recv on it. Shutting it down wakes that
+      // read; the reader closes it, so its number cannot be handed to the
+      // next dial while the reader still holds it.
+      retired_ = socket_;
+    } else {
+      close_socket(socket_);
+    }
   }
   socket_ = -1;
   connected_.store(false, std::memory_order_release);
@@ -524,25 +538,41 @@ WebSocketStatus WebSocketClient::recv_exact(std::uint8_t *data,
   std::size_t received = 0;
   while (received < size) {
     SocketHandle socket = -1;
+    std::uint64_t generation = 0;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       if (!connected_.load(std::memory_order_relaxed) || socket_ == -1) {
         return WebSocketStatus::failure("websocket not connected");
       }
       socket = socket_;
+      generation = generation_.load(std::memory_order_relaxed);
+      reading_ = socket;
     }
 
     const int chunk = static_cast<int>(std::min<std::size_t>(
         size - received, static_cast<std::size_t>(16 * 1024)));
     const SocketIOResult n =
         recv_socket(socket, reinterpret_cast<char *>(data + received), chunk);
-    if (n <= 0) {
+    // Captured before the lock is retaken, so the error belongs to this read.
+    const std::string error = n < 0 ? socket_error_message() : std::string();
+    {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (socket_ == socket) {
-        close_locked();
+      reading_ = -1;
+      if (retired_ == socket) {
+        // Closed while this thread read it: the close is this thread's.
+        close_socket(socket);
+        retired_ = -1;
+        return WebSocketStatus::failure("websocket closed");
       }
-      return WebSocketStatus::failure(n == 0 ? "websocket closed"
-                                             : socket_error_message());
+      if (n <= 0) {
+        // Only the connection this read was on. A newer one is somebody
+        // else's to close.
+        if (socket_ == socket &&
+            generation_.load(std::memory_order_relaxed) == generation) {
+          close_locked();
+        }
+        return WebSocketStatus::failure(n == 0 ? "websocket closed" : error);
+      }
     }
     received += static_cast<std::size_t>(n);
   }
