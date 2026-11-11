@@ -444,9 +444,20 @@ void test_default_cap_is_thirty_two() {
   require(got.targets[0].callsign == "AC1", "nearest must still sort first");
 }
 
+// Into Sydney slot 0 went blank on the ground after landing, and the console
+// was left with a flight called nothing.
+void test_a_blank_slot_keeps_the_last_callsign() {
+  std::string last;
+  require(held_callsign("", last).empty(), "nothing held yet is nothing");
+  require(held_callsign("ANZ1551", last) == "ANZ1551", "read as it is");
+  require(held_callsign("", last) == "ANZ1551", "a blank slot keeps the callsign");
+  require(held_callsign("ANZ1552", last) == "ANZ1552", "a new one replaces it at once");
+}
+
 } // namespace
 
 int main() {
+  test_a_blank_slot_keeps_the_last_callsign();
   test_skips_ownship_slot();
   test_non_consecutive_slots();
   test_overstated_count_is_safe();
