@@ -188,6 +188,15 @@ TrafficExtract extract_targets(const TrafficArrays &arrays, int num_acf,
 std::string tcas_string_at(const std::vector<char> &blob, int index,
                            int slot_width = kTcasStringSlotWidth);
 
+// held_callsign is the ownship callsign to report: the one slot 0 holds now,
+// or, while it holds none, the last it held. Slot 0 is the simulator's TCAS
+// array, which multiplayer and traffic plugins also write. Into Sydney on
+// 10 November it went blank on the ground after landing, the console then held
+// a flight with no callsign, and every Ground transmission addressed nobody.
+// A different callsign replaces the held one at once: that is the pilot
+// changing it, not the array forgetting it.
+std::string held_callsign(const std::string &read, std::string &last);
+
 // traffic_distance_nm is the bounding distance between two points. It is an
 // equirectangular approximation, which is ample for a 30 NM cut-off and is
 // deliberately NOT the console's geometry — that stays in internal/traffic.
