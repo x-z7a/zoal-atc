@@ -122,6 +122,15 @@ private:
   WebSocketEndpoint endpoint_;
   mutable std::mutex mutex_;
   SocketHandle socket_ = -1;
+  // The socket the reply thread is blocked reading, and one closed while it
+  // was. A socket being read is shut down rather than closed, and the reader
+  // closes it when its read returns. Closing it under the reader freed its
+  // number for the very next dial, and the reader, waking on the dead socket,
+  // found that number current and closed the new connection instead: on
+  // 10 November into Sydney the redial was shut a second after it opened, and
+  // the console was dialled twice. Both guarded by mutex_.
+  SocketHandle reading_ = -1;
+  SocketHandle retired_ = -1;
   // Atomic so connected() can answer without the lock; every write still happens
   // under mutex_.
   std::atomic<bool> connected_{false};
