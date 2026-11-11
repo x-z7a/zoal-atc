@@ -224,4 +224,11 @@ TrafficExtract extract_targets(const TrafficArrays &arrays, int num_acf,
   return out;
 }
 
+std::string held_callsign(const std::string &read, std::string &last) {
+  if (!read.empty()) {
+    last = read;
+  }
+  return last;
+}
+
 } // namespace zoal_atc::telemetry
