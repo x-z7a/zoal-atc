@@ -15,6 +15,19 @@ said and what the simulator is doing, and renders and speaks what comes back.
 > operational use, and do not present generated ATC behavior as operationally
 > certified.
 
+## Screenshots
+
+<table>
+  <tr>
+    <td width="45%"><img src="docs/images/hud.png" alt="The HUD at the top right: the pilot's IFR clearance request and the controller's reply clearing Air China 2122 to Chongqing"></td>
+    <td width="55%"><img src="docs/images/panel.png" alt="The radio panel over the cockpit: flight, COM1, altitude, traffic, facility and filed-plan cards, the radio log, and a transmission being typed to Chengdu Delivery"></td>
+  </tr>
+  <tr>
+    <td><b>The HUD.</b> The pilot's request and the controller's IFR clearance.</td>
+    <td><b>The radio panel.</b> Own-ship readouts, the radio log, and a composer for typing a transmission or tuning COM1.</td>
+  </tr>
+</table>
+
 ## Project status
 
 zoal-atc is a working hobby project, not a finished product. Before you fly with
