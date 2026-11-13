@@ -1,12 +1,13 @@
 # zoal-atc — the X-Plane plugin
 
 `zoal-atc` is the X-Plane plugin half of the ZOAL AI air traffic control system.
-It is a deliberately thin *edge* process: push-to-talk audio capture, simulator
-data sampling, the in-sim panel, and transport to a `zoal-atc-console` server.
+It is the *edge* process that runs in the cockpit: it hears the pilot, samples the
+simulator, speaks the controllers' replies on the COM radios, draws the in-sim
+panel and HUD, and talks to a `zoal-atc-console` server over a WebSocket.
 
 **It owns no ATC logic.** Every clearance, instruction and refusal is authorized
-by the console's deterministic state machines. The plugin captures what the pilot
-said and what the simulator is doing, sends both, and renders what comes back.
+by the console's deterministic state machines. The plugin reports what the pilot
+said and what the simulator is doing, and renders and speaks what comes back.
 
 > **Not an approved operating procedure.** The phraseology, separation standards,
 > airport procedures and authority rules this system produces are a software
@@ -14,242 +15,100 @@ said and what the simulator is doing, sends both, and renders what comes back.
 > operational use, and do not present generated ATC behavior as operationally
 > certified.
 
-## Install
+## Project status
 
-1. Download the release archive for your platform from
-   [Releases](https://github.com/x-z7a/zoal-atc/releases) and unzip it.
-2. Drop the `zoal-atc` folder into `<X-Plane>/Resources/plugins/`.
-3. Launch X-Plane. In **Settings → Keyboard** (or Joystick), bind the command
-   `zoal_atc/ptt` ("zoal-atc: Push-to-Talk") to your push-to-talk key or button.
-4. Open the panel with **Plugins → zoal-atc → Toggle Panel**, or bind
-   `zoal_atc/gui_toggle`.
+zoal-atc is a working hobby project, not a finished product. Before you fly with
+it, know that:
 
-The archive contains the `.xpl`, the models and the typeface the panel and the
-HUD are set in. Both are drawn natively with X-Plane's panel-graphics ImGui
-helpers, so **X-Plane 12.4.4 or newer is required**.
+- **A SimBrief flight plan is required.** The console builds its picture of
+  your flight from your SimBrief OFP: route, altitudes, departure and arrival.
+  Without one, ATC doesn't know where you're going.
+- **Only IFR is supported.** VFR flights, flight following and pattern work are
+  not modelled yet.
+- **It aims to sound like real ATC.** Phraseology and procedures are modelled
+  as closely as we could manage on FAA and NAV CANADA publications. It is still
+  an approximation (see the notice above).
+- **Expect bugs and edge cases.** Unusual routes, procedures, airports or
+  readbacks can confuse it. Issue reports are welcome.
+- **The server side is closed for now.** The console (state machines, NLU,
+  navdata) is in a private repo. It will be open-sourced if there is interest,
+  so let us know if you want it.
+- **No cloud AI subscription is needed.** The language model runs locally. If
+  you host the console yourself, run the LLM on a different machine from
+  X-Plane so the two don't compete for CPU, GPU and memory. Our testing used an
+  M3 MacBook as that second machine. **Ask us if you are interested to host the server by yourself**
 
-Out of the box the plugin talks to the hosted console at `ws://atc.zoal.app/plugin`,
-so a fresh install needs no configuration. To point it at a console you run
-yourself, see *Console endpoint* below.
+## Quick start
+
+1. Create a [SimBrief](https://www.simbrief.com/) account, if you don't have
+   one, and file an IFR flight plan for your flight.
+2. Download the archive for your platform from
+   [Releases](https://github.com/x-z7a/zoal-atc/releases) and unzip it into
+   `<X-Plane>/Resources/plugins/`.
+3. In X-Plane, bind `zoal_atc/ptt` ("zoal-atc: Push-to-Talk") to a key or button.
+4. Open the panel from **Plugins → zoal-atc → Toggle Panel**. Enter your SimBrief
+   pilot ID on **Settings → Flight plan**, then hold push-to-talk and call the
+   controller.
+
+Requires **X-Plane 12.4.4 or newer**. Out of the box the plugin connects to the
+hosted console at `ws://atc.zoal.app/plugin`, so a fresh install needs no
+configuration. See **[INSTALL.md](INSTALL.md)** for platforms, configuration,
+SimBrief, authentication and troubleshooting.
 
 ## What it does
 
-- **Push-to-talk capture.** An SDK-free `PushToTalkController` with finite states
-  (`idle`, `recording`, `faulted`) and explicit outcomes for duplicate press,
-  stray release, short transmission, max-duration cutoff and recorder failure.
-  Microphone capture is cross-platform through `miniaudio`.
-- **Telemetry sampling.** The starter dataref catalog sampled into `telemetry`
-  frames, including TCAS traffic and authoritative ownship callsign, ICAO type
-  and Mode S identity from TCAS slot 0. Non-finite or out-of-range traffic
-  positions are discarded before serialization. The rate is
-  **console-controlled**: the plugin decodes the `telemetry_control` frame and
-  samples at the commanded interval, falling back to a local policy when no
-  command has arrived or the connection drops.
-- **Weather.** The newest METAR from X-Plane's real-weather download, sent on
-  airport change, on reconnect and every ten minutes. Navdata (airports,
-  procedures, airspace, fixes) is the console's job; the plugin ships none.
-- **The panel.** One resizable Dear ImGui window, drawn natively by the
-  plugin like the HUD and set in the same Inter, with Home (own-ship readouts,
-  the radio log and a composer to type a transmission or tune COM1) and
-  Settings tabs. Drag it from anywhere that is not a control, resize it from its edges. It takes the
-  keyboard only while a field is being typed into, and gives it back on Enter,
-  Escape or a click elsewhere; Cmd/Ctrl+V pastes (macOS and Windows). The
-  panel never talks to the console directly — everything goes through the
-  plugin's socket over the `console.request` / `console.event` bridge
-  (`PanelSession`), so credentials stay in the plugin. Three colour themes
-  (Graphite, Daylight and Night) are picked on Settings and apply to the panel
-  and the HUD together; the choice is stored as `panel_theme` in
-  `zoal_atc.cfg`. Neither window is a browser window: clicking any X-Plane
-  browser window blanks other plugins' UIs (Airfoillabs' XJet sidebar, for
-  one) until a non-browser window is clicked.
-- **The HUD.** One window pinned to the top right of the screen, drawn
-  natively by the plugin with Dear ImGui (X-Plane 12.4.4's panel-graphics
-  ImGui helpers), set in Inter (shipped in `fonts/`) and hinted by FreeType, and transparent except for what it draws: a bar with the
-  callsign, the console light and a menu to reload the flight plan, start a new
-  flight or open the panel, and under it the last three transmissions, each for
-  a minute. It is exactly as big as what it shows, and stays up while the panel
-  is closed. Toggle it from Plugins > zoal-atc > Toggle HUD or bind `zoal_atc/hud_toggle`.
-
-## Console endpoint
-
-The console does not have to be on the same machine. The plugin resolves its
-endpoint at `XPluginStart`, last source winning:
-
-1. `ws://atc.zoal.app/plugin` — the default: the hosted console, which is what a
-   downloaded release should reach without being configured first.
-2. `<X-Plane>/Output/preferences/zoal_atc.cfg`
-3. `ZOAL_ATC_CONSOLE_URL` / `ZOAL_ATC_CONSOLE_TOKEN` environment variables.
-
-Running a console locally is the case that needs configuring now. Put
-`url = ws://127.0.0.1:8765/plugin` in the config file (the port is not optional —
-omitting it means the scheme default, 80), or export `ZOAL_ATC_CONSOLE_URL` for a
-terminal-launched sim.
-
-X-Plane is usually launched from Finder or Steam, where an exported variable
-never reaches it, so the config file is the option to rely on; the variables are
-for a terminal-launched development run.
-
-**The plugin writes the config file itself on first run**, so it is discoverable
-at the path that reads it rather than only here. The file it leaves is fully
-commented — creating it changes nothing, and an untouched template resolves to
-the same loopback default as no file at all. An existing file is never
-overwritten, including one you deliberately emptied, and an install that cannot
-be written to is logged and flown past.
-
-Uncomment and edit:
-
-```ini
-# <X-Plane>/Output/preferences/zoal_atc.cfg
-url   = ws://atc.zoal.app/plugin
-token = your-shared-secret
-```
-
-Omitting the port means the scheme default (80), not the development port.
-Unknown keys are ignored, so a config written for a newer plugin will not stop an
-older one from starting, but a malformed `url` is refused outright rather than
-falling back — connecting somewhere other than where you asked is worse than not
-connecting. The resolved endpoint is written to the X-Plane log at startup (the
-token is reported only as present or absent, never echoed).
-
-`wss://` is **rejected**, not downgraded: this client speaks plain TCP and has no
-TLS layer, so accepting it would put push-to-talk audio on the wire in the clear
-while the config claimed otherwise.
-
-### Authentication
-
-The token can be set **in the sim**, on the panel's Settings tab under
-*Connection*. It is the one setting the plugin stores itself rather than the
-console, because it is the credential the console refuses the connection over —
-gated on a live socket like everything else, the control that fixes a bad token
-would be disabled exactly when it is needed. Saving rewrites the `token` line in
-`zoal_atc.cfg`, keeping your comments and other keys, then reconnects so the
-status line shows whether the console accepted it. Save it empty to clear it.
-The console URL is deliberately read-only there: a mistyped endpoint takes you
-off the air with no way back from inside the sim.
-
-When `token` is set the plugin sends `Authorization: Bearer <token>` on the
-upgrade. The console enforces it when `ZOAL_ATC_PLUGIN_TOKEN` is set in its own
-environment, refusing the upgrade with `401` before a WebSocket exists. Both
-unset leaves the endpoint open, which is the loopback default.
-
-A console reachable from anything other than loopback **needs** this set —
-otherwise anyone who can reach it can stream audio in and hear the ATC replies.
-Note that over `ws://` the token crosses the network in cleartext: it stops
-opportunistic scanning of an open endpoint, but it is not a substitute for TLS.
-
-## Push-to-talk
-
-The plugin is a WebSocket client. A push-to-talk turn is heard in the cockpit
-and only its words leave the aircraft:
-
-- `audio_start`: `session_id`, `sequence`, `sample_rate_hz`, `channels`,
-  `format`, and `transmit_com` and `frequency_hz` read from the radio the instant
-  the button goes down, so the console knows which channel the pilot keyed
-- `transcript`: the words, their timing, the confidence and the model
-- `audio_cancel`: a short or faulted turn, or one that could not be transcribed
-
-whisper.cpp (pinned in `scripts/whisper-version.txt`) transcribes on its own
-thread — Metal on macOS, the CPU elsewhere — so the X-Plane command and
-flight-loop callbacks only enqueue the turn. The console sends an `stt_context`
-with the prompt to transcribe with (callsign, stations, places, runways, route),
-which is what turns "C21" back into "AC21". The hello declares `local_stt` once
-the model has loaded. The recording never leaves the aircraft: a turn that
-cannot be transcribed is cancelled, because the console does not transcribe.
-
-## Controller voices
-
-Every reply is said by Kokoro v1.0 through sherpa-onnx (pinned in
-`scripts/sherpa-onnx-version.txt`), in the voice of the position sending it.
-The console names a `voice` on every `atc_reply`, stable per station, so Ground
-and Tower sound like two people. Voice n is entry n-1 of the voice catalogue
-(`src/tts/voice_catalogue_table.inc`): 1-54 are Kokoro's own speakers in the
-model's order — American, British, and the Spanish, French, Hindi, Italian,
-Japanese, Portuguese and Mandarin speakers, who speak English with their accent
-— and 55 onward are blends of two of them, for the accents Kokoro has few
-voices for. The console chooses from the accent of the field's country; British
-and Indian English are spoken with the British lexicon, loaded only the first
-time one is needed.
-
-The catalogue is made on the pilot's machine the first time the plugin starts,
-from the bundled model: the blended table is written beside the stock one as
-`voices-zoal.bin`, and `model.onnx` is given the catalogue's speaker count by
-appending one metadata entry, because sherpa-onnx refuses a table of a size the
-model does not declare. Nothing extra is downloaded. Only then does the hello
-declare `voice_catalogue_2`, and a console sends a voice past 28 only to a
-client that declared it. Each voice speaks at its own speed, measured so all of
-them keep a controller's pace (about 205 words a minute), and words Kokoro's
-lexicons lack — "niner", "ILS", "RNAV", "VOR" — are added in
-`lexicon-aviation-*.txt`, since a word in no lexicon is left out of the speech.
-`scripts/voice-catalogue.py` regenerates the table, the speeds and the
-aviation lexicon. Synthesis starts the moment a reply arrives, on its own thread, a
-sentence at a time, so the first sentence of a long clearance is ready while
-the rest is still being made. Each sentence is shaped into what a VHF receiver
-passes, 300 to 3,000 Hz with a little compression, and plays on the audio bus of
-the COM radio tuned to the channel the controller said it on (`frequency_hz`),
-so Tower on COM2 comes out of COM2 and that radio's volume knob controls it.
-With both radios on the channel, or neither, it is the one the pilot has
-selected.
-
-Nothing else in the cockpit speaks. The `speak_ack` is sent when the audio has
-actually played, with `ok:true`; a reply whose voices are not loaded, whose
-synthesis failed or took more than twelve seconds to start, or which the radio
-would not play is acknowledged `ok:false`, so the console knows the pilot did
-not hear it.
-
-## Models
-
-Both models ship inside the plugin folder, under `models/` — about 560MB, of
-which Kokoro's model, voices and English lexicons are 380MB. `make install-plugin` and the release targets
-fetch them once into `.cache/models` (checksums pinned in
-`scripts/ensure-models.sh`) and copy them in; `make models` fetches them alone.
-
-## Build
-
-Requires **CMake ≥ 3.24** and a **C++17 toolchain** (MinGW on Windows). No
-Node, no browser runtime.
-
-```sh
-make            # list targets
-make gate       # the core tests (panel and HUD models included) — the pre-done gate
-make preview    # renders the panel in every theme to build-preview/*.png, no X-Plane
-```
-
-| Target | What it does |
+| Area | In short |
 | --- | --- |
-| `make test` | Builds and runs the SDK-free C++ core tests (no SDK, no ImGui) |
-| `make preview` | Renders the panel off-screen with `tools/panel_preview` — the same `PanelSession` and drawing code the plugin runs, fed a scripted console |
-| `make plugin` | Builds the `.xpl`, bootstrapping the X-Plane SDK into `sdk/`, `miniaudio.h` into `vendor/`, whisper.cpp into `.cache/whisper.cpp-*`, Dear ImGui into `.cache/imgui-*`, FreeType into `.cache/freetype-*`, and sherpa-onnx into `.cache/sherpa-onnx-*` |
-| `make install-plugin` | Builds and installs into X-Plane (`LOCAL_XPLANE_PLUGIN_DIR=` to override the path) |
-| `make models` | Fetches the transcription model and the controller voices into `.cache/models` |
-| `make release-plugin` / `make archive-plugin` | Assembles / zips the release tree in `dist/` |
-| `make release-all` | macOS + Windows + Linux merged into one tree (macOS host, needs Docker and `brew install mingw-w64`) |
+| **Push-to-talk** | Captures the microphone with miniaudio while the PTT command is held, and records which COM radio and frequency was keyed. |
+| **Speech-to-text** | Transcribes each transmission in the cockpit with whisper.cpp (Metal on macOS, CPU elsewhere), prompted by context the console sends (callsign, stations, runways, route). Audio never leaves the aircraft — only the words do. |
+| **Controller voices** | Speaks every reply with Kokoro v1.0 through sherpa-onnx, in a stable voice per position chosen from a catalogue of accents, band-limited to sound like VHF, on the audio bus of the COM radio tuned to that channel. |
+| **Telemetry** | Samples own-ship state, TCAS traffic and aircraft identity at a rate the console commands, with a local fallback. |
+| **Weather** | Sends the newest METAR from X-Plane's real-weather download on airport change, on reconnect and every ten minutes. |
+| **Panel** | A resizable Dear ImGui window: own-ship readouts, the radio log, a composer to type a transmission or tune COM1, and Settings (theme, console token, SimBrief pilot ID, flight-plan import). |
+| **HUD** | A compact bar at the top right — callsign, console status, a menu to reload the plan, start a new flight or open the panel — and the last three transmissions. |
+| **Themes** | Graphite, Daylight and Night, shared by panel and HUD. |
 
-`make install-plugin` assembles and verifies with the same two scripts that guard
-the shipped artifact, so what you fly locally is what a release contains.
+Navdata (airports, procedures, airspace, fixes), NLU and ATC response text all
+live in the console; the plugin ships none of it.
 
-To use a preinstalled X-Plane SDK, pass `ATC_XPLANE_SDK=/path/to/XPSDK`; the SDK root may
-be the official layout containing `CHeaders/XPLM` and `Libraries`, or a flattened
-folder containing `XPLM` and `Libraries`.
+The panel and HUD are drawn natively with X-Plane's panel-graphics ImGui helpers
+rather than browser windows, because clicking any X-Plane browser window blanks
+other plugins' UIs (for example Airfoillabs' XJet sidebar).
 
-CI builds and tests the core and builds the plugin on macOS, Linux and Windows
-for every pull request.
+## How it fits together
+
+```
+ pilot ──PTT──▶ miniaudio ──▶ whisper.cpp ──transcript──┐
+                                                         │
+ X-Plane datarefs ──▶ telemetry / METAR ─────────────────┼──▶ WebSocket ──▶ zoal-atc-console
+                                                         │                   (state machines,
+ panel / HUD ◀── console.event ◀─────────────────────────┤                    NLU, navdata)
+                                                         │
+ COM radio ◀── VHF shaping ◀── Kokoro (sherpa-onnx) ◀────┘ atc_reply
+```
+
+The panel and HUD never talk to the console directly; every request goes
+through the plugin's own socket, so credentials stay in the plugin.
+
+## Documentation
+
+- **[INSTALL.md](INSTALL.md)** — installing a release, configuring the console
+  endpoint, tokens, SimBrief, the config file and troubleshooting.
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** — building from source, tests, the
+  off-screen panel preview, source layout, wire contracts, voices and releases.
 
 ## Relationship to the console
 
 This repo is consumed as a git submodule by the private console repo, which owns
-the STT, NLU, the deterministic state machines and the ATC response text. Two
-wire contracts are mirrored by hand across the language boundary and are checked
-on both sides — change one and change the other in the same breath:
-
-- the telemetry frame `src/telemetry/telemetry_frame.cpp` builds
-  (`tests/telemetry_frame_test.cpp`, `tests/traffic_test.cpp`), and
-- the GUI frame codec in `src/gui/gui_frames.cpp` (`tests/gui_frames_test.cpp`),
-  and the action and event names the panel and the HUD use, in
-  `src/gui/panel_session.cpp` and `src/gui/hud_session.cpp`.
+the NLU, the deterministic state machines and the ATC response text. The wire
+contracts between them are mirrored by hand and tested on both sides — see
+[DEVELOPMENT.md](DEVELOPMENT.md#wire-contracts).
 
 ## License
 
-GPL-3.0-or-later, with an **X-Plane SDK linking exception** — see [`LICENSE`](LICENSE)
-and [`LICENSE-EXCEPTION`](LICENSE-EXCEPTION). Dear ImGui (MIT), FreeType (FTL),
-Inter (OFL) and miniaudio (public domain / MIT-0) are downloaded at build time;
-their notices travel in every release at `licenses/`.
+GPL-3.0-or-later, with an **X-Plane SDK linking exception** — see
+[`LICENSE`](LICENSE) and [`LICENSE-EXCEPTION`](LICENSE-EXCEPTION). Third-party
+components (Dear ImGui, FreeType, Inter, miniaudio, whisper.cpp, sherpa-onnx and
+the models) are downloaded at build time; their notices travel in every release
+under `licenses/`, and are listed in
+[`licenses-third-party/THIRD-PARTY.txt`](licenses-third-party/THIRD-PARTY.txt).
