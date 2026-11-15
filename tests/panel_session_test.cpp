@@ -385,6 +385,34 @@ void imports_the_plan() {
              "the answer is the plan");
 }
 
+void auto_starts_a_new_flight_and_reloads_the_plan() {
+  Rig rig;
+  rig.bring_up();
+  rig.bridge.on_socket_frame(
+      gui_event("flight_snapshot",
+                R"({"hasSession":false,"callsign":"ACA21","lifecycle":"ended"})"),
+      0);
+  rig.panel.pump(0, kWall);
+  rig.sent();
+
+  rig.bridge.on_socket_frame(
+      gui_event("flight_snapshot",
+                R"({"hasSession":true,"callsign":"ACA21","lifecycle":"taxi"})"),
+      0);
+  rig.panel.pump(0, kWall + 1'000);
+  const auto items = rig.sent();
+  expect_true(Rig::id_of(items, "end_flight_session") != 0,
+              "new flight auto-resets the session");
+  const std::uint64_t refresh = Rig::id_of(items, "refresh_flight_plan");
+  expect_true(refresh != 0, "new flight auto-reloads the plan");
+  for (const auto &item : items) {
+    if (item.what == "refresh_flight_plan") {
+      expect_true(item.frame.find(R"("pilotId":"")") != std::string::npos,
+                  "reload uses the stored pilot ID");
+    }
+  }
+}
+
 void saves_settings_locally() {
   Rig rig;
   rig.bring_up();
@@ -444,6 +472,7 @@ int main() {
   transmits_and_shows_a_refusal();
   ends_the_flight_on_the_second_press();
   imports_the_plan();
+  auto_starts_a_new_flight_and_reloads_the_plan();
   saves_settings_locally();
   splits_a_json_array();
 

@@ -210,7 +210,8 @@ private:
   void handle(const std::string &envelope, std::int64_t wall_ms,
               std::uint64_t steady_ms);
   void handle_status(const std::string &envelope, std::uint64_t steady_ms);
-  void handle_event(const std::string &envelope, std::int64_t wall_ms);
+  void handle_event(const std::string &envelope, std::int64_t wall_ms,
+                    std::uint64_t steady_ms);
   void handle_response(const std::string &envelope);
   void apply_settings(const std::string &payload_json);
   void apply_connection(const std::string &payload_json);
@@ -226,6 +227,8 @@ private:
   std::optional<PanelTelemetry> telemetry_;
   std::optional<std::int64_t> last_telemetry_wall_ms_;
   bool has_flight_ = false;
+  bool flight_snapshot_seen_ = false;
+  std::optional<std::int64_t> last_auto_new_flight_wall_ms_;
   std::string callsign_;
   std::string lifecycle_;
   std::optional<std::int64_t> facility_count_;
