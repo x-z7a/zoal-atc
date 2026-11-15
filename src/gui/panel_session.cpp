@@ -18,7 +18,6 @@ using transport::json_unquote;
 
 // Messages drained per frame. The bridge caps the queue; this caps the work.
 constexpr std::size_t kMaxMessagesPerPump = 64;
-constexpr std::int64_t kAutoNewFlightCooldownMs = 30'000;
 
 // Top-level fields only: an envelope wraps a console payload with keys of its
 // own ("kind" in a comm_log entry), which must not answer for the envelope.
@@ -462,7 +461,7 @@ void PanelSession::handle(const std::string &envelope, std::int64_t wall_ms,
   if (*kind == "status") {
     handle_status(envelope, steady_ms);
   } else if (*kind == "event") {
-    handle_event(envelope, wall_ms, steady_ms);
+    handle_event(envelope, wall_ms);
   } else if (*kind == "response") {
     handle_response(envelope);
   }
@@ -497,8 +496,8 @@ void PanelSession::handle_status(const std::string &envelope,
   }
 }
 
-void PanelSession::handle_event(const std::string &envelope, std::int64_t wall_ms,
-                                std::uint64_t steady_ms) {
+void PanelSession::handle_event(const std::string &envelope,
+                                std::int64_t wall_ms) {
   const auto event = top_string(envelope, "event");
   const auto payload = json_raw_field(envelope, "payload");
   if (!event.has_value() || !payload.has_value()) {
@@ -515,23 +514,9 @@ void PanelSession::handle_event(const std::string &envelope, std::int64_t wall_m
     }
   } else if (*event == "flight_snapshot") {
     if (is_object(*payload)) {
-      const bool has_session = top_bool(*payload, "hasSession");
-      const bool started =
-          flight_snapshot_seen_ && !has_flight_ && has_session;
-      has_flight_ = has_session;
-      flight_snapshot_seen_ = true;
+      has_flight_ = top_bool(*payload, "hasSession");
       callsign_ = top_string(*payload, "callsign").value_or("");
       lifecycle_ = top_string(*payload, "lifecycle").value_or("");
-      const bool cooling_down =
-          last_auto_new_flight_wall_ms_.has_value() &&
-          wall_ms - *last_auto_new_flight_wall_ms_ < kAutoNewFlightCooldownMs;
-      if (started && !cooling_down) {
-        last_auto_new_flight_wall_ms_ = wall_ms;
-        send("end_flight_session", "", Pending{Request::end_flight, &home_},
-             steady_ms);
-        send("refresh_flight_plan", R"({"pilotId":""})",
-             Pending{Request::import_plan, &home_}, steady_ms);
-      }
     }
   } else if (*event == "facility_snapshot") {
     if (is_object(*payload)) {

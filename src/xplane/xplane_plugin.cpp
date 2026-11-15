@@ -129,6 +129,12 @@ zoal_atc::gui::GuiBridge g_gui_bridge;
 TelemetryRateController g_rate_controller;
 std::mutex g_rate_mutex;
 
+struct AutoNewFlightActions {
+  bool end_flight_pending = false;
+  bool reload_plan_pending = false;
+};
+AutoNewFlightActions g_auto_new_flight_actions;
+
 // One-off telemetry pull queries (P2-M4 T4): the reply-receiver thread parses a
 // telemetry_query and enqueues it here; the flight loop drains and services it on
 // the main thread (XPLM dataref reads must not happen off the main thread).
@@ -1738,9 +1744,32 @@ void sync_gui_connection(std::uint64_t now_ms) {
   g_gui_bridge.set_connected(up, now_ms);
 }
 
+void run_auto_new_flight_actions(std::uint64_t now_ms) {
+  if (!g_auto_new_flight_actions.end_flight_pending &&
+      !g_auto_new_flight_actions.reload_plan_pending) {
+    return;
+  }
+  if (g_auto_new_flight_actions.end_flight_pending) {
+    const auto accepted = g_gui_bridge.submit(
+        R"({"action":"end_flight_session"})", now_ms, zoal_atc::gui::GuiView::panel);
+    if (accepted.accepted) {
+      g_auto_new_flight_actions.end_flight_pending = false;
+    }
+  }
+  if (g_auto_new_flight_actions.reload_plan_pending) {
+    const auto accepted = g_gui_bridge.submit(
+        R"({"action":"refresh_flight_plan","payload":{"pilotId":""}})", now_ms,
+        zoal_atc::gui::GuiView::panel);
+    if (accepted.accepted) {
+      g_auto_new_flight_actions.reload_plan_pending = false;
+    }
+  }
+}
+
 void process_gui_bridge() {
   const std::uint64_t now = monotonic_ms();
   sync_gui_connection(now);
+  run_auto_new_flight_actions(now);
   g_gui_bridge.tick(now);
   if (g_transport_sink) {
     const auto frames = g_gui_bridge.take_socket_frames();
@@ -1948,4 +1977,16 @@ PLUGIN_API int XPluginEnable() { return 1; }
 
 PLUGIN_API void XPluginDisable() {}
 
-PLUGIN_API void XPluginReceiveMessage(XPLMPluginID, int, void *) {}
+PLUGIN_API void XPluginReceiveMessage(XPLMPluginID in_from, int message,
+                                      void *param) {
+  if (in_from != XPLM_PLUGIN_XPLANE) {
+    return;
+  }
+  if (message == XPLM_MSG_PLANE_LOADED &&
+      reinterpret_cast<std::intptr_t>(param) == 0) {
+    g_auto_new_flight_actions.end_flight_pending = true;
+    g_auto_new_flight_actions.reload_plan_pending = true;
+    log_line("new flight detected (XPLM_MSG_PLANE_LOADED): auto reset and "
+             "SimBrief reload queued");
+  }
+}
