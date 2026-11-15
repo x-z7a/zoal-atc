@@ -41,6 +41,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <variant>
@@ -132,8 +133,14 @@ std::mutex g_rate_mutex;
 struct AutoNewFlightActions {
   bool end_flight_pending = false;
   bool reload_plan_pending = false;
+  bool was_paused = false;
+  bool airport_changed_while_paused = false;
+  std::uint64_t unpaused_at_ms = 0;
+  std::uint64_t last_queued_ms = 0;
 };
 AutoNewFlightActions g_auto_new_flight_actions;
+constexpr std::uint64_t kAutoNewFlightCooldownMs = 30'000;
+constexpr std::uint64_t kAirportChangeAfterUnpauseWindowMs = 15'000;
 
 // One-off telemetry pull queries (P2-M4 T4): the reply-receiver thread parses a
 // telemetry_query and enqueues it here; the flight loop drains and services it on
@@ -1197,6 +1204,8 @@ bool g_last_websocket_connected = false;
 constexpr double kAirportCheckIntervalSecs = 3.0;
 constexpr double kMetarIntervalSecs = 600.0;
 
+void queue_auto_new_flight(std::string_view reason, std::uint64_t now_ms);
+
 // active_com maps the audio_com_selection dataref (6 = COM1, 7 = COM2 in
 // X-Plane 11+) to the wire contract's 1 | 2 (0 = unknown).
 int active_com_from_selection(int selection) {
@@ -1617,6 +1626,14 @@ void check_nearest_airport(double now_secs) {
   g_airport_id = id;
   g_airport_name = name;
   log_line("active airport changed to " + g_airport_id);
+  const std::uint64_t now_ms = monotonic_ms();
+  if (g_auto_new_flight_actions.was_paused) {
+    g_auto_new_flight_actions.airport_changed_while_paused = true;
+  } else if (g_auto_new_flight_actions.unpaused_at_ms != 0 &&
+             now_ms - g_auto_new_flight_actions.unpaused_at_ms <=
+                 kAirportChangeAfterUnpauseWindowMs) {
+    queue_auto_new_flight("airport changed just after unpause", now_ms);
+  }
   send_metar_now(now_secs);
 }
 
@@ -1744,6 +1761,31 @@ void sync_gui_connection(std::uint64_t now_ms) {
   g_gui_bridge.set_connected(up, now_ms);
 }
 
+void queue_auto_new_flight(std::string_view reason, std::uint64_t now_ms) {
+  if (g_auto_new_flight_actions.last_queued_ms != 0 &&
+      now_ms - g_auto_new_flight_actions.last_queued_ms <
+          kAutoNewFlightCooldownMs) {
+    return;
+  }
+  g_auto_new_flight_actions.end_flight_pending = true;
+  g_auto_new_flight_actions.reload_plan_pending = true;
+  g_auto_new_flight_actions.last_queued_ms = now_ms;
+  log_line("new flight detected (" + std::string(reason) +
+           "): auto reset and SimBrief reload queued");
+}
+
+void detect_airport_change_new_flight(std::uint64_t now_ms) {
+  const bool paused = read_i(g_datarefs.paused) != 0;
+  if (g_auto_new_flight_actions.was_paused && !paused) {
+    g_auto_new_flight_actions.unpaused_at_ms = now_ms;
+    if (g_auto_new_flight_actions.airport_changed_while_paused) {
+      queue_auto_new_flight("airport changed while paused", now_ms);
+      g_auto_new_flight_actions.airport_changed_while_paused = false;
+    }
+  }
+  g_auto_new_flight_actions.was_paused = paused;
+}
+
 void run_auto_new_flight_actions(std::uint64_t now_ms) {
   if (!g_auto_new_flight_actions.end_flight_pending &&
       !g_auto_new_flight_actions.reload_plan_pending) {
@@ -1769,6 +1811,7 @@ void run_auto_new_flight_actions(std::uint64_t now_ms) {
 void process_gui_bridge() {
   const std::uint64_t now = monotonic_ms();
   sync_gui_connection(now);
+  detect_airport_change_new_flight(now);
   run_auto_new_flight_actions(now);
   g_gui_bridge.tick(now);
   if (g_transport_sink) {
@@ -1984,9 +2027,6 @@ PLUGIN_API void XPluginReceiveMessage(XPLMPluginID in_from, int message,
   }
   if (message == XPLM_MSG_PLANE_LOADED &&
       reinterpret_cast<std::intptr_t>(param) == 0) {
-    g_auto_new_flight_actions.end_flight_pending = true;
-    g_auto_new_flight_actions.reload_plan_pending = true;
-    log_line("new flight detected (XPLM_MSG_PLANE_LOADED): auto reset and "
-             "SimBrief reload queued");
+    queue_auto_new_flight("XPLM_MSG_PLANE_LOADED", monotonic_ms());
   }
 }
