@@ -105,6 +105,8 @@ through the plugin's own socket, so credentials stay in the plugin.
 
 ## Documentation
 
+- **[HOW-TO.md](HOW-TO.md)** — a pilot's guide: download, setup, flying a
+  flight, voices and getting help.
 - **[INSTALL.md](INSTALL.md)** — installing a release, configuring the console
   endpoint, tokens, SimBrief, the config file and troubleshooting.
 - **[DEVELOPMENT.md](DEVELOPMENT.md)** — building from source, tests, the
