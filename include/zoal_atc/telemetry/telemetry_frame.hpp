@@ -73,6 +73,20 @@ struct TelemetrySnapshot {
   int transponder_code = 0;
   int transponder_mode = 0;
 
+  // What the instruments are set to, as Mode S Enhanced Surveillance downlinks
+  // it to a radar display (ICAO Doc 9871): the altitude selected on the
+  // autopilot, the barometric setting the pilot has set, and the selected
+  // heading. A controller reads them to answer "what do you see selected?" and
+  // to say "check selected altitude". Each is sent only when the simulator
+  // provides its dataref: a selected altitude of zero and no selected altitude
+  // are different claims.
+  bool has_selected_altitude = false;
+  double selected_altitude_ft = 0;
+  bool has_baro_setting = false;
+  double baro_setting_inhg = 0;
+  bool has_selected_heading = false;
+  double selected_heading_deg = 0;
+
   // Traffic (phase21). The bounded surveillance picture; `traffic_status` is
   // what lets the console tell an empty sky from a missing feed, so it is sent
   // on every frame even when the list is empty.

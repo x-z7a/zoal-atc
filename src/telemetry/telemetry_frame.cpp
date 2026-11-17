@@ -54,6 +54,15 @@ std::string build_telemetry_frame(const TelemetrySnapshot &s,
 
   out << ",\"transponder_code\":" << s.transponder_code
       << ",\"transponder_mode\":" << s.transponder_mode;
+  if (s.has_selected_altitude) {
+    out << ",\"selected_altitude_ft\":" << json_number(s.selected_altitude_ft);
+  }
+  if (s.has_baro_setting) {
+    out << ",\"baro_setting_inhg\":" << json_number(s.baro_setting_inhg);
+  }
+  if (s.has_selected_heading) {
+    out << ",\"selected_heading_deg\":" << json_number(s.selected_heading_deg);
+  }
 
   // The traffic block is always present, including its status, because an
   // absent block and an empty sky are different claims and only the plugin can
