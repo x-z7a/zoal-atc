@@ -91,6 +91,30 @@ void frame_matches_wire_contract() {
   require_contains(frame, "\"now_secs\":123.5", "clock");
 }
 
+// The Mode S downlinked parameters are sent when the simulator has them, and
+// not at all when it does not: zero selected and nothing selected differ.
+void cockpit_readings_are_sent_only_when_present() {
+  TelemetrySnapshot s = sample_snapshot();
+  const std::string without = build_telemetry_frame(s, "s");
+  require(without.find("selected_altitude_ft") == std::string::npos,
+          "no selected altitude without the dataref");
+  require(without.find("baro_setting_inhg") == std::string::npos,
+          "no baro setting without the dataref");
+  require(without.find("selected_heading_deg") == std::string::npos,
+          "no selected heading without the dataref");
+
+  s.has_selected_altitude = true;
+  s.selected_altitude_ft = 39000;
+  s.has_baro_setting = true;
+  s.baro_setting_inhg = 29.92;
+  s.has_selected_heading = true;
+  s.selected_heading_deg = 101;
+  const std::string with = build_telemetry_frame(s, "s");
+  require_contains(with, "\"selected_altitude_ft\":39000", "selected altitude");
+  require_contains(with, "\"baro_setting_inhg\":29.92", "baro setting");
+  require_contains(with, "\"selected_heading_deg\":101", "selected heading");
+}
+
 // Zero/default fields still render (the console treats zero as absent).
 void empty_snapshot_renders() {
   const std::string frame = build_telemetry_frame(TelemetrySnapshot{}, "s");
@@ -291,6 +315,7 @@ void panel_tune_request_parses() {
 
 int main() {
   frame_matches_wire_contract();
+  cockpit_readings_are_sent_only_when_present();
   empty_snapshot_renders();
   rate_policy_is_state_dependent();
   control_frame_parses();
