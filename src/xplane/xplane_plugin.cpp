@@ -1017,6 +1017,9 @@ struct TelemetryDatarefs {
   XPLMDataRef qnh_pas = nullptr;
   XPLMDataRef transponder_code = nullptr;
   XPLMDataRef transponder_mode = nullptr;
+  XPLMDataRef selected_altitude_ft = nullptr;
+  XPLMDataRef baro_setting_inhg = nullptr;
+  XPLMDataRef selected_heading_deg = nullptr;
   XPLMDataRef paused = nullptr;
   XPLMDataRef total_running_time_sec = nullptr;
 
@@ -1089,6 +1092,14 @@ struct TelemetryDatarefs {
         XPLMFindDataRef("sim/cockpit2/radios/actuators/transponder_code");
     transponder_mode =
         XPLMFindDataRef("sim/cockpit2/radios/actuators/transponder_mode");
+    // The Mode S downlinked parameters. The pilot's side, because that is the
+    // side the captain flies and the one Mode S reports.
+    selected_altitude_ft =
+        XPLMFindDataRef("sim/cockpit2/autopilot/altitude_dial_ft");
+    baro_setting_inhg = XPLMFindDataRef(
+        "sim/cockpit2/gauges/actuators/barometer_setting_in_hg_pilot");
+    selected_heading_deg =
+        XPLMFindDataRef("sim/cockpit2/autopilot/heading_dial_deg_mag_pilot");
     paused = XPLMFindDataRef("sim/time/paused");
     total_running_time_sec =
         XPLMFindDataRef("sim/time/total_running_time_sec");
@@ -1464,6 +1475,20 @@ TelemetrySnapshot sample_telemetry() {
 
   s.transponder_code = read_i(g_datarefs.transponder_code);
   s.transponder_mode = read_i(g_datarefs.transponder_mode);
+  // Each sent only where the simulator has the dataref; all three are float
+  // and already in the unit the wire uses.
+  if (g_datarefs.selected_altitude_ft != nullptr) {
+    s.has_selected_altitude = true;
+    s.selected_altitude_ft = read_f(g_datarefs.selected_altitude_ft);
+  }
+  if (g_datarefs.baro_setting_inhg != nullptr) {
+    s.has_baro_setting = true;
+    s.baro_setting_inhg = read_f(g_datarefs.baro_setting_inhg);
+  }
+  if (g_datarefs.selected_heading_deg != nullptr) {
+    s.has_selected_heading = true;
+    s.selected_heading_deg = read_f(g_datarefs.selected_heading_deg);
+  }
   s.paused = read_i(g_datarefs.paused) != 0;
   s.now_secs = read_f(g_datarefs.total_running_time_sec);
 
