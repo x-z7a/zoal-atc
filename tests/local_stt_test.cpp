@@ -46,9 +46,11 @@ private:
 class FakeTranscriber final : public stt::Transcriber {
 public:
   stt::Transcript transcribe(const std::vector<std::int16_t> &, int,
-                             const std::string &prompt) override {
+                             const std::string &prompt,
+                             const std::string &language) override {
     std::lock_guard<std::mutex> lock(mutex_);
     last_prompt_ = prompt;
+    last_language_ = language;
     stt::Transcript out;
     if (fail) {
       out.error = "model not loaded";
@@ -65,11 +67,16 @@ public:
     std::lock_guard<std::mutex> lock(mutex_);
     return last_prompt_;
   }
+  std::string last_language() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return last_language_;
+  }
   bool fail = false;
 
 private:
   mutable std::mutex mutex_;
   std::string last_prompt_;
+  std::string last_language_;
 };
 
 bool contains(const std::string &haystack, const std::string &needle) {
@@ -135,6 +142,26 @@ void transcribed_turn_is_sent_as_words() {
   }
   require(transcriber.last_prompt() == "Delta sixteen sixteen, DAL1616.",
           "the console's prompt is used");
+  require(transcriber.last_language() == "en",
+          "a console that names no language is transcribed in English");
+}
+
+// The language the console sends is the one the turn is transcribed in.
+void the_console_language_is_used() {
+  Capture capture;
+  FakeTranscriber transcriber;
+  stt::PromptHolder prompt;
+  prompt.set(stt::SttContext{"Montreal Centre, ACA21.", "fr"});
+  {
+    AsyncWebSocketPttSink sink(capture, "session-1");
+    sink.set_transcriber(&transcriber, &prompt);
+    sink.publish(started(6));
+    sink.publish(ready(6));
+    (void)wait_for(capture, 2);
+  }
+  require(transcriber.last_language() == "fr", "the console's language is used");
+  require(transcriber.last_prompt() == "Montreal Centre, ACA21.",
+          "with its prompt");
 }
 
 // A transcriber that cannot produce a transcript closes the turn: the
@@ -185,13 +212,27 @@ void silence_is_reported_as_silence() {
 }
 
 void the_console_prompt_is_read() {
-  const auto prompt = stt::parse_stt_context(
+  const auto context = stt::parse_stt_context(
       "{\"type\":\"stt_context\",\"prompt\":\"Air Canada two one, ACA21.\"}");
-  require(prompt.has_value() && *prompt == "Air Canada two one, ACA21.",
+  require(context.has_value() && context->prompt == "Air Canada two one, ACA21.",
           "stt_context carries the prompt");
+  require(context->language.empty(), "an older console names no language");
   require(!stt::parse_stt_context("{\"type\":\"atc_reply\",\"text\":\"x\"}")
                .has_value(),
           "other frames are not");
+
+  // The language comes before the free text, so a prompt that says
+  // "language" cannot answer for it.
+  const auto named = stt::parse_stt_context(
+      "{\"type\":\"stt_context\",\"language\":\"en\",\"prompt\":"
+      "\"Montreal Center, \\\"language\\\": \\\"fr\\\", AC21\"}");
+  require(named.has_value() && named->language == "en",
+          "stt_context carries the language");
+
+  stt::PromptHolder holder;
+  require(holder.language() == "en", "English until the console says otherwise");
+  holder.set(stt::SttContext{"AC21", ""});
+  require(holder.language() == "en", "an empty language is English");
 }
 
 } // namespace
@@ -202,6 +243,7 @@ int main() {
   without_a_transcriber_the_turn_is_cancelled();
   silence_is_reported_as_silence();
   the_console_prompt_is_read();
+  the_console_language_is_used();
   std::cout << "local stt tests passed\n";
   return 0;
 }

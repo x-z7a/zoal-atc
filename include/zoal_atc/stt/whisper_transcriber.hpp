@@ -27,7 +27,8 @@ public:
   WhisperTranscriber &operator=(const WhisperTranscriber &) = delete;
 
   Transcript transcribe(const std::vector<std::int16_t> &pcm16,
-                        int sample_rate_hz, const std::string &prompt) override;
+                        int sample_rate_hz, const std::string &prompt,
+                        const std::string &language) override;
   void warm() override;
 
 private:

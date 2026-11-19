@@ -101,12 +101,25 @@ void WhisperTranscriber::warm() {
   // A second of near-silence: enough for whisper to load the model and build
   // every kernel a real turn will use.
   std::vector<std::int16_t> quiet(WHISPER_SAMPLE_RATE, 0);
-  (void)transcribe(quiet, WHISPER_SAMPLE_RATE, std::string());
+  (void)transcribe(quiet, WHISPER_SAMPLE_RATE, std::string(), kDefaultLanguage);
+}
+
+// whisper_language is the language whisper is told to transcribe in: the
+// console's choice where whisper knows it, and English otherwise. Never left to
+// whisper to detect: a clipped, accented call on a noisy channel is heard as
+// another language often enough to matter, and the console names the language
+// of every channel.
+static std::string whisper_language(const std::string &language) {
+  if (!language.empty() && whisper_lang_id(language.c_str()) >= 0) {
+    return language;
+  }
+  return kDefaultLanguage;
 }
 
 Transcript WhisperTranscriber::transcribe(const std::vector<std::int16_t> &pcm16,
                                           int sample_rate_hz,
-                                          const std::string &prompt) {
+                                          const std::string &prompt,
+                                          const std::string &language) {
   Transcript out;
   out.model = model_name_;
   if (sample_rate_hz != WHISPER_SAMPLE_RATE) {
@@ -139,7 +152,9 @@ Transcript WhisperTranscriber::transcribe(const std::vector<std::int16_t> &pcm16
   params.print_progress = false;
   params.print_realtime = false;
   params.print_timestamps = false;
-  params.language = "en";
+  const std::string spoken = whisper_language(language);
+  params.language = spoken.c_str();
+  params.detect_language = false;
   const std::string context = prompt.empty() ? kAviationPrompt : prompt;
   params.initial_prompt = context.c_str();
 
