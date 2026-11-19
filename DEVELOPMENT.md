@@ -104,8 +104,10 @@ against a running console over a real socket (`live_console_probe <host> <port>
 - **Push-to-talk turn.** `audio_start` (session, sequence, format, and the
   `transmit_com` / `frequency_hz` read when the button went down), then either
   `transcript` (words, timing, confidence, model) or `audio_cancel`. The console
-  sends an `stt_context` with the prompt to transcribe with. Audio never leaves
-  the aircraft — the console does not transcribe.
+  sends an `stt_context` with the prompt to transcribe with and, additively, the
+  `language` to transcribe in (ISO 639-1, `"en"` today). Whisper is always told
+  the language rather than left to detect it; a missing or unknown one is
+  English. Audio never leaves the aircraft — the console does not transcribe.
 - **Replies.** Each `atc_reply` names a `voice`, stable per station. Synthesis
   starts on arrival, a sentence at a time, is band-passed to 300–3,000 Hz with
   light compression, and plays on the bus of the COM radio tuned to the reply's

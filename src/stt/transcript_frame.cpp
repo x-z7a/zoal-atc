@@ -41,12 +41,18 @@ std::string build_transcript_frame(const std::string &session_id,
   return out.str();
 }
 
-std::optional<std::string> parse_stt_context(const std::string &payload) {
+std::optional<SttContext> parse_stt_context(const std::string &payload) {
   const auto type = json_string_field(payload, "type");
   if (!type.has_value() || *type != "stt_context") {
     return std::nullopt;
   }
-  return json_string_field(payload, "prompt").value_or(std::string());
+  SttContext context;
+  context.prompt = json_string_field(payload, "prompt").value_or(std::string());
+  // Additive: a console that sends none leaves it empty, which is English. It
+  // comes before the prompt on the wire, so the free text cannot answer for it.
+  context.language =
+      json_string_field(payload, "language").value_or(std::string());
+  return context;
 }
 
 } // namespace zoal_atc::stt

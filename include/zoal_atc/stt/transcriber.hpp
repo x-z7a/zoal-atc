@@ -36,9 +36,11 @@ class Transcriber {
 public:
   virtual ~Transcriber() = default;
 
+  // language is the ISO 639-1 code to transcribe in ("en"), as the console
+  // chose it. A recogniser that does not know it transcribes in English.
   virtual Transcript transcribe(const std::vector<std::int16_t> &pcm16,
-                                int sample_rate_hz,
-                                const std::string &prompt) = 0;
+                                int sample_rate_hz, const std::string &prompt,
+                                const std::string &language) = 0;
 
   // warm loads whatever the first transcription would otherwise wait for. It
   // is called once on the transcription thread before any turn, because the
@@ -48,24 +50,48 @@ public:
   virtual void warm() {}
 };
 
-// PromptHolder is the prompt the console last sent in an stt_context: the
+// kDefaultLanguage is the language a turn is transcribed in until the console
+// says otherwise: English, the language of international aviation
+// radiotelephony.
+inline constexpr const char *kDefaultLanguage = "en";
+
+// SttContext is what the console sends in an stt_context: the prompt to
+// transcribe with, and the language to transcribe in. A console that sends no
+// language leaves it empty, which is English.
+struct SttContext {
+  std::string prompt;
+  std::string language;
+};
+
+// PromptHolder is the context the console last sent in an stt_context: the
 // callsign, the stations and places, the runways and route this flight is
-// heard in the context of. Written on the socket thread, read on the
-// transcription thread.
+// heard in the context of, and the language. Written on the socket thread,
+// read on the transcription thread.
 class PromptHolder {
 public:
   void set(std::string prompt) {
     std::lock_guard<std::mutex> lock(mutex_);
     prompt_ = std::move(prompt);
   }
+  void set(SttContext context) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    prompt_ = std::move(context.prompt);
+    language_ = context.language.empty() ? std::string(kDefaultLanguage)
+                                         : std::move(context.language);
+  }
   std::string get() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return prompt_;
+  }
+  std::string language() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return language_;
   }
 
 private:
   mutable std::mutex mutex_;
   std::string prompt_;
+  std::string language_ = kDefaultLanguage;
 };
 
 // build_transcript_frame is the transcript frame that closes a turn the
@@ -76,9 +102,9 @@ std::string build_transcript_frame(const std::string &session_id,
                                    std::uint64_t duration_ms,
                                    const Transcript &transcript);
 
-// parse_stt_context returns the prompt in an stt_context frame, or nothing for
-// any other frame.
-std::optional<std::string> parse_stt_context(const std::string &payload);
+// parse_stt_context returns the prompt and language in an stt_context frame,
+// or nothing for any other frame.
+std::optional<SttContext> parse_stt_context(const std::string &payload);
 
 } // namespace zoal_atc::stt
 
