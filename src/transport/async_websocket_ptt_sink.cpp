@@ -175,8 +175,11 @@ void AsyncWebSocketPttSink::run_transcription() {
       prompt = prompt_;
     }
     const std::string context = prompt != nullptr ? prompt->get() : std::string();
+    const std::string language = prompt != nullptr
+                                     ? prompt->language()
+                                     : std::string(stt::kDefaultLanguage);
     const stt::Transcript transcript = transcriber->transcribe(
-        event.audio.pcm16, event.audio.sample_rate_hz, context);
+        event.audio.pcm16, event.audio.sample_rate_hz, context, language);
     if (transcript.ok) {
       send_text(stt::build_transcript_frame(session_id_, event.sequence,
                                             event.duration_ms, transcript));

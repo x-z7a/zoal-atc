@@ -929,8 +929,8 @@ void reply_receiver_loop() {
     if (g_gui_bridge.on_socket_frame(payload, monotonic_ms())) {
       continue;
     }
-    if (auto prompt = zoal_atc::stt::parse_stt_context(payload)) {
-      g_stt_prompt.set(std::move(*prompt));
+    if (auto context = zoal_atc::stt::parse_stt_context(payload)) {
+      g_stt_prompt.set(std::move(*context));
       continue;
     }
     auto reply = parse_atc_reply(payload);
