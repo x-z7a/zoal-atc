@@ -35,6 +35,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
+#include <map>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -201,6 +202,28 @@ struct ActiveSpeech {
 };
 
 std::optional<ActiveSpeech> g_active_speech;
+
+// --- calls made by button (atc docs/architecture/pilot-menu.md) ------------
+//
+// A call the console took is spoken in the cockpit in the pilot's own voice, so
+// the pilot hears themselves call as on a real radio. It rides the same queue
+// as a controller's reply, with no generation, so it waits for the frequency
+// and is never acknowledged: it is the pilot's own transmission, not one the
+// console needs to know was heard.
+
+// The pilot's voice, numbered as the console numbers a station's (entry n-1 of
+// the catalogue); zero until the config names one.
+std::uint64_t g_my_voice = 0;
+// Read back a transmission the moment it has played, by pressing the readback
+// the position offers. Off unless the pilot turns it on.
+bool g_auto_readback = false;
+// am_adam: a voice no station is given by default, so a pilot who never picks
+// one does not sound like their controller.
+constexpr std::uint64_t kDefaultPilotVoice = 12;
+// The voice each channel's station last spoke in, so the pilot's never matches.
+std::map<std::uint64_t, std::uint64_t> g_station_voice;
+// The last controller transmission that played, for the HUD's replay.
+std::optional<ATCReplyMessage> g_last_reply;
 
 std::uint64_t now_ms() {
   return static_cast<std::uint64_t>(XPLMGetElapsedTime() * 1000.0f);
@@ -425,8 +448,23 @@ std::string settings_json() {
       << R"(","theme":")"
       << zoal_atc::gui::panel_theme_or_default(
              config_value(text, "panel_theme").value_or(std::string()))
-      << R"("})";
+      << R"(","myVoice":)" << g_my_voice
+      << R"(,"autoReadback":)" << (g_auto_readback ? "true" : "false")
+      << "}";
   return out.str();
+}
+
+// Reads the two call settings from the config text.
+void load_call_settings(const std::string &text) {
+  g_my_voice = 0;
+  if (const auto voice = config_value(text, "my_voice")) {
+    char *end = nullptr;
+    const unsigned long long n = std::strtoull(voice->c_str(), &end, 10);
+    if (end != voice->c_str() && n <= zoal_atc::tts::voice_catalogue().size()) {
+      g_my_voice = n;
+    }
+  }
+  g_auto_readback = config_value(text, "auto_readback").value_or("") == "true";
 }
 
 // Defined with the datarefs below. Writes the COM dataref a tune names and
@@ -504,6 +542,35 @@ handle_local_gui_action(const std::string &action,
       // a token change does would take a pilot off the air to change a
       // preference that is not about being on the air.
     }
+    const auto my_voice = zoal_atc::transport::json_uint_field(payload_json, "myVoice");
+    if (my_voice.has_value()) {
+      if (*my_voice > zoal_atc::tts::voice_catalogue().size()) {
+        return zoal_atc::gui::LocalAnswer{false, "null", "there is no such voice"};
+      }
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "my_voice",
+          std::to_string(*my_voice));
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_my_voice = *my_voice;
+    }
+    const auto auto_readback =
+        zoal_atc::transport::json_bool_field(payload_json, "autoReadback");
+    if (auto_readback.has_value()) {
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "auto_readback",
+          *auto_readback ? "true" : "false");
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_auto_readback = *auto_readback;
+      const std::string changed =
+          std::string(R"({"autoReadback":)") + (*auto_readback ? "true" : "false") + "}";
+      zoal_atc::xplane::hud_settings_changed(changed);
+    }
     if (theme.has_value()) {
       const auto existing = read_file(g_config_path);
       const std::string updated = zoal_atc::transport::upsert_config_value(
@@ -578,6 +645,7 @@ WebSocketEndpoint resolve_console_endpoint(const std::string &system_path) {
   // Remembered so the panel can write the token back to the same file this
   // resolution read it from.
   g_config_path = config_path;
+  load_call_settings(read_file(config_path).value_or(std::string()));
   const auto config_text = read_file(config_path);
   if (!config_text.has_value()) {
     // First run on this install: leave a documented file at the path that
@@ -651,6 +719,9 @@ bool urgent_speech(const ATCReplyMessage &reply);
 
 void queue_atc_reply(ATCReplyMessage reply) {
   reply.queued_at_ms = monotonic_ms();
+  if (reply.generation != 0 && reply.voice != 0 && reply.frequency_hz != 0) {
+    g_station_voice[reply.frequency_hz] = reply.voice;
+  }
   if (g_synthesis && reply.speak && !reply.text.empty()) {
     reply.speech = g_synthesis->submit(
         zoal_atc::transport::radio_text(reply.text), reply.voice,
@@ -667,6 +738,45 @@ void queue_atc_reply(ATCReplyMessage reply) {
 bool urgent_speech(const ATCReplyMessage &reply) {
   return reply.category == "safety_alert" ||
          reply.category == "emergency_assistance";
+}
+
+// The pilot's voice on a channel: the one they picked, or the default, and
+// never the voice the station on that channel speaks in.
+std::uint64_t pilot_voice_on(std::uint64_t frequency_hz) {
+  const std::uint64_t voices = zoal_atc::tts::voice_catalogue().size();
+  std::uint64_t voice = g_my_voice != 0 ? g_my_voice : kDefaultPilotVoice;
+  const auto station = g_station_voice.find(frequency_hz);
+  if (station != g_station_voice.end() && station->second == voice && voices > 1) {
+    voice = voice % voices + 1;
+  }
+  return voice;
+}
+
+// speak_own_call says a call the console took, in the pilot's voice.
+void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz) {
+  if (sentence.empty()) {
+    return;
+  }
+  ATCReplyMessage call;
+  call.category = "own_call";
+  call.text = sentence;
+  call.speak = true;
+  call.voice = pilot_voice_on(frequency_hz);
+  call.frequency_hz = frequency_hz;
+  queue_atc_reply(std::move(call));
+}
+
+// replay_last_reply plays the last controller transmission again, from the
+// cockpit's own copy: the console is not asked to say anything twice.
+bool replay_last_reply() {
+  if (!g_last_reply.has_value()) {
+    return false;
+  }
+  ATCReplyMessage again = *g_last_reply;
+  again.generation = 0;
+  again.category = "replay";
+  queue_atc_reply(std::move(again));
+  return true;
 }
 
 std::optional<ATCReplyMessage> take_atc_reply(bool urgent_only) {
@@ -721,6 +831,13 @@ void finish_active_speech(std::uint64_t now, bool ok,
   active.delivery.ack_basis = ack_basis;
   if (now >= active.started_at_ms) {
     active.delivery.speech_elapsed_ms = now - active.started_at_ms;
+  }
+  if (ok && active.reply.generation != 0) {
+    // A controller's transmission the pilot heard: what replay plays again,
+    // and what auto readback waits for.
+    g_last_reply = active.reply;
+    g_last_reply->speech.reset();
+    zoal_atc::xplane::hud_reply_heard(active.reply.frequency_hz);
   }
 
   std::ostringstream log;
@@ -1899,7 +2016,15 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   panel_config.bridge = &g_gui_bridge;
   panel_config.steady_ms = monotonic_ms;
   // The HUD first: the panel's menu finds the HUD's toggle command by name.
-  zoal_atc::xplane::start_hud(g_gui_bridge, monotonic_ms);
+  zoal_atc::xplane::HudCockpit cockpit;
+  cockpit.radio = [] {
+    const int com = selected_com() == 2 ? 2 : 1;
+    return std::make_pair(com, tuned_com_hz(com));
+  };
+  cockpit.speak_own_call = speak_own_call;
+  cockpit.replay = replay_last_reply;
+  cockpit.can_replay = [] { return g_last_reply.has_value(); };
+  zoal_atc::xplane::start_hud(g_gui_bridge, monotonic_ms, std::move(cockpit));
   zoal_atc::xplane::start_panel(panel_config);
 
   char system_path[1024] = {};

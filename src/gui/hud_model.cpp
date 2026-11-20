@@ -324,4 +324,65 @@ void HudMenu::tick(std::int64_t now_ms) {
   }
 }
 
+// --- calls -------------------------------------------------------------------
+
+const HudCallItem *HudCallMenu::readback() const {
+  for (const HudCallItem &item : items) {
+    if (item.readback) {
+      return &item;
+    }
+  }
+  return nullptr;
+}
+
+const HudCallItem *HudCallMenu::find(std::string_view key) const {
+  for (const HudCallItem &item : items) {
+    if (item.key == key) {
+      return &item;
+    }
+  }
+  return nullptr;
+}
+
+void HudCalls::put(HudCallMenu menu) {
+  for (HudCallMenu &held : menus_) {
+    if (held.frequency_hz != menu.frequency_hz) {
+      continue;
+    }
+    // One position's older state arriving after its newer one is not news.
+    // A different position on the channel is: the pilot was handed to it.
+    if (held.station == menu.station && held.role == menu.role &&
+        menu.revision < held.revision) {
+      return;
+    }
+    held = std::move(menu);
+    return;
+  }
+  // A handful of channels is a whole flight; the oldest goes first.
+  constexpr std::size_t kHeld = 8;
+  if (menus_.size() >= kHeld) {
+    menus_.erase(menus_.begin());
+  }
+  menus_.push_back(std::move(menu));
+}
+
+const HudCallMenu *HudCalls::on(std::uint64_t frequency_hz) const {
+  if (frequency_hz == 0) {
+    return nullptr;
+  }
+  for (const HudCallMenu &held : menus_) {
+    if (held.frequency_hz == frequency_hz) {
+      return &held;
+    }
+  }
+  return nullptr;
+}
+
+std::string format_mhz(std::uint64_t frequency_hz) {
+  const std::uint64_t khz = (frequency_hz + 500) / 1000;
+  std::string mhz = std::to_string(khz / 1000) + ".";
+  const std::string rest = std::to_string(1000 + khz % 1000);
+  return mhz + rest.substr(1);
+}
+
 } // namespace zoal_atc::gui

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <utility>
 
 namespace zoal_atc::xplane {
 
@@ -21,9 +22,23 @@ namespace zoal_atc::xplane {
 // The HUD's toggle command. The plugin's menu finds it by this name.
 inline constexpr const char *kHudCommandName = "zoal_atc/hud_toggle";
 
+// What the HUD needs from the cockpit for calls made by button
+// (atc docs/architecture/pilot-menu.md). Each is optional; the HUD draws no
+// call buttons without `radio`.
+struct HudCockpit {
+  // The COM the pilot transmits on (1 or 2) and its active frequency in Hz.
+  std::function<std::pair<int, std::uint64_t>()> radio;
+  // Speaks a call the console took, in the pilot's own voice, on a channel.
+  std::function<void(const std::string &, std::uint64_t)> speak_own_call;
+  // Plays the last controller transmission again; false when there is none.
+  std::function<bool()> replay;
+  std::function<bool()> can_replay;
+};
+
 // Creates the window and its command, attaches to `bridge` and shows the HUD.
 // `steady_ms` is the plugin's monotonic clock, the one the bridge runs on.
-void start_hud(gui::GuiBridge &bridge, std::function<std::uint64_t()> steady_ms);
+void start_hud(gui::GuiBridge &bridge, std::function<std::uint64_t()> steady_ms,
+               HudCockpit cockpit = {});
 void stop_hud();
 
 // Once a flight loop: drains the bridge, lapses timers and keeps the window
@@ -33,6 +48,10 @@ void tick_hud();
 
 // The plugin's settings.changed notice (a theme picked in the panel).
 void hud_settings_changed(const std::string &payload_json);
+
+// A controller's transmission on this channel finished playing in the
+// cockpit, which is what auto readback waits for.
+void hud_reply_heard(std::uint64_t frequency_hz);
 
 } // namespace zoal_atc::xplane
 

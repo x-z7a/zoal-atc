@@ -145,6 +145,14 @@ struct Hud {
   // A button pressed while drawing, run from the flight loop: an action may
   // open the panel, and X-Plane's windows are not rearranged mid-draw.
   HudAction pressed = HudAction::none;
+  // The same for the call strip: a call, the next frequency, a replay.
+  std::string pressed_call;
+  bool pressed_next = false;
+  bool pressed_replay = false;
+  bool pressed_dismiss_call = false;
+  // How far the call strip is scrolled, in boxels.
+  float strip_scroll = 0.0f;
+  HudCockpit cockpit;
   // What the last frame drew, so the window can be made exactly that big.
   float content_width = 0.0f;
   float content_height = kBarHeight + kPad * 2.0f;
@@ -238,6 +246,197 @@ std::vector<ActionButton> action_buttons(const HudSession &session) {
   return buttons;
 }
 
+// --- the call strip ----------------------------------------------------------
+//
+// What the position on the tuned channel would take, as buttons, in the order
+// it expects to hear them (atc docs/architecture/pilot-menu.md): the readback
+// first and filled, then the calls. A replay of the last transmission and the
+// channel the pilot was sent to sit at the start and do not scroll; the calls
+// scroll sideways under the wheel when there are more than fit.
+
+constexpr float kCallHeight = 26.0f;
+constexpr float kCallGap = 4.0f;
+constexpr float kCallPadX = 11.0f;
+constexpr float kCallPx = 12.0f;
+
+struct CallButton {
+  std::string key;
+  std::string label;
+  bool readback = false;
+  bool in_flight = false;
+  float width = 0.0f;
+};
+
+// One pill: hovered, filled for the readback, dimmed while it is in flight.
+// Returns whether it was clicked. `clip` is the visible part of the strip, so
+// a button scrolled out of sight cannot be pressed.
+bool call_pill(ImDrawList *draw, const Palette &p, const char *id, ImVec2 min,
+               float width, const std::string &label, Icon glyph, bool filled,
+               bool enabled, ImVec4 clip) {
+  const ImVec2 max(min.x + width, min.y + kCallHeight);
+  const ImVec2 hit_min(std::max(min.x, clip.x), min.y);
+  const ImVec2 hit_max(std::min(max.x, clip.z), max.y);
+  bool hovered = false;
+  bool clicked = false;
+  if (hit_max.x - hit_min.x > 1.0f) {
+    clicked = hit(id, hit_min, ImVec2(hit_max.x - hit_min.x, kCallHeight), &hovered);
+  }
+  const float alpha = enabled ? 1.0f : 0.45f;
+  ImU32 fg = rgba(p.text);
+  ImU32 glyph_colour = rgba(p.accent);
+  if (filled) {
+    draw->AddRectFilled(min, max, faded(rgba(p.accent, 0.88f), alpha), kCallHeight * 0.5f);
+    fg = rgba(p.sunken);
+    glyph_colour = fg;
+  } else {
+    draw->AddRectFilled(min, max, faded(rgba(p.raised, 0.55f), alpha), kCallHeight * 0.5f);
+    draw->AddRect(min, max, faded(edge(p), alpha), kCallHeight * 0.5f, 1.0f);
+  }
+  if (hovered && enabled) {
+    draw->AddRect(min, max, rgba(p.accent, 0.9f), kCallHeight * 0.5f, 1.5f);
+  }
+  const float mid = min.y + kCallHeight * 0.5f;
+  float tx = min.x + kCallPadX;
+  if (glyph != Icon::menu) {
+    icon(draw, glyph, ImVec2(tx, mid - kIcon * 0.5f), kIcon, faded(glyph_colour, alpha));
+    tx += kIcon + 5.0f;
+  }
+  if (!label.empty()) {
+    draw->AddText(g_hud->face.semibold, css(kCallPx), ImVec2(tx, mid - css(kCallPx) * 0.5f),
+                  faded(fg, alpha), label.c_str());
+  }
+  return clicked && enabled;
+}
+
+float pill_width(const std::string &label, bool with_icon) {
+  float width = kCallPadX * 2.0f;
+  if (with_icon) {
+    width += kIcon + (label.empty() ? 0.0f : 5.0f);
+  }
+  if (!label.empty()) {
+    width += measure(g_hud->face.semibold, css(kCallPx), label).x;
+  }
+  return width;
+}
+
+float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
+                 float right, float y, float *widest) {
+  const gui::HudCallMenu *menu = session.calls();
+  const bool can_replay = g_hud->cockpit.can_replay && g_hud->cockpit.can_replay();
+  const bool has_next = menu != nullptr && menu->next_frequency_hz != 0 &&
+                        menu->next_frequency_hz != session.active_hz();
+  if ((menu == nullptr || menu->items.empty()) && !has_next && !can_replay) {
+    return y;
+  }
+
+  // The buttons that do not scroll.
+  const std::string next_label = has_next ? gui::format_mhz(menu->next_frequency_hz) : "";
+  float fixed_w = 0.0f;
+  if (can_replay) {
+    fixed_w += pill_width("", true) + kCallGap;
+  }
+  if (has_next) {
+    fixed_w += pill_width(next_label, true) + kCallGap;
+  }
+
+  std::vector<CallButton> calls;
+  float calls_w = 0.0f;
+  if (menu != nullptr) {
+    for (const gui::HudCallItem &item : menu->items) {
+      CallButton button{item.key, item.label, item.readback,
+                        session.call_in_flight(item.key)};
+      button.width = pill_width(button.label, button.readback);
+      calls_w += button.width + kCallGap;
+      calls.push_back(std::move(button));
+    }
+  }
+  if (!calls.empty()) {
+    calls_w -= kCallGap;
+  }
+
+  const float most = gui::HudPlacement{}.width - kPad * 2.0f;
+  const float pad = 3.0f;
+  const float strip_w = std::min(most, fixed_w + calls_w + pad * 2.0f);
+  const float strip_h = kCallHeight + pad * 2.0f;
+  y += kGap;
+  const ImVec2 min(right - strip_w, y);
+  const ImVec2 max(right, y + strip_h);
+  draw->AddRectFilled(min, max, glass(p), strip_h * 0.5f);
+  draw->AddRect(min, max, edge(p), strip_h * 0.5f, 1.0f);
+
+  const float row = y + pad;
+  float x = min.x + pad;
+  const ImVec4 everything(min.x, min.y, max.x, max.y);
+  if (can_replay) {
+    if (call_pill(draw, p, "replay", ImVec2(x, row), pill_width("", true), "",
+                  Icon::reload, false, true, everything)) {
+      g_hud->pressed_replay = true;
+    }
+    x += pill_width("", true) + kCallGap;
+  }
+  if (has_next) {
+    if (call_pill(draw, p, "next_frequency", ImVec2(x, row), pill_width(next_label, true),
+                  next_label, Icon::arrow_down, false, true, everything)) {
+      g_hud->pressed_next = true;
+    }
+    x += pill_width(next_label, true) + kCallGap;
+  }
+
+  // The calls, scrolled and clipped to what is left of the strip.
+  const ImVec4 clip(x, min.y, max.x - pad, max.y);
+  const float visible = clip.z - clip.x;
+  const float overflow = std::max(0.0f, calls_w - visible);
+  ImGuiIO &io = ImGui::GetIO();
+  if (overflow > 0.0f && ImGui::IsMouseHoveringRect(min, max, false)) {
+    g_hud->strip_scroll -= (io.MouseWheel + io.MouseWheelH) * 40.0f;
+  }
+  g_hud->strip_scroll = std::clamp(g_hud->strip_scroll, 0.0f, overflow);
+  draw->PushClipRect(ImVec2(clip.x, clip.y), ImVec2(clip.z, clip.w), true);
+  float cx = x - g_hud->strip_scroll;
+  int index = 0;
+  for (const CallButton &button : calls) {
+    const std::string id = "call" + std::to_string(index++);
+    if (call_pill(draw, p, id.c_str(), ImVec2(cx, row), button.width, button.label,
+                  button.readback ? Icon::check : Icon::menu, button.readback,
+                  !button.in_flight, clip)) {
+      g_hud->pressed_call = button.key;
+    }
+    cx += button.width + kCallGap;
+  }
+  draw->PopClipRect();
+  if (overflow > 0.0f) {
+    // A fade at whichever edge has more, so a strip that scrolls says so.
+    const ImU32 solid = rgba(p.sunken, 0.9f);
+    const ImU32 clear = rgba(p.sunken, 0.0f);
+    if (g_hud->strip_scroll < overflow) {
+      draw->AddRectFilledMultiColor(ImVec2(clip.z - 18.0f, row), ImVec2(clip.z, row + kCallHeight),
+                                    clear, solid, solid, clear);
+    }
+    if (g_hud->strip_scroll > 0.0f) {
+      draw->AddRectFilledMultiColor(ImVec2(clip.x, row), ImVec2(clip.x + 18.0f, row + kCallHeight),
+                                    solid, clear, clear, solid);
+    }
+  }
+  *widest = std::max(*widest, strip_w);
+  y += strip_h;
+
+  if (!session.call_error().empty()) {
+    const std::string shown = fit(g_hud->face.semibold, css(kActionPx), session.call_error(),
+                                  most - 20.0f);
+    const float w = measure(g_hud->face.semibold, css(kActionPx), shown).x;
+    y += 4.0f;
+    bool hovered = false;
+    if (hit("call_error", ImVec2(right - w - 4.0f, y), ImVec2(w + 4.0f, 18.0f), &hovered)) {
+      g_hud->pressed_dismiss_call = true;
+    }
+    text(draw, g_hud->face.semibold, css(kActionPx), ImVec2(right - w - 2.0f, y + 2.0f),
+         rgba(p.danger), shown, p);
+    y += 18.0f;
+    *widest = std::max(*widest, w + 4.0f);
+  }
+  return y;
+}
+
 // --- one frame ---------------------------------------------------------------
 
 void build() {
@@ -274,12 +473,12 @@ void build() {
   const std::string title =
       session.callsign().empty() ? "zoal-atc" : session.callsign();
   const std::string warn = "CONSOLE UNREACHABLE";
+  // The flight number stays on the bar with the menu open: it is what the
+  // pilot reads to know whose calls the buttons make.
   float bar_width = 11.0f + kLed + 8.0f + kHandle + 3.0f;
-  if (!open) {
-    bar_width += tracked_width(bold, css(kTitlePx), title, kTitleTracking) + 8.0f;
-    if (!reachable) {
-      bar_width += tracked_width(bold, css(kWarnPx), warn, kWarnTracking) + 8.0f;
-    }
+  bar_width += tracked_width(bold, css(kTitlePx), title, kTitleTracking) + 8.0f;
+  if (!open && !reachable) {
+    bar_width += tracked_width(bold, css(kWarnPx), warn, kWarnTracking) + 8.0f;
   }
   const ImVec2 bar_min(right - bar_width, top);
   const ImVec2 bar_max(right, top + kBarHeight);
@@ -292,10 +491,10 @@ void build() {
                         rgba(led, 0.25f));
   draw->AddCircleFilled(ImVec2(x + kLed * 0.5f, mid), kLed * 0.5f, rgba(led));
   x += kLed + 8.0f;
+  tracked_text(draw, bold, css(kTitlePx), ImVec2(x, mid - css(kTitlePx) * 0.5f),
+               rgba(p.text), title, p, kTitleTracking);
+  x += tracked_width(bold, css(kTitlePx), title, kTitleTracking) + 8.0f;
   if (!open) {
-    tracked_text(draw, bold, css(kTitlePx), ImVec2(x, mid - css(kTitlePx) * 0.5f),
-                 rgba(p.text), title, p, kTitleTracking);
-    x += tracked_width(bold, css(kTitlePx), title, kTitleTracking) + 8.0f;
     if (!reachable) {
       tracked_text(draw, bold, css(kWarnPx), ImVec2(x, mid - css(kWarnPx) * 0.5f),
                    rgba(p.warn), warn, p, kWarnTracking);
@@ -410,6 +609,9 @@ void build() {
   }
   widest = std::max(widest, row_width);
   float y = top + kBarHeight;
+
+  // ---- the calls a pilot can make by pressing a button ----
+  y = call_strip(draw, session, p, right, y, &widest);
 
   // ---- the transmissions ----
   const float bubble_max = gui::HudPlacement{}.width - kPad * 2.0f;
@@ -558,12 +760,13 @@ void load_fonts() {
 } // namespace
 
 void start_hud(gui::GuiBridge &bridge,
-               std::function<std::uint64_t()> steady_ms) {
+               std::function<std::uint64_t()> steady_ms, HudCockpit cockpit) {
   if (g_hud) {
     return;
   }
   g_hud = std::make_unique<Hud>();
   g_hud->steady_ms = std::move(steady_ms);
+  g_hud->cockpit = std::move(cockpit);
   g_hud->window = std::make_unique<ImguiWindow>(0, 40, 440, 0, build);
   if (!g_hud->window->valid()) {
     hud_log("X-Plane did not create the HUD window (it needs X-Plane 12.4.4 "
@@ -581,6 +784,9 @@ void start_hud(gui::GuiBridge &bridge,
   }
   g_hud->ui_scale = XPLMFindDataRef("sim/graphics/misc/user_interface_scale");
   g_hud->session = std::make_unique<HudSession>(bridge);
+  if (g_hud->cockpit.speak_own_call) {
+    g_hud->session->set_own_call_speaker(g_hud->cockpit.speak_own_call);
+  }
   g_hud->session->attach(steady_now());
 
   g_hud->command =
@@ -625,6 +831,22 @@ void tick_hud() {
   case HudAction::none:
     break;
   }
+  if (g_hud->cockpit.radio) {
+    const auto [com, active_hz] = g_hud->cockpit.radio();
+    session.set_radio(com, active_hz, steady);
+  }
+  if (const std::string key = std::exchange(g_hud->pressed_call, std::string()); !key.empty()) {
+    session.press_call(key, steady, wall);
+  }
+  if (std::exchange(g_hud->pressed_next, false)) {
+    session.press_next_frequency(steady);
+  }
+  if (std::exchange(g_hud->pressed_replay, false) && g_hud->cockpit.replay) {
+    g_hud->cockpit.replay();
+  }
+  if (std::exchange(g_hud->pressed_dismiss_call, false)) {
+    session.dismiss_call_error();
+  }
   session.pump(steady, wall);
   // Text is rasterized for the screen's real density: X-Plane reports its UI
   // scale but not the display's (a Retina screen draws two pixels a boxel and
@@ -642,6 +864,12 @@ void tick_hud() {
 void hud_settings_changed(const std::string &payload_json) {
   if (g_hud) {
     g_hud->session->on_settings_changed(payload_json);
+  }
+}
+
+void hud_reply_heard(std::uint64_t frequency_hz) {
+  if (g_hud) {
+    g_hud->session->reply_heard(frequency_hz, steady_now(), wall_now());
   }
 }
 

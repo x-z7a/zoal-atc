@@ -88,6 +88,50 @@ std::string format_position(std::string_view position);
 // fractional seconds and a +hh:mm offset allowed; no offset reads as UTC).
 std::optional<std::int64_t> parse_iso8601_ms(std::string_view text);
 
+// --- the calls a pilot can make by pressing a button -----------------------
+//
+// The console's pilot_menu event: what the position on one frequency would
+// take now, in the order it expects to hear it (atc docs/architecture/
+// pilot-menu.md). The key is the position's own and goes back unchanged; the
+// sentence is what the pilot is heard to say.
+
+struct HudCallItem {
+  std::string key;
+  std::string label;
+  std::string sentence;
+  // The item that reads back the instruction outstanding.
+  bool readback = false;
+};
+
+struct HudCallMenu {
+  std::uint64_t frequency_hz = 0;
+  std::string role;
+  std::string station;
+  std::string station_name;
+  std::uint64_t revision = 0;
+  // The channel the position told the pilot to contact; zero when none.
+  std::uint64_t next_frequency_hz = 0;
+  std::vector<HudCallItem> items;
+
+  const HudCallItem *readback() const;
+  const HudCallItem *find(std::string_view key) const;
+};
+
+// The latest menu for each frequency, so changing back to a channel shows what
+// its position last offered while the console is asked again.
+class HudCalls {
+public:
+  void put(HudCallMenu menu);
+  const HudCallMenu *on(std::uint64_t frequency_hz) const;
+  void clear() { menus_.clear(); }
+
+private:
+  std::vector<HudCallMenu> menus_;
+};
+
+// "121.900" for 121900000 Hz.
+std::string format_mhz(std::uint64_t frequency_hz);
+
 // --- the bar's menu ----------------------------------------------------------
 
 // What a press asks the window to do; it runs the action and reports back

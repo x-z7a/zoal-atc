@@ -82,6 +82,39 @@ HudTheme hud_theme_from_name(const std::string &name) {
   return HudTheme::graphite;
 }
 
+std::optional<HudCallMenu> parse_call_menu(const std::string &payload_json) {
+  HudCallMenu menu;
+  menu.frequency_hz = top_uint(payload_json, "frequencyHz").value_or(0);
+  if (menu.frequency_hz == 0) {
+    return std::nullopt;
+  }
+  menu.role = top_string(payload_json, "role").value_or("");
+  menu.station = top_string(payload_json, "station").value_or("");
+  menu.station_name = top_string(payload_json, "stationName").value_or("");
+  menu.revision = top_uint(payload_json, "revision").value_or(0);
+  menu.next_frequency_hz = top_uint(payload_json, "nextFrequencyHz").value_or(0);
+  if (const auto raw = json_raw_field(payload_json, "items")) {
+    if (const auto elements = transport::json_array_elements(*raw)) {
+      for (const std::string &element : *elements) {
+        HudCallItem item;
+        item.key = top_string(element, "key").value_or("");
+        item.label = top_string(element, "label").value_or("");
+        item.sentence = top_string(element, "sentence").value_or("");
+        item.readback = top_bool(element, "readback");
+        // A button with nothing to send, or nothing to say it sent, is not
+        // one a pilot can press.
+        if (!item.key.empty() && !item.sentence.empty()) {
+          if (item.label.empty()) {
+            item.label = item.sentence;
+          }
+          menu.items.push_back(std::move(item));
+        }
+      }
+    }
+  }
+  return menu;
+}
+
 std::optional<HudEntry> parse_hud_entry(const std::string &payload_json) {
   HudEntry entry;
   entry.text = top_string(payload_json, "text").value_or("");
@@ -137,13 +170,112 @@ void HudSession::pump(std::uint64_t steady_ms, std::int64_t wall_ms) {
       handle(message.payload, wall_ms);
     }
   }
+  if (attached_ && reachable_ && active_hz_ != 0 &&
+      (asked_hz_ != active_hz_ || !asked_reachable_)) {
+    // A channel the pilot just tuned, or a console that just came back: ask
+    // the position on it what it would take.
+    ask_for_menu(steady_ms);
+  }
   menu_.tick(wall_ms);
   feed_.expire(wall_ms);
+}
+
+void HudSession::set_radio(int com, std::uint64_t active_hz,
+                           std::uint64_t) {
+  com_ = (com == 2) ? 2 : 1;
+  active_hz_ = active_hz;
+}
+
+void HudSession::ask_for_menu(std::uint64_t steady_ms) {
+  asked_hz_ = active_hz_;
+  asked_reachable_ = true;
+  std::string ignored;
+  // The radio the console reads is the one the gateway stamps on the
+  // request, so the payload names nothing.
+  send_json(R"({"action":"pilot_menu","payload":{}})",
+            Pending{Request::menu, HudAction::none, "", "", active_hz_},
+            steady_ms, ignored);
+}
+
+void HudSession::press_call(const std::string &key, std::uint64_t steady_ms,
+                            std::int64_t) {
+  const HudCallMenu *menu = calls();
+  const HudCallItem *item = menu == nullptr ? nullptr : menu->find(key);
+  if (item == nullptr || in_flight_.count(key) > 0) {
+    return;
+  }
+  call_error_.clear();
+  const std::string request =
+      R"({"action":"pilot_call","payload":{"key":")" +
+      transport::json_escape(item->key) + R"(","sentence":")" +
+      transport::json_escape(item->sentence) + R"("}})";
+  std::string error;
+  if (!send_json(request,
+                 Pending{Request::call, HudAction::none, item->key,
+                         item->sentence, active_hz_},
+                 steady_ms, error)) {
+    call_error_ = error.empty() ? "the call could not be sent" : error;
+    return;
+  }
+  in_flight_.insert(item->key);
+}
+
+void HudSession::press_next_frequency(std::uint64_t steady_ms) {
+  const HudCallMenu *menu = calls();
+  if (menu == nullptr || menu->next_frequency_hz == 0 ||
+      menu->next_frequency_hz == active_hz_) {
+    return;
+  }
+  const std::string request =
+      R"({"action":"tune_radio","payload":{"mhz":)" +
+      format_mhz(menu->next_frequency_hz) + R"(,"com":)" +
+      std::to_string(com_) + R"(,"target":"active"}})";
+  std::string error;
+  if (!send_json(request,
+                 Pending{Request::tune, HudAction::none, "", "",
+                         menu->next_frequency_hz},
+                 steady_ms, error)) {
+    call_error_ = error.empty() ? "the radio could not be tuned" : error;
+  }
+}
+
+void HudSession::reply_heard(std::uint64_t frequency_hz,
+                             std::uint64_t steady_ms, std::int64_t wall_ms) {
+  if (frequency_hz == 0) {
+    frequency_hz = active_hz_;
+  }
+  heard_at_[frequency_hz] = wall_ms;
+  maybe_read_back(steady_ms, wall_ms);
+}
+
+// Auto readback presses the readback the moment there is both a transmission
+// the pilot heard and a menu offering its readback, whichever came second.
+// Only a transmission that played counts: the readback says the pilot heard
+// it, and a pilot whose radio did not play it did not.
+void HudSession::maybe_read_back(std::uint64_t steady_ms,
+                                 std::int64_t wall_ms) {
+  if (!auto_readback_) {
+    return;
+  }
+  const HudCallMenu *menu = calls();
+  const HudCallItem *item = menu == nullptr ? nullptr : menu->readback();
+  if (item == nullptr || auto_pressed_.count(item->key) > 0) {
+    return;
+  }
+  const auto heard = heard_at_.find(active_hz_);
+  if (heard == heard_at_.end() || wall_ms - heard->second > kAutoReadbackWindowMs) {
+    return;
+  }
+  auto_pressed_.insert(item->key);
+  press_call(item->key, steady_ms, wall_ms);
 }
 
 void HudSession::on_settings_changed(const std::string &payload_json) {
   if (const auto theme = top_string(payload_json, "theme")) {
     theme_ = hud_theme_from_name(*theme);
+  }
+  if (const auto raw = json_raw_field(payload_json, "autoReadback")) {
+    auto_readback_ = *raw == "true";
   }
 }
 
@@ -174,12 +306,16 @@ void HudSession::run(HudAction action, std::uint64_t steady_ms,
 
 bool HudSession::send(const std::string &action, Pending pending,
                       std::uint64_t steady_ms, std::string &error) {
+  return send_json(request_json(action), std::move(pending), steady_ms, error);
+}
+
+bool HudSession::send_json(const std::string &request, Pending pending,
+                           std::uint64_t steady_ms, std::string &error) {
   if (!attached_) {
     error = "the HUD is not attached to the console";
     return false;
   }
-  const SubmitResult result =
-      bridge_.submit(request_json(action), steady_ms, GuiView::hud);
+  const SubmitResult result = bridge_.submit(request, steady_ms, GuiView::hud);
   if (!result.accepted) {
     error = top_string(result.ack_json, "error").value_or("");
     return false;
@@ -206,6 +342,11 @@ void HudSession::handle(const std::string &envelope, std::int64_t wall_ms) {
 
 void HudSession::handle_status(const std::string &envelope) {
   reachable_ = top_bool(envelope, "connected") && top_bool(envelope, "subscribed");
+  if (!reachable_) {
+    asked_reachable_ = false;
+    // Nothing in flight on a socket that went away will be answered.
+    in_flight_.clear();
+  }
 }
 
 void HudSession::handle_event(const std::string &envelope,
@@ -221,6 +362,14 @@ void HudSession::handle_event(const std::string &envelope,
     }
   } else if (*event == "flight_snapshot") {
     callsign_ = top_string(*payload, "callsign").value_or("");
+  } else if (*event == "pilot_menu") {
+    if (auto menu = parse_call_menu(*payload)) {
+      calls_.put(std::move(*menu));
+      // A newer menu settles what was in flight on it: a key it no longer
+      // offers was answered, and one it still offers may be pressed again.
+      in_flight_.clear();
+      maybe_read_back(0, wall_ms);
+    }
   }
 }
 
@@ -237,6 +386,30 @@ void HudSession::handle_response(const std::string &envelope,
   const Pending pending = found->second;
   pending_.erase(found);
   const bool ok = top_bool(envelope, "ok");
+
+  switch (pending.kind) {
+  case Request::menu:
+    return;
+  case Request::tune:
+    if (!ok) {
+      call_error_ = top_string(envelope, "error").value_or("the radio could not be tuned");
+    }
+    return;
+  case Request::call:
+    in_flight_.erase(pending.key);
+    if (!ok) {
+      call_error_ = top_string(envelope, "error").value_or("the console refused the call");
+      return;
+    }
+    // Taken: the pilot hears themselves make it, as on a real radio.
+    if (speak_own_) {
+      speak_own_(pending.sentence, pending.frequency_hz);
+    }
+    return;
+  case Request::action:
+  case Request::settings:
+    break;
+  }
 
   if (pending.kind == Request::settings) {
     if (ok) {

@@ -151,6 +151,10 @@ public:
   // answer replaces them, so a field showing one knows to reload.
   bool settings_loaded() const { return settings_loaded_; }
   const std::string &simbrief_pilot_id() const { return simbrief_pilot_id_; }
+  // The voice a call made by button is spoken in, numbered as the console
+  // numbers a station's; zero is the plugin's default.
+  std::uint64_t my_voice() const { return my_voice_; }
+  bool auto_readback() const { return auto_readback_; }
   std::uint64_t settings_revision() const { return settings_revision_; }
   bool connection_loaded() const { return connection_loaded_; }
   const std::string &token() const { return token_; }
@@ -179,6 +183,8 @@ public:
   void save_pilot_id(const std::string &pilot_id, std::uint64_t steady_ms);
   // Shown at once, saved behind it; a refused save puts the old one back.
   void pick_theme(HudTheme theme, std::uint64_t steady_ms);
+  void pick_voice(std::uint64_t voice, std::uint64_t steady_ms);
+  void set_auto_readback(bool on, std::uint64_t steady_ms);
   // Settings' import, naming the pilot ID stored here.
   void import_now(std::uint64_t steady_ms);
 
@@ -242,6 +248,8 @@ private:
   HudTheme theme_ = HudTheme::graphite;
   bool settings_loaded_ = false;
   std::string simbrief_pilot_id_;
+  std::uint64_t my_voice_ = 0;
+  bool auto_readback_ = false;
   std::uint64_t settings_revision_ = 0;
   bool connection_loaded_ = false;
   std::string token_;

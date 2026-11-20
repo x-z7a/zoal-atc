@@ -1,6 +1,9 @@
 #include "panel_view.hpp"
 
+#include "zoal_atc/tts/voice_catalogue.hpp"
+
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <cstring>
@@ -1184,6 +1187,82 @@ bool control_row(Flow &flow, const char *id, const std::string &label,
   return entered;
 }
 
+// A catalogue name as a pilot reads it: "am_adam" is "Adam · American male".
+// A blend's own name, which follows no such pattern, is shown as it is.
+std::string voice_label(const std::string &name) {
+  if (name.size() < 4 || name[2] != '_') {
+    return name;
+  }
+  const char *accent = nullptr;
+  switch (name[0]) {
+  case 'a': accent = "American"; break;
+  case 'b': accent = "British"; break;
+  case 'e': accent = "Spanish"; break;
+  case 'f': accent = "French"; break;
+  case 'h': accent = "Hindi"; break;
+  case 'i': accent = "Italian"; break;
+  case 'j': accent = "Japanese"; break;
+  case 'p': accent = "Portuguese"; break;
+  case 'z': accent = "Mandarin"; break;
+  default: return name;
+  }
+  const char *voice = name[1] == 'f' ? " female" : (name[1] == 'm' ? " male" : "");
+  std::string given = name.substr(3);
+  given[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(given[0])));
+  return given + " \xC2\xB7 " + accent + voice;
+}
+
+// The voice a pressed call is spoken in, and whether a transmission is read
+// back the moment it has played (atc docs/architecture/pilot-menu.md).
+void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
+                    std::uint64_t steady) {
+  const auto &voices = tts::voice_catalogue();
+  const std::uint64_t count = voices.size();
+  // Zero is the plugin's default, am_adam (12).
+  const std::uint64_t shown = session.my_voice() == 0 ? 12 : session.my_voice();
+  const std::string name =
+      shown >= 1 && shown <= count ? voice_label(voices[shown - 1].name) : std::string("default");
+  flow.label("My voice");
+  flow.strong(name);
+  flow.gap();
+  const float pw = button_width(inner, "Previous");
+  const float nw = button_width(inner, "Next");
+  const bool ready = session.settings_loaded() && count > 0;
+  if (button(inner, "voice_previous", ImVec2(flow.x + 2.0f, flow.y), ImVec2(pw, kButtonHeight),
+             "Previous", Variant::outlined, ready)) {
+    const std::uint64_t voice = shown <= 1 ? count : shown - 1;
+    flow.ui.later([&session, voice, steady] { session.pick_voice(voice, steady); });
+  }
+  if (button(inner, "voice_next", ImVec2(flow.x + 2.0f + pw + 8.0f, flow.y),
+             ImVec2(nw, kButtonHeight), "Next", Variant::outlined, ready)) {
+    const std::uint64_t voice = shown >= count ? 1 : shown + 1;
+    flow.ui.later([&session, voice, steady] { session.pick_voice(voice, steady); });
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help("A call you make with the HUD's buttons is spoken in this voice on "
+            "your radio, so you hear yourself call. It is never the voice the "
+            "controller on that frequency speaks in.");
+  flow.end_setting();
+
+  flow.begin_setting();
+  flow.label("Auto readback");
+  flow.gap();
+  const bool on = session.auto_readback();
+  const std::string toggle = on ? "On" : "Off";
+  if (button(inner, "auto_readback", ImVec2(flow.x + 2.0f, flow.y),
+             ImVec2(button_width(inner, "Off") + 12.0f, kButtonHeight), toggle,
+             on ? Variant::filled : Variant::outlined, session.settings_loaded())) {
+    flow.ui.later([&session, on, steady] { session.set_auto_readback(!on, steady); });
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help("Reads back a clearance or instruction for you, with the readback "
+            "button, once the transmission has finished playing on your radio. "
+            "Off, you press the readback yourself.");
+  flow.error(session.local().error);
+}
+
 void settings(const Ui &ui, PanelSession &session, PanelViewState &state,
               ImVec2 min, ImVec2 max) {
   const std::uint64_t steady = ui.frame.steady_ms;
@@ -1221,6 +1300,12 @@ void settings(const Ui &ui, PanelSession &session, PanelViewState &state,
   flow.gap();
   flow.help("Applies to this panel and the HUD, and is remembered for this "
             "aircraft.");
+  flow.end_setting();
+
+  // ---- calls by button ----
+  flow.section("Calls by button");
+  flow.begin_setting();
+  calls_settings(flow, session, inner, steady);
   flow.end_setting();
 
   // ---- connection ----
