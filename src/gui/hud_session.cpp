@@ -15,6 +15,8 @@ using transport::json_unquote;
 
 // Messages drained per frame. The bridge caps the queue; this caps the work.
 constexpr std::size_t kMaxMessagesPerPump = 64;
+constexpr std::uint64_t kMenuRetryMs = 2'000;
+constexpr int kMenuRetries = 3;
 
 // Top-level fields only: an envelope wraps a console payload with keys of its
 // own ("kind" in a comm_log entry), which must not answer for the envelope.
@@ -195,14 +197,19 @@ void HudSession::pump(std::uint64_t steady_ms, std::int64_t wall_ms) {
   if (attached_) {
     for (const JsMessage &message :
          bridge_.take_js_messages(kMaxMessagesPerPump, GuiView::hud)) {
-      handle(message.payload, wall_ms);
+      handle(message.payload, steady_ms, wall_ms);
     }
   }
-  if (attached_ && reachable_ && active_hz_ != 0 &&
-      (asked_hz_ != active_hz_ || !asked_reachable_)) {
-    // A channel the pilot just tuned, or a console that just came back: ask
-    // the position on it what it would take.
-    ask_for_menu(steady_ms);
+  if (attached_ && reachable_ && active_hz_ != 0) {
+    if (asked_hz_ != active_hz_ || !asked_reachable_) {
+      menu_retries_left_ = kMenuRetries;
+      ask_for_menu(steady_ms);
+    } else if (!calls() && menu_retries_left_ > 0 && steady_ms >= next_menu_retry_ms_) {
+      // Older consoles may have stamped the first request with pre-retune
+      // telemetry, and routing cannot answer before it has an aircraft record.
+      --menu_retries_left_;
+      ask_for_menu(steady_ms);
+    }
   }
   spoken_.erase(std::remove_if(spoken_.begin(), spoken_.end(),
                                [wall_ms](const HeldLine &said) {
@@ -247,13 +254,17 @@ void HudSession::set_radio(int com, std::uint64_t active_hz,
   active_hz_ = active_hz;
 }
 
+std::string HudSession::radio_fields() const {
+  return R"("transmit_com":)" + std::to_string(com_) +
+         R"(,"frequency_hz":)" + std::to_string(active_hz_);
+}
+
 void HudSession::ask_for_menu(std::uint64_t steady_ms) {
   asked_hz_ = active_hz_;
   asked_reachable_ = true;
+  next_menu_retry_ms_ = steady_ms + kMenuRetryMs;
   std::string ignored;
-  // The radio the console reads is the one the gateway stamps on the
-  // request, so the payload names nothing.
-  send_json(R"({"action":"pilot_menu","payload":{}})",
+  send_json(R"({"action":"pilot_menu","payload":{)" + radio_fields() + "}}",
             Pending{Request::menu, HudAction::none, "", "", active_hz_},
             steady_ms, ignored);
 }
@@ -276,7 +287,7 @@ void HudSession::press_call(const std::string &key, std::uint64_t steady_ms,
       R"({"action":"pilot_call","payload":{"key":")" +
       transport::json_escape(item->key) + R"(","sentence":")" +
       transport::json_escape(item->sentence) + R"(","role":")" +
-      transport::json_escape(item->role) + R"("}})";
+      transport::json_escape(item->role) + R"(",)" + radio_fields() + "}}";
   std::string error;
   if (!send_json(request,
                  Pending{Request::call, HudAction::none, item->key,
@@ -311,12 +322,19 @@ void HudSession::submit_text(const std::string &text, std::uint64_t steady_ms) {
   }
   call_error_.clear();
   const std::string request = R"({"action":"submit_text","payload":{"text":")" +
-                              transport::json_escape(said) + R"("}})";
+                              transport::json_escape(said) + R"(",)" +
+                              radio_fields() + "}}";
   std::string error;
   if (!send_json(request, Pending{Request::call, HudAction::none, "", said, active_hz_},
                  steady_ms, error)) {
     call_error_ = error.empty() ? "the message could not be sent" : error;
   }
+}
+
+bool HudSession::awaiting_own_call() const {
+  return speak_own_ && std::any_of(pending_.begin(), pending_.end(), [](const auto &request) {
+    return request.second.kind == Request::call;
+  });
 }
 
 void HudSession::press_next_frequency(std::uint64_t steady_ms) {
@@ -358,7 +376,8 @@ void HudSession::maybe_read_back(std::uint64_t steady_ms,
   }
   const HudCallMenu *menu = calls();
   const HudCallItem *item = menu == nullptr ? nullptr : menu->readback();
-  if (item == nullptr || auto_pressed_.count(item->key) > 0) {
+  if (item == nullptr || call_in_flight(item->key) ||
+      auto_pressed_.count(item->key) > 0) {
     return;
   }
   const auto heard = heard_at_.find(active_hz_);
@@ -431,7 +450,8 @@ bool HudSession::send_json(const std::string &request, Pending pending,
   return true;
 }
 
-void HudSession::handle(const std::string &envelope, std::int64_t wall_ms) {
+void HudSession::handle(const std::string &envelope, std::uint64_t steady_ms,
+                        std::int64_t wall_ms) {
   const auto kind = top_string(envelope, "kind");
   if (!kind.has_value()) {
     return;
@@ -439,7 +459,7 @@ void HudSession::handle(const std::string &envelope, std::int64_t wall_ms) {
   if (*kind == "status") {
     handle_status(envelope);
   } else if (*kind == "event") {
-    handle_event(envelope, wall_ms);
+    handle_event(envelope, steady_ms, wall_ms);
   } else if (*kind == "response") {
     handle_response(envelope, wall_ms);
   }
@@ -455,6 +475,7 @@ void HudSession::handle_status(const std::string &envelope) {
 }
 
 void HudSession::handle_event(const std::string &envelope,
+                              std::uint64_t steady_ms,
                               std::int64_t wall_ms) {
   const auto event = top_string(envelope, "event");
   const auto payload = json_raw_field(envelope, "payload");
@@ -463,24 +484,25 @@ void HudSession::handle_event(const std::string &envelope,
   }
   if (*event == "comm_log") {
     if (const auto entry = parse_hud_entry(*payload)) {
-      const bool already_spoken =
-          std::any_of(spoken_.begin(), spoken_.end(),
-                      [&](const HeldLine &said) { return said.entry.text == entry->text; });
-      if (holds_until_spoken_ && entry->kind == "atc" && !entry->overheard && !already_spoken) {
-        held_.push_back(HeldLine{*entry, wall_ms});
-      } else {
-        feed_.add(*entry, wall_ms);
+      if (holds_until_spoken_ && entry->kind == "atc" && !entry->overheard) {
+        const auto said = std::find_if(spoken_.begin(), spoken_.end(),
+                                      [&](const HeldLine &line) {
+                                        return line.entry.text == entry->text;
+                                      });
+        if (said == spoken_.end()) {
+          held_.push_back(HeldLine{*entry, wall_ms});
+          return;
+        }
+        spoken_.erase(said);
       }
+      feed_.add(*entry, wall_ms);
     }
   } else if (*event == "flight_snapshot") {
     callsign_ = top_string(*payload, "callsign").value_or("");
   } else if (*event == "pilot_menu") {
     if (auto menu = parse_call_menu(*payload)) {
       calls_.put(std::move(*menu));
-      // A newer menu settles what was in flight on it: a key it no longer
-      // offers was answered, and one it still offers may be pressed again.
-      in_flight_.clear();
-      maybe_read_back(0, wall_ms);
+      maybe_read_back(steady_ms, wall_ms);
     }
   }
 }

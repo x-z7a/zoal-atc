@@ -167,6 +167,7 @@ struct ATCReplyMessage {
   // console that does not name one.
   std::uint64_t frequency_hz = 0;
   std::uint64_t queued_at_ms = 0;
+  bool own_call = false;
   // speech is the reply being synthesised in that voice, started the moment
   // it arrived so it is ready by the time the frequency is free. Empty only
   // when the voices could not be loaded, and the reply is then reported
@@ -175,6 +176,8 @@ struct ATCReplyMessage {
 };
 
 std::deque<ATCReplyMessage> g_reply_queue;
+// Only the main thread queues and plays the pilot's transmissions.
+std::deque<ATCReplyMessage> g_own_calls;
 
 // SpeechDeliveryInfo is what the speak_ack reports about how a reply went out:
 // whether it was played at all, why the acknowledgement was sent when it was,
@@ -187,15 +190,23 @@ struct SpeechDeliveryInfo {
   std::uint64_t speech_elapsed_ms = 0;
 };
 
+struct SentencePlayback {
+  std::shared_ptr<const zoal_atc::tts::Audio> audio;
+  FMOD_CHANNEL *channel = nullptr;
+  bool complete = false;
+  FMOD_RESULT status = FMOD_OK;
+};
+
 struct ActiveSpeech {
   ATCReplyMessage reply;
   SpeechDeliveryInfo delivery;
   std::uint64_t started_at_ms = 0;
+  std::uint64_t synthesis_deadline_ms = 0;
   // A synthesised reply plays a sentence at a time on the COM radio: the next
   // one to play, when the one on the air ends, and its channel.
   std::size_t next_sentence = 0;
-  std::uint64_t sentence_ends_at_ms = 0;
-  FMOD_CHANNEL *channel = nullptr;
+  std::uint64_t next_sentence_at_ms = 0;
+  std::shared_ptr<SentencePlayback> playing = nullptr;
   // The radio it comes out of, chosen as the first sentence starts so one
   // transmission is never split between two receivers.
   XPLMAudioBus bus = xplm_AudioRadioCom1;
@@ -206,10 +217,8 @@ std::optional<ActiveSpeech> g_active_speech;
 // --- calls made by button (atc docs/architecture/pilot-menu.md) ------------
 //
 // A call the console took is spoken in the cockpit in the pilot's own voice, so
-// the pilot hears themselves call as on a real radio. It rides the same queue
-// as a controller's reply, with no generation, so it waits for the frequency
-// and is never acknowledged: it is the pilot's own transmission, not one the
-// console needs to know was heard.
+// the pilot hears themselves call as on a real radio. It uses the same audio
+// scheduler as ATC speech and takes precedence over replies still queued.
 
 // The pilot's voice, numbered as the console numbers a station's (entry n-1 of
 // the catalogue); zero until the config names one.
@@ -753,15 +762,15 @@ bool urgent_speech(const ATCReplyMessage &reply);
 
 void queue_atc_reply(ATCReplyMessage reply) {
   reply.queued_at_ms = monotonic_ms();
-  if (reply.generation != 0 && reply.voice != 0 && reply.frequency_hz != 0) {
-    g_station_voice[reply.frequency_hz] = reply.voice;
-  }
   if (g_synthesis && reply.speak && !reply.text.empty()) {
     reply.speech = g_synthesis->submit(
         zoal_atc::transport::radio_text(reply.text), reply.voice,
         urgent_speech(reply));
   }
   std::lock_guard<std::mutex> lock(g_reply_mutex);
+  if (reply.generation != 0 && reply.voice != 0 && reply.frequency_hz != 0) {
+    g_station_voice[reply.frequency_hz] = reply.voice;
+  }
   constexpr std::size_t kMaxQueuedReplies = 16;
   if (g_reply_queue.size() >= kMaxQueuedReplies) {
     g_reply_queue.pop_front();
@@ -779,6 +788,7 @@ bool urgent_speech(const ATCReplyMessage &reply) {
 std::uint64_t pilot_voice_on(std::uint64_t frequency_hz) {
   const std::uint64_t voices = zoal_atc::tts::voice_catalogue().size();
   std::uint64_t voice = g_my_voice != 0 ? g_my_voice : kDefaultPilotVoice;
+  std::lock_guard<std::mutex> lock(g_reply_mutex);
   const auto station = g_station_voice.find(frequency_hz);
   if (station != g_station_voice.end() && station->second == voice && voices > 1) {
     voice = voice % voices + 1;
@@ -788,18 +798,27 @@ std::uint64_t pilot_voice_on(std::uint64_t frequency_hz) {
 
 // speak_own_call says a call the console took, in the pilot's voice.
 void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz) {
-  if (sentence.empty()) {
+  if (sentence.empty() || !g_synthesis) {
     return;
   }
   ATCReplyMessage call;
   call.category = "own_call";
+  call.own_call = true;
   call.text = sentence;
   call.speak = true;
   call.voice = pilot_voice_on(frequency_hz);
   call.frequency_hz = frequency_hz;
-  queue_atc_reply(std::move(call));
+  call.queued_at_ms = monotonic_ms();
+  call.speech = g_synthesis->submit(
+      zoal_atc::transport::radio_text(call.text), call.voice, true);
+  g_own_calls.push_back(std::move(call));
 }
 
+bool pilot_has_the_radio() {
+  return g_synthesis && (zoal_atc::xplane::hud_awaiting_own_call() ||
+                         !g_own_calls.empty() ||
+                         (g_active_speech && g_active_speech->reply.own_call));
+}
 
 std::optional<ATCReplyMessage> take_atc_reply(bool urgent_only) {
   std::lock_guard<std::mutex> lock(g_reply_mutex);
@@ -847,14 +866,14 @@ void finish_active_speech(std::uint64_t now, bool ok,
   }
   ActiveSpeech active = std::move(*g_active_speech);
   g_active_speech.reset();
-  if (active.channel != nullptr && now < active.sentence_ends_at_ms) {
-    XPLMStopAudio(active.channel);
+  if (active.playing && !active.playing->complete) {
+    XPLMStopAudio(active.playing->channel);
   }
   active.delivery.ack_basis = ack_basis;
   if (now >= active.started_at_ms) {
     active.delivery.speech_elapsed_ms = now - active.started_at_ms;
   }
-  if (active.reply.generation != 0) {
+  if (active.reply.generation != 0 && !active.delivery.api_called) {
     zoal_atc::xplane::hud_reply_spoken(active.reply.text);
   }
   if (ok && active.reply.generation != 0) {
@@ -877,22 +896,24 @@ void finish_active_speech(std::uint64_t now, bool ok,
 // play_sentence puts one synthesised sentence on a COM radio. The buffer
 // is the mixer's until it says it is finished with it, so the audio is kept
 // alive by a reference the completion callback lets go of.
-FMOD_CHANNEL *play_sentence(std::shared_ptr<const zoal_atc::tts::Audio> audio,
-                            XPLMAudioBus bus) {
-  auto *held = new std::shared_ptr<const zoal_atc::tts::Audio>(audio);
-  FMOD_CHANNEL *channel = XPLMPlayPCMOnBus(
+std::shared_ptr<SentencePlayback> play_sentence(
+    std::shared_ptr<const zoal_atc::tts::Audio> audio, XPLMAudioBus bus) {
+  auto playback = std::make_shared<SentencePlayback>();
+  playback->audio = audio;
+  auto *held = new std::shared_ptr<SentencePlayback>(playback);
+  playback->channel = XPLMPlayPCMOnBus(
       const_cast<std::int16_t *>(audio->pcm.data()),
       static_cast<std::uint32_t>(audio->pcm.size() * sizeof(std::int16_t)),
       FMOD_SOUND_FORMAT_PCM16, audio->sample_rate_hz, 1, 0,
       bus,
-      [](void *refcon, FMOD_RESULT) {
-        delete static_cast<std::shared_ptr<const zoal_atc::tts::Audio> *>(refcon);
+      [](void *refcon, FMOD_RESULT status) {
+        std::unique_ptr<std::shared_ptr<SentencePlayback>> held(
+            static_cast<std::shared_ptr<SentencePlayback> *>(refcon));
+        (*held)->status = status;
+        (*held)->complete = true;
       },
       held);
-  if (channel == nullptr) {
-    delete held;
-  }
-  return channel;
+  return playback;
 }
 
 // Defined with the datarefs below: what each COM is tuned to, in Hz, and
@@ -920,7 +941,19 @@ void advance_synthesized_speech(std::uint64_t now) {
     return;
   }
   ActiveSpeech &active = *g_active_speech;
-  if (now < active.sentence_ends_at_ms) {
+  if (active.playing) {
+    if (!active.playing->complete) {
+      return;
+    }
+    if (active.playing->status != FMOD_OK) {
+      finish_active_speech(now, false, "radio_playback_failed");
+      return;
+    }
+    active.playing.reset();
+    active.next_sentence_at_ms = now + kSentenceGapMs;
+    active.synthesis_deadline_ms = now + kSynthesisDeadlineMs;
+  }
+  if (now < active.next_sentence_at_ms) {
     return;
   }
   const auto &speech = *active.reply.speech;
@@ -928,8 +961,8 @@ void advance_synthesized_speech(std::uint64_t now) {
     if (active.next_sentence == 0) {
       active.bus = receiving_bus(active.reply.frequency_hz);
     }
-    FMOD_CHANNEL *channel = play_sentence(audio, active.bus);
-    if (channel == nullptr) {
+    auto playing = play_sentence(audio, active.bus);
+    if (playing->channel == nullptr) {
       finish_active_speech(now, false, "radio_refused_audio");
       return;
     }
@@ -938,10 +971,8 @@ void advance_synthesized_speech(std::uint64_t now) {
       zoal_atc::xplane::hud_reply_spoken(active.reply.text);
     }
     active.delivery.api_called = true;
-    active.channel = channel;
-    const std::uint64_t duration = audio->duration_ms();
-    active.delivery.audio_duration_ms += duration;
-    active.sentence_ends_at_ms = now + duration + kSentenceGapMs;
+    active.playing = std::move(playing);
+    active.delivery.audio_duration_ms += audio->duration_ms();
     ++active.next_sentence;
     return;
   }
@@ -950,14 +981,14 @@ void advance_synthesized_speech(std::uint64_t now) {
       finish_active_speech(now, false, "synthesis_failed");
       return;
     }
-    // Every sentence has been heard; the last one ended at sentence_ends_at_ms.
+    // Every available sentence finished playing.
     const bool ok = !speech.failed();
     finish_active_speech(now, ok,
                          ok ? "synthesized_playback_elapsed"
                             : "synthesis_failed_partway");
     return;
   }
-  if (active.next_sentence == 0 && now >= active.started_at_ms + kSynthesisDeadlineMs) {
+  if (now >= active.synthesis_deadline_ms) {
     finish_active_speech(now, false, "synthesis_timed_out");
   }
 }
@@ -993,7 +1024,8 @@ void start_atc_reply(ATCReplyMessage reply, std::uint64_t process_at_ms) {
     return;
   }
   speech.ack_basis = "synthesis_pending";
-  g_active_speech = ActiveSpeech{std::move(reply), speech, process_at_ms};
+  g_active_speech = ActiveSpeech{std::move(reply), speech, process_at_ms,
+                                 process_at_ms + kSynthesisDeadlineMs};
   advance_synthesized_speech(process_at_ms);
 }
 
@@ -1004,15 +1036,27 @@ void process_atc_replies() {
     // Preserve the arbiter's class-A behavior: an immediate safety/emergency
     // transmission may preempt routine speech. The interrupted generation is
     // explicitly failed and logged before the urgent call begins.
-    if (auto urgent = take_atc_reply(true); urgent.has_value()) {
-      finish_active_speech(now, false, "preempted_by_urgent_speech");
-      start_atc_reply(std::move(*urgent), now);
-      return;
+    if (!pilot_has_the_radio()) {
+      if (auto urgent = take_atc_reply(true); urgent.has_value()) {
+        finish_active_speech(now, false, "preempted_by_urgent_speech");
+        start_atc_reply(std::move(*urgent), now);
+        return;
+      }
     }
     advance_synthesized_speech(now);
     if (g_active_speech.has_value()) {
       return;
     }
+  }
+
+  if (!g_own_calls.empty()) {
+    ATCReplyMessage call = std::move(g_own_calls.front());
+    g_own_calls.pop_front();
+    start_atc_reply(std::move(call), now);
+    return;
+  }
+  if (pilot_has_the_radio()) {
+    return;
   }
 
   // Non-speech and invalid frames acknowledge immediately and do not occupy the
@@ -1987,6 +2031,9 @@ void process_gui_bridge() {
   detect_airport_change_new_flight(now);
   run_auto_new_flight_actions(now);
   g_gui_bridge.tick(now);
+  zoal_atc::xplane::tick_hud();
+  // Arm the transcript gate before a new call is forwarded to the console.
+  g_gui_bridge.hold_controller_log(pilot_has_the_radio());
   if (g_transport_sink) {
     const auto frames = g_gui_bridge.take_socket_frames();
     for (const auto &frame : frames) {
@@ -1997,7 +2044,6 @@ void process_gui_bridge() {
     log_line(line);
   }
   zoal_atc::xplane::tick_panel();
-  zoal_atc::xplane::tick_hud();
 }
 
 float flight_loop_callback(float, float, int, void *) {
@@ -2184,14 +2230,17 @@ PLUGIN_API void XPluginStop() {
   g_ptt.reset();
   g_sink.reset();
   g_metar_worker.reset(); // joins the worker before the sink goes away
-  if (g_active_speech.has_value() && g_active_speech->channel != nullptr) {
-    XPLMStopAudio(g_active_speech->channel);
+  if (g_active_speech && g_active_speech->playing &&
+      !g_active_speech->playing->complete) {
+    XPLMStopAudio(g_active_speech->playing->channel);
   }
   g_active_speech.reset();
+  g_own_calls.clear();
+  g_gui_bridge.hold_controller_log(false);
+  stop_reply_receiver();
   g_synthesis.reset(); // joins the synthesis thread
   g_transport_sink.reset(); // joins the transcription thread first
   g_transcriber.reset();
-  stop_reply_receiver();
   g_websocket.reset();
   g_recorder.reset();
   log_line("plugin stopped");

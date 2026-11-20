@@ -370,9 +370,18 @@ void asks_the_position_on_a_new_channel_for_its_menu() {
   expect_true(rig.last_request("pilot_menu") != 0, "asked on tuning");
   rig.hud.pump(1, kWall);
   expect_true(rig.last_request("pilot_menu") == 0, "asked once per channel");
-  rig.hud.set_radio(1, kTower, 2);
+  rig.hud.set_radio(2, kTower, 2);
   rig.hud.pump(2, kWall);
-  expect_true(rig.last_request("pilot_menu") != 0, "asked again on retuning");
+  const auto requests = rig.sent();
+  expect_true(requests.size() == 1 && requests.front().what == "pilot_menu",
+              "asked again on retuning");
+  if (!requests.empty()) {
+    expect_true(requests.front().frame.find(R"("transmit_com":2,"frequency_hz":118800000)") !=
+                    std::string::npos,
+                "uses the radio the pilot just tuned");
+  }
+  rig.hud.pump(2'002, kWall + 2'000);
+  expect_true(rig.last_request("pilot_menu") != 0, "retries a missing menu");
 }
 
 void parses_a_menu() {
@@ -413,7 +422,10 @@ void a_press_is_a_call_spoken_once_the_console_takes_it() {
   }
   expect_true(id != 0, "a pilot_call went to the console");
   expect_true(frame.find("taxi_departure") != std::string::npos, "with the key");
+  expect_true(frame.find(R"("frequency_hz":121900000)") != std::string::npos,
+              "on the frequency the button was offered for");
   expect_true(rig.hud.call_in_flight("taxi_departure"), "in flight");
+  expect_true(rig.hud.awaiting_own_call(), "ATC waits even before the acceptance arrives");
   rig.hud.press_call("taxi_departure", 1, kWall);
   expect_true(rig.last_request("pilot_call") == 0, "not sent twice");
   expect_true(spoken.empty(), "not spoken before the console took it");
@@ -423,6 +435,7 @@ void a_press_is_a_call_spoken_once_the_console_takes_it() {
   expect_true(spoken.size() == 1 && spoken.front() == "Ground, AC21, ready to taxi",
               "spoken in the pilot's voice");
   expect_true(!rig.hud.call_in_flight("taxi_departure"), "settled");
+  expect_true(!rig.hud.awaiting_own_call(), "the accepted call is now handed to audio");
 }
 
 void a_refused_call_is_shown_and_not_spoken() {

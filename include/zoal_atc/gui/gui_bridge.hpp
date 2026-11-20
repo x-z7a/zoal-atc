@@ -35,6 +35,7 @@ inline constexpr std::size_t kGuiViewCount = 2;
 struct JsMessage {
   std::string channel;
   std::string payload;
+  bool controller_log = false;
 };
 
 // LocalAnswer is a response the plugin produced by itself, without the console.
@@ -156,6 +157,9 @@ public:
   // take_socket_frames returns the frames the flight loop should publish.
   std::vector<std::string> take_socket_frames();
 
+  // Keeps ATC entries and history off both views while a pilot call is on air.
+  void hold_controller_log(bool hold);
+
   // take_js_messages returns at most `max` posts for one view, oldest first.
   std::vector<JsMessage> take_js_messages(std::size_t max,
                                           GuiView view = GuiView::panel);
@@ -181,6 +185,7 @@ private:
     bool internal = false;
     // The page that asked, and so the one its answer is owed to.
     GuiView view = GuiView::panel;
+    bool comm_history = false;
   };
 
   struct ViewState {
@@ -195,7 +200,7 @@ private:
   void settle_subscribe_locked(const GuiResponse &response,
                                std::uint64_t now_ms);
   void fail_all_locked(const std::string &reason, std::uint64_t now_ms);
-  void enqueue_js_locked(GuiView view, std::string payload);
+  void enqueue_js_locked(GuiView view, std::string payload, bool controller_log = false);
   void enqueue_status_locked();
   void enqueue_status_locked(GuiView view);
   void replay_locked(GuiView view);
@@ -223,6 +228,7 @@ private:
 
   bool connected_ = false;
   bool subscribed_ = false;
+  bool holding_controller_log_ = false;
   ViewState views_[kGuiViewCount];
 
   std::deque<std::string> socket_frames_;
