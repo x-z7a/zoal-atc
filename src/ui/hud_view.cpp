@@ -29,7 +29,6 @@ using gui::HudTone;
 struct Frame {
   const Typeface *face = nullptr;
   HudViewState *state = nullptr;
-  bool can_replay = false;
 };
 Frame g;
 
@@ -211,9 +210,9 @@ std::vector<ActionButton> action_buttons(const HudSession &session) {
 //
 // What the position on the tuned channel would take, as buttons, in the order
 // it expects to hear them (atc docs/architecture/pilot-menu.md): the readback
-// first and filled, then the calls. A replay of the last transmission and the
-// channel the pilot was sent to sit at the start and do not scroll; the calls
-// scroll sideways under the wheel when there are more than fit.
+// first and filled, then the calls. The channel the pilot was sent to sits at
+// the start and does not scroll; the calls scroll sideways, by the arrows at
+// the strip's ends or the wheel, when there are more than fit.
 
 constexpr float kCallHeight = 26.0f;
 constexpr float kCallGap = 4.0f;
@@ -303,19 +302,15 @@ float pill_width(const std::string &label, bool with_icon) {
 float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
                  float right, float y, float *widest) {
   const gui::HudCallMenu *menu = session.calls();
-  const bool can_replay = g.can_replay;
   const bool has_next = menu != nullptr && menu->next_frequency_hz != 0 &&
                         menu->next_frequency_hz != session.active_hz();
-  if ((menu == nullptr || menu->items.empty()) && !has_next && !can_replay) {
+  if ((menu == nullptr || menu->items.empty()) && !has_next) {
     return y;
   }
 
   // The buttons that do not scroll.
   const std::string next_label = has_next ? gui::format_mhz(menu->next_frequency_hz) : "";
   float fixed_w = 0.0f;
-  if (can_replay) {
-    fixed_w += pill_width("", true) + kCallGap;
-  }
   if (has_next) {
     fixed_w += pill_width(next_label, true) + kCallGap;
   }
@@ -348,13 +343,6 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
   const float row = y + pad;
   float x = min.x + pad;
   const ImVec4 everything(min.x, min.y, max.x, max.y);
-  if (can_replay) {
-    if (call_pill(draw, p, "replay", ImVec2(x, row), pill_width("", true), "",
-                  Icon::reload, false, true, everything)) {
-      g.state->pressed_replay = true;
-    }
-    x += pill_width("", true) + kCallGap;
-  }
   if (has_next) {
     if (call_pill(draw, p, "next_frequency", ImVec2(x, row), pill_width(next_label, true),
                   next_label, Icon::arrow_down, false, true, everything)) {
@@ -724,7 +712,7 @@ void build(HudSession &session, std::int64_t wall) {
 
 void draw_hud(gui::HudSession &session, HudViewState &state, const Typeface &face,
               const HudFrame &frame) {
-  g = Frame{&face, &state, frame.can_replay};
+  g = Frame{&face, &state};
   build(session, frame.wall_ms);
   g = Frame{};
 }

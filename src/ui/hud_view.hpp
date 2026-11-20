@@ -16,7 +16,6 @@ struct HudViewState {
   gui::HudAction pressed = gui::HudAction::none;
   std::string pressed_call;
   bool pressed_next = false;
-  bool pressed_replay = false;
   bool pressed_dismiss_call = false;
   // How far the call strip is scrolled, in boxels.
   float strip_scroll = 0.0f;
@@ -28,8 +27,6 @@ struct HudViewState {
 struct HudFrame {
   // Unix milliseconds, which transmissions are stamped and faded with.
   std::int64_t wall_ms = 0;
-  // Whether there is a transmission to play again.
-  bool can_replay = false;
 };
 
 // Draws one frame of the HUD into the current ImGui context, which must be as

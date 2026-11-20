@@ -67,7 +67,7 @@ std::int64_t wall_now() {
 
 void build() {
   ui::draw_hud(*g_hud->session, g_hud->view, g_hud->face,
-               ui::HudFrame{wall_now(), g_hud->cockpit.can_replay && g_hud->cockpit.can_replay()});
+               ui::HudFrame{wall_now()});
 }
 
 void place() {
@@ -197,9 +197,6 @@ void tick_hud() {
   }
   if (std::exchange(g_hud->view.pressed_next, false)) {
     session.press_next_frequency(steady);
-  }
-  if (std::exchange(g_hud->view.pressed_replay, false) && g_hud->cockpit.replay) {
-    g_hud->cockpit.replay();
   }
   if (std::exchange(g_hud->view.pressed_dismiss_call, false)) {
     session.dismiss_call_error();

@@ -222,8 +222,6 @@ bool g_auto_readback = false;
 constexpr std::uint64_t kDefaultPilotVoice = 12;
 // The voice each channel's station last spoke in, so the pilot's never matches.
 std::map<std::uint64_t, std::uint64_t> g_station_voice;
-// The last controller transmission that played, for the HUD's replay.
-std::optional<ATCReplyMessage> g_last_reply;
 
 std::uint64_t now_ms() {
   return static_cast<std::uint64_t>(XPLMGetElapsedTime() * 1000.0f);
@@ -766,18 +764,6 @@ void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz) {
   queue_atc_reply(std::move(call));
 }
 
-// replay_last_reply plays the last controller transmission again, from the
-// cockpit's own copy: the console is not asked to say anything twice.
-bool replay_last_reply() {
-  if (!g_last_reply.has_value()) {
-    return false;
-  }
-  ATCReplyMessage again = *g_last_reply;
-  again.generation = 0;
-  again.category = "replay";
-  queue_atc_reply(std::move(again));
-  return true;
-}
 
 std::optional<ATCReplyMessage> take_atc_reply(bool urgent_only) {
   std::lock_guard<std::mutex> lock(g_reply_mutex);
@@ -833,10 +819,8 @@ void finish_active_speech(std::uint64_t now, bool ok,
     active.delivery.speech_elapsed_ms = now - active.started_at_ms;
   }
   if (ok && active.reply.generation != 0) {
-    // A controller's transmission the pilot heard: what replay plays again,
-    // and what auto readback waits for.
-    g_last_reply = active.reply;
-    g_last_reply->speech.reset();
+    // A controller's transmission the pilot heard: what auto readback waits
+    // for.
     zoal_atc::xplane::hud_reply_heard(active.reply.frequency_hz);
   }
 
@@ -2022,8 +2006,6 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     return std::make_pair(com, tuned_com_hz(com));
   };
   cockpit.speak_own_call = speak_own_call;
-  cockpit.replay = replay_last_reply;
-  cockpit.can_replay = [] { return g_last_reply.has_value(); };
   zoal_atc::xplane::start_hud(g_gui_bridge, monotonic_ms, std::move(cockpit));
   zoal_atc::xplane::start_panel(panel_config);
 

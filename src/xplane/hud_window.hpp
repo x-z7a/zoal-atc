@@ -30,9 +30,6 @@ struct HudCockpit {
   std::function<std::pair<int, std::uint64_t>()> radio;
   // Speaks a call the console took, in the pilot's own voice, on a channel.
   std::function<void(const std::string &, std::uint64_t)> speak_own_call;
-  // Plays the last controller transmission again; false when there is none.
-  std::function<bool()> replay;
-  std::function<bool()> can_replay;
 };
 
 // Creates the window and its command, attaches to `bridge` and shows the HUD.
