@@ -67,7 +67,7 @@ std::int64_t wall_now() {
 
 void build() {
   ui::draw_hud(*g_hud->session, g_hud->view, g_hud->face,
-               ui::HudFrame{wall_now(), g_hud->cockpit.can_replay && g_hud->cockpit.can_replay()});
+               ui::HudFrame{wall_now()});
 }
 
 void place() {
@@ -188,6 +188,8 @@ void tick_hud() {
   case HudAction::none:
     break;
   }
+  session.set_holds_until_spoken(g_hud->cockpit.speaks_replies &&
+                                 g_hud->cockpit.speaks_replies());
   if (g_hud->cockpit.radio) {
     const auto [com, active_hz] = g_hud->cockpit.radio();
     session.set_radio(com, active_hz, steady);
@@ -197,9 +199,6 @@ void tick_hud() {
   }
   if (std::exchange(g_hud->view.pressed_next, false)) {
     session.press_next_frequency(steady);
-  }
-  if (std::exchange(g_hud->view.pressed_replay, false) && g_hud->cockpit.replay) {
-    g_hud->cockpit.replay();
   }
   if (std::exchange(g_hud->view.pressed_dismiss_call, false)) {
     session.dismiss_call_error();
@@ -221,6 +220,12 @@ void tick_hud() {
 void hud_settings_changed(const std::string &payload_json) {
   if (g_hud) {
     g_hud->session->on_settings_changed(payload_json);
+  }
+}
+
+void hud_reply_spoken(const std::string &text) {
+  if (g_hud) {
+    g_hud->session->reply_spoken(text, wall_now());
   }
 }
 

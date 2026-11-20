@@ -28,11 +28,12 @@ inline constexpr const char *kHudCommandName = "zoal_atc/hud_toggle";
 struct HudCockpit {
   // The COM the pilot transmits on (1 or 2) and its active frequency in Hz.
   std::function<std::pair<int, std::uint64_t>()> radio;
+  // Whether the cockpit speaks replies, so the HUD waits for a reply's voice
+  // before showing its words. Asked every frame: the voices load after the
+  // HUD starts.
+  std::function<bool()> speaks_replies;
   // Speaks a call the console took, in the pilot's own voice, on a channel.
   std::function<void(const std::string &, std::uint64_t)> speak_own_call;
-  // Plays the last controller transmission again; false when there is none.
-  std::function<bool()> replay;
-  std::function<bool()> can_replay;
 };
 
 // Creates the window and its command, attaches to `bridge` and shows the HUD.
@@ -52,6 +53,10 @@ void hud_settings_changed(const std::string &payload_json);
 // A controller's transmission on this channel finished playing in the
 // cockpit, which is what auto readback waits for.
 void hud_reply_heard(std::uint64_t frequency_hz);
+
+// A controller's transmission started playing, or will not play: the HUD shows
+// its words now rather than before its voice.
+void hud_reply_spoken(const std::string &text);
 
 } // namespace zoal_atc::xplane
 

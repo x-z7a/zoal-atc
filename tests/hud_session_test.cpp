@@ -530,6 +530,49 @@ void the_next_frequency_tunes_the_selected_radio() {
   }
 }
 
+// A controller's line waits for its voice: the reply is queued behind the
+// pilot's own call, and words before the voice read as the answer arriving
+// before the question.
+void a_reply_is_shown_when_its_voice_starts() {
+  Rig rig;
+  rig.hud.set_holds_until_spoken(true);
+  rig.bring_up();
+  rig.bridge.on_socket_frame(gui_event("comm_log", atc_line("Cleared to land")), 0);
+  rig.hud.pump(0, kWall);
+  expect_true(rig.hud.feed().empty(), "held while the pilot's own call plays");
+  rig.hud.reply_spoken("Cleared to land", kWall + 3'000);
+  rig.hud.pump(1, kWall + 3'000);
+  expect_true(rig.hud.feed().lines().size() == 1, "shown as the controller starts");
+}
+
+void a_reply_whose_voice_never_starts_is_still_shown() {
+  Rig rig;
+  rig.hud.set_holds_until_spoken(true);
+  rig.bring_up();
+  rig.bridge.on_socket_frame(gui_event("comm_log", atc_line("Cleared to land")), 0);
+  rig.hud.pump(0, kWall);
+  rig.hud.pump(1, kWall + kHudHoldMs);
+  expect_true(rig.hud.feed().lines().size() == 1, "not lost");
+}
+
+void a_voice_that_starts_before_its_line_shows_the_line_at_once() {
+  Rig rig;
+  rig.hud.set_holds_until_spoken(true);
+  rig.bring_up();
+  rig.hud.reply_spoken("Cleared to land", kWall);
+  rig.bridge.on_socket_frame(gui_event("comm_log", atc_line("Cleared to land")), 0);
+  rig.hud.pump(0, kWall + 500);
+  expect_true(rig.hud.feed().lines().size() == 1, "already said");
+}
+
+void without_voices_a_reply_is_shown_at_once() {
+  Rig rig;
+  rig.bring_up();
+  rig.bridge.on_socket_frame(gui_event("comm_log", atc_line("Cleared to land")), 0);
+  rig.hud.pump(0, kWall);
+  expect_true(rig.hud.feed().lines().size() == 1, "nothing to wait for");
+}
+
 } // namespace
 
 int main() {
@@ -555,6 +598,10 @@ int main() {
   auto_readback_off_presses_nothing();
   the_next_frequency_tunes_the_selected_radio();
   a_shared_channel_shows_both_roles();
+  a_reply_is_shown_when_its_voice_starts();
+  a_reply_whose_voice_never_starts_is_still_shown();
+  a_voice_that_starts_before_its_line_shows_the_line_at_once();
+  without_voices_a_reply_is_shown_at_once();
 
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";
