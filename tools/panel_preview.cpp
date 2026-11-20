@@ -6,7 +6,8 @@
 //                 [width height] [scale] [full|empty|unreachable|armed]
 //                 [mouse_x mouse_y]
 //   panel_preview <fonts-dir> <out.ppm> hud [graphite|daylight|night]
-//                 [width height] [scale] <scene.json>
+//                 [width height] [scale] <scene.json> [open-choice-key] [typed]
+//                 [no-transcript]
 //
 // The HUD mode draws the radio HUD from a scene the console's own controller
 // tests write (atc internal/scenario, ZOAL_ATC_HUD_SCENES): the callsign, the
@@ -261,7 +262,9 @@ std::string menu_event(const std::string &scene) {
 }
 
 int render_hud(const std::string &fonts, const std::string &out, const std::string &theme,
-               int width, int height, float scale, const std::string &scene_path) {
+               int width, int height, float scale, const std::string &scene_path,
+               const std::string &open_choice, const std::string &typed,
+               bool transcript) {
   const std::string scene = read_all(scene_path);
   if (scene.empty()) {
     std::cerr << "no scene at " << scene_path << "\n";
@@ -322,6 +325,15 @@ int render_hud(const std::string &fonts, const std::string &out, const std::stri
   bridge.on_socket_frame(gui_event("pilot_menu", menu_event(scene)), 0);
 
   ui::HudViewState state;
+  std::snprintf(state.typed, sizeof(state.typed), "%s", typed.c_str());
+  if (!transcript) {
+    session.pump(0, wall);
+    session.on_settings_changed(R"({"hudTranscript":false})");
+  }
+  if (!open_choice.empty()) {
+    session.pump(0, wall);
+    session.toggle_choice(open_choice);
+  }
   for (int i = 0; i < 4; ++i) {
     session.pump(0, wall);
     bridge.take_socket_frames();
@@ -367,7 +379,9 @@ int main(int argc, char **argv) {
       std::cerr << "usage: panel_preview <fonts-dir> <out.ppm> hud <theme> <width> <height> <scale> <scene.json>\n";
       return 2;
     }
-    return render_hud(fonts, out, theme, width, height, scale, argv[8]);
+    return render_hud(fonts, out, theme, width, height, scale, argv[8],
+                      argc > 9 ? argv[9] : "", argc > 10 ? argv[10] : "",
+                      !(argc > 11 && std::string(argv[11]) == "no-transcript"));
   }
   const std::string mode = argc > 8 ? argv[8] : "full";
   const float mouse_x = argc > 10 ? static_cast<float>(std::atof(argv[9])) : -1.0f;

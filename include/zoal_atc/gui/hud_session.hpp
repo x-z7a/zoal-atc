@@ -68,6 +68,15 @@ public:
   // to the console, and is spoken in the pilot's own voice once it is taken.
   void press_call(const std::string &key, std::uint64_t steady_ms,
                   std::int64_t wall_ms);
+  // A choice the pilot opened (the level, the runway): its options are shown
+  // under the strip until one is pressed or it is pressed again. Null when
+  // none is open, or the menu no longer offers it.
+  const HudCallItem *open_choice() const;
+  void toggle_choice(const std::string &key);
+  // The pilot typed a call in the HUD: sent as a typed turn, and spoken in
+  // their own voice once the console takes it, like a pressed one.
+  void submit_text(const std::string &text, std::uint64_t steady_ms);
+
   // Tunes the selected COM to the channel the position sent the pilot to.
   void press_next_frequency(std::uint64_t steady_ms);
   // A controller's transmission on this channel finished playing in the
@@ -75,6 +84,12 @@ public:
   void reply_heard(std::uint64_t frequency_hz, std::uint64_t steady_ms,
                    std::int64_t wall_ms);
   bool auto_readback() const { return auto_readback_; }
+  // Whether the HUD shows its line to type a call in: on unless the pilot
+  // turned it off in the panel's settings.
+  bool shows_typing() const { return shows_typing_; }
+  // Whether the HUD shows the last few transmissions: on unless the pilot
+  // turned it off. The radio log in the panel keeps them either way.
+  bool shows_transcript() const { return shows_transcript_; }
   // What the last press could not do; empty when it went.
   const std::string &call_error() const { return call_error_; }
   void dismiss_call_error() { call_error_.clear(); }
@@ -147,6 +162,8 @@ private:
   std::uint64_t asked_hz_ = 0;
   bool asked_reachable_ = false;
   bool auto_readback_ = false;
+  bool shows_typing_ = true;
+  bool shows_transcript_ = true;
   std::set<std::string> in_flight_;
   // Readbacks already pressed for the pilot, so one transmission is read
   // back once.
@@ -154,6 +171,7 @@ private:
   // When a transmission last finished playing, by channel.
   std::unordered_map<std::uint64_t, std::int64_t> heard_at_;
   std::string call_error_;
+  std::string open_choice_;
   bool holds_until_spoken_ = false;
   struct HeldLine {
     HudEntry entry;

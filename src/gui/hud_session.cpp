@@ -83,6 +83,43 @@ HudTheme hud_theme_from_name(const std::string &name) {
   return HudTheme::graphite;
 }
 
+// One button: a call, or a choice whose options are calls.
+static std::optional<HudCallItem> parse_call_item(const std::string &element, bool top) {
+  HudCallItem item;
+  item.key = top_string(element, "key").value_or("");
+  item.label = top_string(element, "label").value_or("");
+  item.sentence = top_string(element, "sentence").value_or("");
+  item.readback = top_bool(element, "readback");
+  if (top) {
+    if (const auto raw = json_raw_field(element, "options")) {
+      if (const auto options = transport::json_array_elements(*raw)) {
+        for (const std::string &option : *options) {
+          if (auto parsed = parse_call_item(option, false)) {
+            item.options.push_back(std::move(*parsed));
+          }
+        }
+      }
+    }
+  }
+  if (item.key.empty()) {
+    return std::nullopt;
+  }
+  if (!item.options.empty()) {
+    if (item.label.empty()) {
+      item.label = item.key;
+    }
+    return item;
+  }
+  // A button with nothing to say is not one a pilot can press.
+  if (item.sentence.empty()) {
+    return std::nullopt;
+  }
+  if (item.label.empty()) {
+    item.label = item.sentence;
+  }
+  return item;
+}
+
 std::optional<HudCallMenu> parse_call_menu(const std::string &payload_json) {
   HudCallMenu menu;
   menu.frequency_hz = top_uint(payload_json, "frequencyHz").value_or(0);
@@ -97,18 +134,8 @@ std::optional<HudCallMenu> parse_call_menu(const std::string &payload_json) {
   if (const auto raw = json_raw_field(payload_json, "items")) {
     if (const auto elements = transport::json_array_elements(*raw)) {
       for (const std::string &element : *elements) {
-        HudCallItem item;
-        item.key = top_string(element, "key").value_or("");
-        item.label = top_string(element, "label").value_or("");
-        item.sentence = top_string(element, "sentence").value_or("");
-        item.readback = top_bool(element, "readback");
-        // A button with nothing to send, or nothing to say it sent, is not
-        // one a pilot can press.
-        if (!item.key.empty() && !item.sentence.empty()) {
-          if (item.label.empty()) {
-            item.label = item.sentence;
-          }
-          menu.items.push_back(std::move(item));
+        if (auto item = parse_call_item(element, true)) {
+          menu.items.push_back(std::move(*item));
         }
       }
     }
@@ -238,6 +265,12 @@ void HudSession::press_call(const std::string &key, std::uint64_t steady_ms,
   if (item == nullptr || in_flight_.count(key) > 0) {
     return;
   }
+  if (!item->options.empty()) {
+    // A choice: its options are the calls.
+    toggle_choice(key);
+    return;
+  }
+  open_choice_.clear();
   call_error_.clear();
   const std::string request =
       R"({"action":"pilot_call","payload":{"key":")" +
@@ -253,6 +286,37 @@ void HudSession::press_call(const std::string &key, std::uint64_t steady_ms,
     return;
   }
   in_flight_.insert(item->key);
+}
+
+void HudSession::toggle_choice(const std::string &key) {
+  open_choice_ = open_choice_ == key ? std::string() : key;
+}
+
+const HudCallItem *HudSession::open_choice() const {
+  if (open_choice_.empty()) {
+    return nullptr;
+  }
+  const HudCallMenu *menu = calls();
+  const HudCallItem *item = menu == nullptr ? nullptr : menu->find(open_choice_);
+  return item != nullptr && !item->options.empty() ? item : nullptr;
+}
+
+void HudSession::submit_text(const std::string &text, std::uint64_t steady_ms) {
+  std::string said = text;
+  const auto first = said.find_first_not_of(" \t");
+  const auto last = said.find_last_not_of(" \t");
+  said = first == std::string::npos ? std::string() : said.substr(first, last - first + 1);
+  if (said.empty()) {
+    return;
+  }
+  call_error_.clear();
+  const std::string request = R"({"action":"submit_text","payload":{"text":")" +
+                              transport::json_escape(said) + R"("}})";
+  std::string error;
+  if (!send_json(request, Pending{Request::call, HudAction::none, "", said, active_hz_},
+                 steady_ms, error)) {
+    call_error_ = error.empty() ? "the message could not be sent" : error;
+  }
 }
 
 void HudSession::press_next_frequency(std::uint64_t steady_ms) {
@@ -311,6 +375,12 @@ void HudSession::on_settings_changed(const std::string &payload_json) {
   }
   if (const auto raw = json_raw_field(payload_json, "autoReadback")) {
     auto_readback_ = *raw == "true";
+  }
+  if (const auto raw = json_raw_field(payload_json, "hudTyping")) {
+    shows_typing_ = *raw != "false";
+  }
+  if (const auto raw = json_raw_field(payload_json, "hudTranscript")) {
+    shows_transcript_ = *raw != "false";
   }
 }
 

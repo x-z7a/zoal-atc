@@ -200,6 +200,10 @@ void tick_hud() {
   if (std::exchange(g_hud->view.pressed_next, false)) {
     session.press_next_frequency(steady);
   }
+  if (const std::string typed = std::exchange(g_hud->view.pressed_text, std::string());
+      !typed.empty()) {
+    session.submit_text(typed, steady);
+  }
   if (std::exchange(g_hud->view.pressed_dismiss_call, false)) {
     session.dismiss_call_error();
   }

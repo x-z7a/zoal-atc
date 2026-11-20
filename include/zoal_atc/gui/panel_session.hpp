@@ -155,6 +155,8 @@ public:
   // numbers a station's; zero is the plugin's default.
   std::uint64_t my_voice() const { return my_voice_; }
   bool auto_readback() const { return auto_readback_; }
+  bool hud_typing() const { return hud_typing_; }
+  bool hud_transcript() const { return hud_transcript_; }
   std::uint64_t settings_revision() const { return settings_revision_; }
   bool connection_loaded() const { return connection_loaded_; }
   const std::string &token() const { return token_; }
@@ -185,6 +187,8 @@ public:
   void pick_theme(HudTheme theme, std::uint64_t steady_ms);
   void pick_voice(std::uint64_t voice, std::uint64_t steady_ms);
   void set_auto_readback(bool on, std::uint64_t steady_ms);
+  void set_hud_typing(bool on, std::uint64_t steady_ms);
+  void set_hud_transcript(bool on, std::uint64_t steady_ms);
   // Settings' import, naming the pilot ID stored here.
   void import_now(std::uint64_t steady_ms);
 
@@ -250,6 +254,8 @@ private:
   std::string simbrief_pilot_id_;
   std::uint64_t my_voice_ = 0;
   bool auto_readback_ = false;
+  bool hud_typing_ = true;
+  bool hud_transcript_ = true;
   std::uint64_t settings_revision_ = 0;
   bool connection_loaded_ = false;
   std::string token_;

@@ -104,6 +104,9 @@ struct HudCallItem {
   // The role whose menu offered it, sent back with a press so a channel two
   // roles share delivers it to the one that recognises the key.
   std::string role;
+  // A choice rather than a call: pressing it shows these, and each is a call
+  // of its own (the level, the runway, the procedure).
+  std::vector<HudCallItem> options;
 };
 
 struct HudCallMenu {
