@@ -477,6 +477,45 @@ void auto_readback_off_presses_nothing() {
   expect_true(rig.last_request("pilot_call") == 0, "off by default");
 }
 
+// A tower working ground control: Tower's and Ground's menus on one channel
+// are shown together, readbacks first, and a press names its role.
+void a_shared_channel_shows_both_roles() {
+  Rig rig;
+  rig.bring_up();
+  rig.hud.set_radio(1, kTower, 0);
+  rig.bridge.on_socket_frame(
+      gui_event("pilot_menu",
+                R"({"frequencyHz":118800000,"role":"tower","station":"VVNB_TWR","revision":3,)"
+                R"("items":[{"key":"runway_vacated","label":"Clear of runway","sentence":"Tower, AC21, clear of the runway"},)"
+                R"({"key":"radio_check","label":"Radio check","sentence":"Tower, AC21, radio check"}]})"),
+      0);
+  rig.bridge.on_socket_frame(
+      gui_event("pilot_menu",
+                R"({"frequencyHz":118800000,"role":"ground","station":"VVNB_TWR_GND","revision":1,)"
+                R"("items":[{"key":"taxi_gate","label":"Taxi to the gate","sentence":"Ground, AC21, request taxi to the gate"},)"
+                R"({"key":"radio_check","label":"Radio check","sentence":"Ground, AC21, radio check"}]})"),
+      0);
+  rig.hud.pump(0, kWall);
+  const HudCallMenu *menu = rig.hud.calls();
+  expect_true(menu != nullptr, "a merged menu");
+  if (menu == nullptr) {
+    return;
+  }
+  expect_true(menu->items.size() == 3, "both roles' calls, the radio check once");
+  expect_str(menu->items.front().key, "taxi_gate", "the role heard from last first");
+  expect_true(menu->find("runway_vacated") != nullptr, "and the other role's");
+
+  rig.sent();
+  rig.hud.press_call("runway_vacated", 1, kWall);
+  std::string frame;
+  for (const auto &item : rig.sent()) {
+    if (item.what == "pilot_call") {
+      frame = item.frame;
+    }
+  }
+  expect_true(frame.find(R"("role":"tower")") != std::string::npos, "the press names its role");
+}
+
 void the_next_frequency_tunes_the_selected_radio() {
   Rig rig;
   rig.bring_up();
@@ -515,6 +554,7 @@ int main() {
   auto_readback_reads_back_what_was_heard();
   auto_readback_off_presses_nothing();
   the_next_frequency_tunes_the_selected_radio();
+  a_shared_channel_shows_both_roles();
 
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";

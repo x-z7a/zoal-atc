@@ -101,6 +101,9 @@ struct HudCallItem {
   std::string sentence;
   // The item that reads back the instruction outstanding.
   bool readback = false;
+  // The role whose menu offered it, sent back with a press so a channel two
+  // roles share delivers it to the one that recognises the key.
+  std::string role;
 };
 
 struct HudCallMenu {
@@ -117,16 +120,24 @@ struct HudCallMenu {
   const HudCallItem *find(std::string_view key) const;
 };
 
-// The latest menu for each frequency, so changing back to a channel shows what
-// its position last offered while the console is asked again.
+// The latest menu for each frequency and role, so changing back to a channel
+// shows what its positions last offered while the console is asked again, and
+// a channel two roles share shows both.
 class HudCalls {
 public:
   void put(HudCallMenu menu);
+  // The channel's menus merged into one; null when none has arrived.
   const HudCallMenu *on(std::uint64_t frequency_hz) const;
-  void clear() { menus_.clear(); }
+  void clear() {
+    menus_.clear();
+    merged_.clear();
+  }
 
 private:
+  void merge(std::uint64_t frequency_hz);
+
   std::vector<HudCallMenu> menus_;
+  std::vector<HudCallMenu> merged_;
 };
 
 // "121.900" for 121900000 Hz.

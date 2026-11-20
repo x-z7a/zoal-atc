@@ -345,32 +345,97 @@ const HudCallItem *HudCallMenu::find(std::string_view key) const {
 }
 
 void HudCalls::put(HudCallMenu menu) {
-  for (HudCallMenu &held : menus_) {
-    if (held.frequency_hz != menu.frequency_hz) {
+  for (HudCallItem &item : menu.items) {
+    item.role = menu.role;
+  }
+  const std::uint64_t frequency_hz = menu.frequency_hz;
+  bool replaced = false;
+  for (auto it = menus_.begin(); it != menus_.end(); ++it) {
+    if (it->frequency_hz != frequency_hz || it->role != menu.role) {
       continue;
     }
     // One position's older state arriving after its newer one is not news.
-    // A different position on the channel is: the pilot was handed to it.
-    if (held.station == menu.station && held.role == menu.role &&
-        menu.revision < held.revision) {
+    // A different position for the role is: the pilot was handed to it.
+    if (it->station == menu.station && menu.revision < it->revision) {
       return;
     }
-    held = std::move(menu);
-    return;
+    // Moved to the end: the most recently updated role is the one whose
+    // calls come first.
+    menus_.erase(it);
+    menus_.push_back(std::move(menu));
+    replaced = true;
+    break;
   }
-  // A handful of channels is a whole flight; the oldest goes first.
-  constexpr std::size_t kHeld = 8;
-  if (menus_.size() >= kHeld) {
-    menus_.erase(menus_.begin());
+  if (!replaced) {
+    // A handful of channels and roles is a whole flight; the oldest goes.
+    constexpr std::size_t kHeld = 12;
+    if (menus_.size() >= kHeld) {
+      menus_.erase(menus_.begin());
+    }
+    menus_.push_back(std::move(menu));
   }
-  menus_.push_back(std::move(menu));
+  merge(frequency_hz);
+}
+
+// merge is what the HUD shows for one channel: the menus of every role on it,
+// as one. A channel two roles share (a tower that works ground control) has
+// both roles' calls: every readback first, then the calls of the role heard
+// from last, then the others, each label once.
+void HudCalls::merge(std::uint64_t frequency_hz) {
+  HudCallMenu merged;
+  merged.frequency_hz = frequency_hz;
+  std::vector<const HudCallMenu *> roles;
+  for (auto it = menus_.rbegin(); it != menus_.rend(); ++it) {
+    if (it->frequency_hz == frequency_hz) {
+      roles.push_back(&*it);
+    }
+  }
+  std::vector<std::string> labels;
+  auto add = [&](const HudCallItem &item) {
+    if (std::find(labels.begin(), labels.end(), item.label) != labels.end()) {
+      return;
+    }
+    labels.push_back(item.label);
+    merged.items.push_back(item);
+  };
+  for (const HudCallMenu *menu : roles) {
+    for (const HudCallItem &item : menu->items) {
+      if (item.readback) {
+        add(item);
+      }
+    }
+  }
+  for (const HudCallMenu *menu : roles) {
+    if (merged.role.empty()) {
+      merged.role = menu->role;
+      merged.station = menu->station;
+      merged.station_name = menu->station_name;
+      merged.revision = menu->revision;
+    }
+    if (merged.next_frequency_hz == 0) {
+      merged.next_frequency_hz = menu->next_frequency_hz;
+    }
+    for (const HudCallItem &item : menu->items) {
+      if (!item.readback) {
+        add(item);
+      }
+    }
+  }
+  merged_.erase(std::remove_if(merged_.begin(), merged_.end(),
+                               [frequency_hz](const HudCallMenu &held) {
+                                 return held.frequency_hz == frequency_hz;
+                               }),
+                merged_.end());
+  if (!roles.empty()) {
+    merged_.push_back(std::move(merged));
+  }
 }
 
 const HudCallMenu *HudCalls::on(std::uint64_t frequency_hz) const {
   if (frequency_hz == 0) {
     return nullptr;
   }
-  for (const HudCallMenu &held : menus_) {
+  for (const HudCallMenu &held : merged_) {
     if (held.frequency_hz == frequency_hz) {
       return &held;
     }

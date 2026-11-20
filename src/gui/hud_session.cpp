@@ -208,7 +208,8 @@ void HudSession::press_call(const std::string &key, std::uint64_t steady_ms,
   const std::string request =
       R"({"action":"pilot_call","payload":{"key":")" +
       transport::json_escape(item->key) + R"(","sentence":")" +
-      transport::json_escape(item->sentence) + R"("}})";
+      transport::json_escape(item->sentence) + R"(","role":")" +
+      transport::json_escape(item->role) + R"("}})";
   std::string error;
   if (!send_json(request,
                  Pending{Request::call, HudAction::none, item->key,
