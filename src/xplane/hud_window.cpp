@@ -188,6 +188,8 @@ void tick_hud() {
   case HudAction::none:
     break;
   }
+  session.set_holds_until_spoken(g_hud->cockpit.speaks_replies &&
+                                 g_hud->cockpit.speaks_replies());
   if (g_hud->cockpit.radio) {
     const auto [com, active_hz] = g_hud->cockpit.radio();
     session.set_radio(com, active_hz, steady);
@@ -218,6 +220,12 @@ void tick_hud() {
 void hud_settings_changed(const std::string &payload_json) {
   if (g_hud) {
     g_hud->session->on_settings_changed(payload_json);
+  }
+}
+
+void hud_reply_spoken(const std::string &text) {
+  if (g_hud) {
+    g_hud->session->reply_spoken(text, wall_now());
   }
 }
 

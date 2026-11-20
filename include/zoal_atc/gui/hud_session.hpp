@@ -9,6 +9,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace zoal_atc::gui {
 
@@ -81,6 +82,16 @@ public:
   bool call_in_flight(const std::string &key) const {
     return in_flight_.count(key) > 0;
   }
+  // A controller's line is shown when its voice starts, not when its text
+  // arrives: the reply is queued behind the pilot's own call, and words on the
+  // HUD before anybody has said them read as the answer arriving before the
+  // question. On only where the cockpit speaks replies; a line whose voice
+  // never starts is shown after kHudHoldMs anyway.
+  void set_holds_until_spoken(bool holds) { holds_until_spoken_ = holds; }
+  // A controller's transmission started playing, or will not play at all: the
+  // line with these words is shown now.
+  void reply_spoken(const std::string &text, std::int64_t wall_ms);
+
   // Speaks a call the console took, in the pilot's voice, on this channel.
   void set_own_call_speaker(
       std::function<void(const std::string &, std::uint64_t)> speak) {
@@ -143,6 +154,15 @@ private:
   // When a transmission last finished playing, by channel.
   std::unordered_map<std::uint64_t, std::int64_t> heard_at_;
   std::string call_error_;
+  bool holds_until_spoken_ = false;
+  struct HeldLine {
+    HudEntry entry;
+    std::int64_t held_at_ms = 0;
+  };
+  std::vector<HeldLine> held_;
+  // Words whose voice already started, for a line that arrives after it: the
+  // reply and its line reach the cockpit as two frames, in either order.
+  std::vector<HeldLine> spoken_;
   std::function<void(const std::string &, std::uint64_t)> speak_own_;
 };
 
@@ -156,6 +176,9 @@ std::optional<HudCallMenu> parse_call_menu(const std::string &payload_json);
 // How long after a transmission finished playing auto readback still reads it
 // back when its menu arrives late.
 inline constexpr std::int64_t kAutoReadbackWindowMs = 20'000;
+
+// The longest a controller's line waits for its voice before it is shown.
+inline constexpr std::int64_t kHudHoldMs = 15'000;
 
 } // namespace zoal_atc::gui
 

@@ -818,6 +818,9 @@ void finish_active_speech(std::uint64_t now, bool ok,
   if (now >= active.started_at_ms) {
     active.delivery.speech_elapsed_ms = now - active.started_at_ms;
   }
+  if (active.reply.generation != 0) {
+    zoal_atc::xplane::hud_reply_spoken(active.reply.text);
+  }
   if (ok && active.reply.generation != 0) {
     // A controller's transmission the pilot heard: what auto readback waits
     // for.
@@ -894,6 +897,10 @@ void advance_synthesized_speech(std::uint64_t now) {
       finish_active_speech(now, false, "radio_refused_audio");
       return;
     }
+    if (active.next_sentence == 0 && active.reply.generation != 0) {
+      // The controller starts talking: their words go up on the HUD now.
+      zoal_atc::xplane::hud_reply_spoken(active.reply.text);
+    }
     active.delivery.api_called = true;
     active.channel = channel;
     const std::uint64_t duration = audio->duration_ms();
@@ -932,6 +939,10 @@ void start_atc_reply(ATCReplyMessage reply, std::uint64_t process_at_ms) {
   SpeechDeliveryInfo speech;
   if (reply.queued_at_ms > 0 && process_at_ms >= reply.queued_at_ms) {
     speech.plugin_queue_ms = process_at_ms - reply.queued_at_ms;
+  }
+  if (reply.generation != 0 && (!ok || !reply.speak || !reply.speech)) {
+    // Nothing will say it: its words are shown now.
+    zoal_atc::xplane::hud_reply_spoken(reply.text);
   }
   if (!ok || !reply.speak) {
     speech.ack_basis = ok ? "speech_not_requested" : "empty_text";
@@ -2006,6 +2017,8 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     return std::make_pair(com, tuned_com_hz(com));
   };
   cockpit.speak_own_call = speak_own_call;
+  // Only where there are voices to wait for.
+  cockpit.speaks_replies = [] { return g_synthesis != nullptr; };
   zoal_atc::xplane::start_hud(g_gui_bridge, monotonic_ms, std::move(cockpit));
   zoal_atc::xplane::start_panel(panel_config);
 
