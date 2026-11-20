@@ -328,7 +328,7 @@ int render_hud(const std::string &fonts, const std::string &out, const std::stri
     io.DeltaTime = 1.0f / 60.0f;
     io.AddMousePosEvent(-1.0f, -1.0f);
     ImGui::NewFrame();
-    ui::draw_hud(session, state, face, ui::HudFrame{wall, true});
+    ui::draw_hud(session, state, face, ui::HudFrame{wall});
     ImGui::Render();
     update_textures(ImGui::GetDrawData());
   }

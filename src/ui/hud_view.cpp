@@ -29,7 +29,6 @@ using gui::HudTone;
 struct Frame {
   const Typeface *face = nullptr;
   HudViewState *state = nullptr;
-  bool can_replay = false;
 };
 Frame g;
 
@@ -211,9 +210,9 @@ std::vector<ActionButton> action_buttons(const HudSession &session) {
 //
 // What the position on the tuned channel would take, as buttons, in the order
 // it expects to hear them (atc docs/architecture/pilot-menu.md): the readback
-// first and filled, then the calls. A replay of the last transmission and the
-// channel the pilot was sent to sit at the start and do not scroll; the calls
-// scroll sideways under the wheel when there are more than fit.
+// first and filled, then the calls. The channel the pilot was sent to sits at
+// the start and does not scroll; the calls scroll sideways, by the arrows at
+// the strip's ends or the wheel, when there are more than fit.
 
 constexpr float kCallHeight = 26.0f;
 constexpr float kCallGap = 4.0f;
@@ -269,6 +268,26 @@ bool call_pill(ImDrawList *draw, const Palette &p, const char *id, ImVec2 min,
   return clicked && enabled;
 }
 
+// A round button with a chevron, for scrolling the call strip. Dimmed and
+// unpressable when there is nothing further that way.
+bool scroll_arrow(ImDrawList *draw, const Palette &p, const char *id, ImVec2 min,
+                  float size, bool ahead, bool enabled) {
+  bool hovered = false;
+  const bool clicked = hit(id, min, ImVec2(size, kCallHeight), &hovered);
+  const ImVec2 centre(min.x + size * 0.5f, min.y + kCallHeight * 0.5f);
+  const float alpha = enabled ? 1.0f : 0.3f;
+  draw->AddCircleFilled(centre, size * 0.5f,
+                        faded(rgba(p.raised, hovered && enabled ? 0.95f : 0.7f), alpha));
+  draw->AddCircle(centre, size * 0.5f,
+                  faded(hovered && enabled ? rgba(p.accent, 0.9f) : edge(p), alpha), 0, 1.0f);
+  const float h = 5.0f;
+  const float w = ahead ? 3.0f : -3.0f;
+  const ImVec2 points[] = {ImVec2(centre.x - w, centre.y - h), ImVec2(centre.x + w, centre.y),
+                           ImVec2(centre.x - w, centre.y + h)};
+  draw->AddPolyline(points, 3, faded(rgba(p.accent), alpha), ImDrawFlags_None, 2.0f);
+  return clicked && enabled;
+}
+
 float pill_width(const std::string &label, bool with_icon) {
   float width = kCallPadX * 2.0f;
   if (with_icon) {
@@ -283,19 +302,15 @@ float pill_width(const std::string &label, bool with_icon) {
 float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
                  float right, float y, float *widest) {
   const gui::HudCallMenu *menu = session.calls();
-  const bool can_replay = g.can_replay;
   const bool has_next = menu != nullptr && menu->next_frequency_hz != 0 &&
                         menu->next_frequency_hz != session.active_hz();
-  if ((menu == nullptr || menu->items.empty()) && !has_next && !can_replay) {
+  if ((menu == nullptr || menu->items.empty()) && !has_next) {
     return y;
   }
 
   // The buttons that do not scroll.
   const std::string next_label = has_next ? gui::format_mhz(menu->next_frequency_hz) : "";
   float fixed_w = 0.0f;
-  if (can_replay) {
-    fixed_w += pill_width("", true) + kCallGap;
-  }
   if (has_next) {
     fixed_w += pill_width(next_label, true) + kCallGap;
   }
@@ -328,13 +343,6 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
   const float row = y + pad;
   float x = min.x + pad;
   const ImVec4 everything(min.x, min.y, max.x, max.y);
-  if (can_replay) {
-    if (call_pill(draw, p, "replay", ImVec2(x, row), pill_width("", true), "",
-                  Icon::reload, false, true, everything)) {
-      g.state->pressed_replay = true;
-    }
-    x += pill_width("", true) + kCallGap;
-  }
   if (has_next) {
     if (call_pill(draw, p, "next_frequency", ImVec2(x, row), pill_width(next_label, true),
                   next_label, Icon::arrow_down, false, true, everything)) {
@@ -343,17 +351,44 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
     x += pill_width(next_label, true) + kCallGap;
   }
 
-  // The calls, scrolled and clipped to what is left of the strip.
-  // The calls stop short of the strip's rounded end, so one cut off by the
-  // edge is cut by glass rather than by the curve.
-  const ImVec4 clip(x, min.y, max.x - strip_h * 0.5f, max.y);
+  // The calls, scrolled and clipped to what is left of the strip. They stop
+  // short of the strip's rounded end, so one cut off by the edge is cut by
+  // glass rather than by the curve.
+  float left = x;
+  float end = max.x - strip_h * 0.5f;
+  // More calls than fit: a button at each end that scrolls, because a wheel
+  // is not something every pilot has (a trackpad in the sim sends none the
+  // HUD sees), and a strip that only scrolls under one is a strip whose last
+  // calls cannot be reached.
+  const bool overflowing = calls_w > end - left;
+  constexpr float kArrow = 24.0f;
+  ImVec2 back_at, ahead_at;
+  if (overflowing) {
+    back_at = ImVec2(left, row);
+    left += kArrow + kCallGap;
+    ahead_at = ImVec2(max.x - pad - kArrow, row);
+    end = ahead_at.x - kCallGap;
+  }
+  const ImVec4 clip(left, min.y, end, max.y);
   const float visible = clip.z - clip.x;
   const float overflow = std::max(0.0f, calls_w - visible);
   ImGuiIO &io = ImGui::GetIO();
   if (overflow > 0.0f && ImGui::IsMouseHoveringRect(min, max, false)) {
     g.state->strip_scroll -= (io.MouseWheel + io.MouseWheelH) * 40.0f;
   }
+  if (overflowing) {
+    const float page = std::max(40.0f, visible * 0.8f);
+    const bool can_back = g.state->strip_scroll > 0.5f;
+    const bool can_ahead = g.state->strip_scroll < overflow - 0.5f;
+    if (scroll_arrow(draw, p, "strip_back", back_at, kArrow, false, can_back)) {
+      g.state->strip_scroll -= page;
+    }
+    if (scroll_arrow(draw, p, "strip_ahead", ahead_at, kArrow, true, can_ahead)) {
+      g.state->strip_scroll += page;
+    }
+  }
   g.state->strip_scroll = std::clamp(g.state->strip_scroll, 0.0f, overflow);
+  x = left;
   draw->PushClipRect(ImVec2(clip.x, clip.y), ImVec2(clip.z, clip.w), true);
   float cx = x - g.state->strip_scroll;
   int index = 0;
@@ -677,7 +712,7 @@ void build(HudSession &session, std::int64_t wall) {
 
 void draw_hud(gui::HudSession &session, HudViewState &state, const Typeface &face,
               const HudFrame &frame) {
-  g = Frame{&face, &state, frame.can_replay};
+  g = Frame{&face, &state};
   build(session, frame.wall_ms);
   g = Frame{};
 }

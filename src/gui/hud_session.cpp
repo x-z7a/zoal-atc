@@ -2,6 +2,7 @@
 
 #include "zoal_atc/transport/json_util.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 
@@ -176,8 +177,41 @@ void HudSession::pump(std::uint64_t steady_ms, std::int64_t wall_ms) {
     // the position on it what it would take.
     ask_for_menu(steady_ms);
   }
+  spoken_.erase(std::remove_if(spoken_.begin(), spoken_.end(),
+                               [wall_ms](const HeldLine &said) {
+                                 return wall_ms - said.held_at_ms > kHudHoldMs;
+                               }),
+                spoken_.end());
+  // A line whose voice never started is not lost: shown once it has waited
+  // long enough that nothing is still going to say it.
+  for (auto it = held_.begin(); it != held_.end();) {
+    if (wall_ms - it->held_at_ms >= kHudHoldMs) {
+      feed_.add(it->entry, wall_ms);
+      it = held_.erase(it);
+    } else {
+      ++it;
+    }
+  }
   menu_.tick(wall_ms);
   feed_.expire(wall_ms);
+}
+
+void HudSession::reply_spoken(const std::string &text, std::int64_t wall_ms) {
+  for (auto it = held_.begin(); it != held_.end(); ++it) {
+    if (it->entry.text == text) {
+      feed_.add(it->entry, wall_ms);
+      held_.erase(it);
+      return;
+    }
+  }
+  // Not here yet: remembered, so it is shown the moment it arrives.
+  HudEntry said;
+  said.text = text;
+  spoken_.push_back(HeldLine{said, wall_ms});
+  constexpr std::size_t kSpokenKept = 8;
+  if (spoken_.size() > kSpokenKept) {
+    spoken_.erase(spoken_.begin());
+  }
 }
 
 void HudSession::set_radio(int com, std::uint64_t active_hz,
@@ -359,7 +393,14 @@ void HudSession::handle_event(const std::string &envelope,
   }
   if (*event == "comm_log") {
     if (const auto entry = parse_hud_entry(*payload)) {
-      feed_.add(*entry, wall_ms);
+      const bool already_spoken =
+          std::any_of(spoken_.begin(), spoken_.end(),
+                      [&](const HeldLine &said) { return said.entry.text == entry->text; });
+      if (holds_until_spoken_ && entry->kind == "atc" && !entry->overheard && !already_spoken) {
+        held_.push_back(HeldLine{*entry, wall_ms});
+      } else {
+        feed_.add(*entry, wall_ms);
+      }
     }
   } else if (*event == "flight_snapshot") {
     callsign_ = top_string(*payload, "callsign").value_or("");
