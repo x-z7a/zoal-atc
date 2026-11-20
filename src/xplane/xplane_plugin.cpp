@@ -217,6 +217,10 @@ std::uint64_t g_my_voice = 0;
 // Read back a transmission the moment it has played, by pressing the readback
 // the position offers. Off unless the pilot turns it on.
 bool g_auto_readback = false;
+// The HUD's line to type a call in. Shown unless the pilot turns it off.
+bool g_hud_typing = true;
+// The HUD's last few transmissions. Shown unless the pilot turns them off.
+bool g_hud_transcript = true;
 // am_adam: a voice no station is given by default, so a pilot who never picks
 // one does not sound like their controller.
 constexpr std::uint64_t kDefaultPilotVoice = 12;
@@ -448,6 +452,8 @@ std::string settings_json() {
              config_value(text, "panel_theme").value_or(std::string()))
       << R"(","myVoice":)" << g_my_voice
       << R"(,"autoReadback":)" << (g_auto_readback ? "true" : "false")
+      << R"(,"hudTyping":)" << (g_hud_typing ? "true" : "false")
+      << R"(,"hudTranscript":)" << (g_hud_transcript ? "true" : "false")
       << "}";
   return out.str();
 }
@@ -463,6 +469,8 @@ void load_call_settings(const std::string &text) {
     }
   }
   g_auto_readback = config_value(text, "auto_readback").value_or("") == "true";
+  g_hud_typing = config_value(text, "hud_typing").value_or("true") != "false";
+  g_hud_transcript = config_value(text, "hud_transcript").value_or("true") != "false";
 }
 
 // Defined with the datarefs below. Writes the COM dataref a tune names and
@@ -568,6 +576,34 @@ handle_local_gui_action(const std::string &action,
       const std::string changed =
           std::string(R"({"autoReadback":)") + (*auto_readback ? "true" : "false") + "}";
       zoal_atc::xplane::hud_settings_changed(changed);
+    }
+    const auto hud_typing =
+        zoal_atc::transport::json_bool_field(payload_json, "hudTyping");
+    if (hud_typing.has_value()) {
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "hud_typing",
+          *hud_typing ? "true" : "false");
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_hud_typing = *hud_typing;
+      zoal_atc::xplane::hud_settings_changed(
+          std::string(R"({"hudTyping":)") + (*hud_typing ? "true" : "false") + "}");
+    }
+    const auto hud_transcript =
+        zoal_atc::transport::json_bool_field(payload_json, "hudTranscript");
+    if (hud_transcript.has_value()) {
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "hud_transcript",
+          *hud_transcript ? "true" : "false");
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_hud_transcript = *hud_transcript;
+      zoal_atc::xplane::hud_settings_changed(
+          std::string(R"({"hudTranscript":)") + (*hud_transcript ? "true" : "false") + "}");
     }
     if (theme.has_value()) {
       const auto existing = read_file(g_config_path);

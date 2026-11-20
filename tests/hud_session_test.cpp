@@ -573,6 +573,87 @@ void without_voices_a_reply_is_shown_at_once() {
   expect_true(rig.hud.feed().lines().size() == 1, "nothing to wait for");
 }
 
+// A choice opens its options; pressing one sends that option's key, and the
+// choice closes.
+void a_choice_opens_and_its_option_is_the_call() {
+  Rig rig;
+  rig.bring_up();
+  rig.hud.set_radio(1, kGround, 0);
+  rig.bridge.on_socket_frame(
+      gui_event("pilot_menu",
+                R"({"frequencyHz":121900000,"role":"center","station":"CZUL","revision":1,)"
+                R"("items":[{"key":"level","label":"Altitude","options":[)"
+                R"({"key":"level:27000","label":"FL270","sentence":"Montreal, AC21, request FL270"},)"
+                R"({"key":"level:25000","label":"FL250","sentence":"Montreal, AC21, request FL250"}]}]})"),
+      0);
+  rig.hud.pump(0, kWall);
+  const HudCallMenu *menu = rig.hud.calls();
+  expect_true(menu != nullptr && menu->items.size() == 1, "one item");
+  if (menu == nullptr || menu->items.empty()) {
+    return;
+  }
+  expect_true(menu->items.front().options.size() == 2, "its two options");
+
+  rig.sent();
+  rig.hud.press_call("level", 1, kWall);
+  expect_true(rig.last_request("pilot_call") == 0, "a choice is not a call");
+  expect_true(rig.hud.open_choice() != nullptr, "it opens");
+
+  rig.hud.press_call("level:25000", 2, kWall);
+  std::string frame;
+  for (const auto &item : rig.sent()) {
+    if (item.what == "pilot_call") {
+      frame = item.frame;
+    }
+  }
+  expect_true(frame.find("level:25000") != std::string::npos, "the option's key is the call");
+  expect_true(rig.hud.open_choice() == nullptr, "and the choice closes");
+}
+
+// A call typed in the HUD goes as a typed turn, spoken in the pilot's voice
+// once the console takes it.
+void a_typed_call_is_sent_and_spoken() {
+  Rig rig;
+  std::vector<std::string> spoken;
+  rig.hud.set_own_call_speaker(
+      [&spoken](const std::string &sentence, std::uint64_t) { spoken.push_back(sentence); });
+  rig.bring_up();
+  rig.sent();
+  rig.hud.submit_text("  request higher  ", 1);
+  std::uint64_t id = 0;
+  std::string frame;
+  for (const auto &item : rig.sent()) {
+    if (item.what == "submit_text") {
+      id = item.id;
+      frame = item.frame;
+    }
+  }
+  expect_true(id != 0, "a submit_text went to the console");
+  expect_true(frame.find(R"("text":"request higher")") != std::string::npos, "trimmed");
+  rig.bridge.on_socket_frame(gui_ok(id), 2);
+  rig.hud.pump(2, kWall);
+  expect_true(spoken.size() == 1 && spoken.front() == "request higher", "spoken in the pilot's voice");
+
+  rig.hud.submit_text("   ", 3);
+  expect_true(rig.last_request("submit_text") == 0, "nothing to send is not sent");
+}
+
+void the_transcript_is_a_setting() {
+  Rig rig;
+  expect_true(rig.hud.shows_transcript(), "shown by default");
+  rig.hud.on_settings_changed(R"({"hudTranscript":false})");
+  expect_true(!rig.hud.shows_transcript(), "hidden when turned off");
+}
+
+void the_typing_line_is_a_setting() {
+  Rig rig;
+  expect_true(rig.hud.shows_typing(), "shown by default");
+  rig.hud.on_settings_changed(R"({"hudTyping":false})");
+  expect_true(!rig.hud.shows_typing(), "hidden when turned off");
+  rig.hud.on_settings_changed(R"({"theme":"night"})");
+  expect_true(!rig.hud.shows_typing(), "another setting leaves it alone");
+}
+
 } // namespace
 
 int main() {
@@ -602,6 +683,10 @@ int main() {
   a_reply_whose_voice_never_starts_is_still_shown();
   a_voice_that_starts_before_its_line_shows_the_line_at_once();
   without_voices_a_reply_is_shown_at_once();
+  a_choice_opens_and_its_option_is_the_call();
+  a_typed_call_is_sent_and_spoken();
+  the_typing_line_is_a_setting();
+  the_transcript_is_a_setting();
 
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";

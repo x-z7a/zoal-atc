@@ -224,6 +224,9 @@ struct CallButton {
   std::string label;
   bool readback = false;
   bool in_flight = false;
+  // A choice: pressing it shows its options rather than making a call.
+  bool choice = false;
+  bool open = false;
   float width = 0.0f;
 };
 
@@ -299,6 +302,53 @@ float pill_width(const std::string &label, bool with_icon) {
   return width;
 }
 
+// strip_tail is what hangs under the strip: the open choice's options and
+// the last press's error.
+float strip_tail(ImDrawList *draw, HudSession &session, const Palette &p, float right,
+                 float y, float strip_w, float *widest) {
+  const float most = gui::HudPlacement{}.width - kPad * 2.0f;
+  // The open choice's options, under the strip and as wide as it, wrapped:
+  // eight at most, so they fit in two rows without scrolling.
+  if (const gui::HudCallItem *open = session.open_choice()) {
+    y += kGap;
+    const float left_edge = right - strip_w;
+    float ox = left_edge;
+    float oy = y;
+    const ImVec4 all(left_edge, y, right, y + 400.0f);
+    int index = 0;
+    for (const gui::HudCallItem &option : open->options) {
+      const float w = pill_width(option.label, false);
+      if (ox > left_edge && ox + w > right) {
+        ox = left_edge;
+        oy += kCallHeight + kCallGap;
+      }
+      const std::string id = "option" + std::to_string(index++);
+      if (call_pill(draw, p, id.c_str(), ImVec2(ox, oy), w, option.label, Icon::menu, false,
+                    !session.call_in_flight(option.key), all)) {
+        g.state->pressed_call = option.key;
+      }
+      ox += w + kCallGap;
+    }
+    y = oy + kCallHeight;
+  }
+
+  if (!session.call_error().empty()) {
+    const std::string shown = fit(g.face->semibold, css(kActionPx), session.call_error(),
+                                  most - 20.0f);
+    const float w = measure(g.face->semibold, css(kActionPx), shown).x;
+    y += 4.0f;
+    bool hovered = false;
+    if (hit("call_error", ImVec2(right - w - 4.0f, y), ImVec2(w + 4.0f, 18.0f), &hovered)) {
+      g.state->pressed_dismiss_call = true;
+    }
+    text(draw, g.face->semibold, css(kActionPx), ImVec2(right - w - 2.0f, y + 2.0f),
+         rgba(p.danger), shown, p);
+    y += 18.0f;
+    *widest = std::max(*widest, w + 4.0f);
+  }
+  return y;
+}
+
 float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
                  float right, float y, float *widest) {
   const gui::HudCallMenu *menu = session.calls();
@@ -321,7 +371,10 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
     for (const gui::HudCallItem &item : menu->items) {
       CallButton button{item.key, item.label, item.readback,
                         session.call_in_flight(item.key)};
-      button.width = pill_width(button.label, button.readback);
+      button.choice = !item.options.empty();
+      button.open = button.choice && session.open_choice() != nullptr &&
+                    session.open_choice()->key == item.key;
+      button.width = pill_width(button.label, button.readback || button.choice);
       calls_w += button.width + kCallGap;
       calls.push_back(std::move(button));
     }
@@ -332,6 +385,66 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
 
   const float most = gui::HudPlacement{}.width - kPad * 2.0f;
   const float pad = 3.0f;
+
+  if (!session.shows_transcript()) {
+    // No transcript under it, so the room is the strip's: every call in rows,
+    // as many as it takes, with nothing to scroll.
+    const float strip_w = std::min(most, fixed_w + calls_w + pad * 2.0f);
+    const float inner_left = right - strip_w + pad;
+    const float inner_right = right - pad;
+    std::vector<ImVec2> at;
+    float cx = inner_left;
+    float cy = y + kGap + pad;
+    auto place = [&](float w) {
+      if (cx > inner_left && cx + w > inner_right) {
+        cx = inner_left;
+        cy += kCallHeight + kCallGap;
+      }
+      at.push_back(ImVec2(cx, cy));
+      cx += w + kCallGap;
+    };
+    if (has_next) {
+      place(pill_width(next_label, true));
+    }
+    for (const CallButton &button : calls) {
+      place(button.width);
+    }
+    y += kGap;
+    const float strip_h = cy + kCallHeight + pad - y;
+    const ImVec2 min(right - strip_w, y);
+    const ImVec2 max(right, y + strip_h);
+    const float radius = std::min(strip_h * 0.5f, 16.0f);
+    draw->AddRectFilled(min, max, glass(p), radius);
+    draw->AddRect(min, max, edge(p), radius, 1.0f);
+    const ImVec4 everything(min.x, min.y, max.x, max.y);
+    std::size_t n = 0;
+    if (has_next) {
+      if (call_pill(draw, p, "next_frequency", at[n++], pill_width(next_label, true),
+                    next_label, Icon::arrow_down, false, true, everything)) {
+        g.state->pressed_next = true;
+      }
+    }
+    int index = 0;
+    for (const CallButton &button : calls) {
+      const ImVec2 pos = at[n++];
+      const std::string id = "call" + std::to_string(index++);
+      const Icon glyph = button.readback ? Icon::check
+                         : button.choice ? Icon::arrow_down
+                                         : Icon::menu;
+      if (call_pill(draw, p, id.c_str(), pos, button.width, button.label, glyph,
+                    button.readback, !button.in_flight, everything)) {
+        g.state->pressed_call = button.key;
+      }
+      if (button.open) {
+        draw->AddRect(pos, ImVec2(pos.x + button.width, pos.y + kCallHeight), rgba(p.accent),
+                      kCallHeight * 0.5f, 0, 2.0f);
+      }
+    }
+    *widest = std::max(*widest, strip_w);
+    g.state->strip_width = strip_w;
+    return strip_tail(draw, session, p, right, y + strip_h, strip_w, widest);
+  }
+
   const float strip_h = kCallHeight + pad * 2.0f;
   const float strip_w = std::min(most, fixed_w + calls_w + pad + strip_h * 0.5f);
   y += kGap;
@@ -394,10 +507,18 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
   int index = 0;
   for (const CallButton &button : calls) {
     const std::string id = "call" + std::to_string(index++);
-    if (call_pill(draw, p, id.c_str(), ImVec2(cx, row), button.width, button.label,
-                  button.readback ? Icon::check : Icon::menu, button.readback,
-                  !button.in_flight, clip)) {
+    const Icon glyph = button.readback ? Icon::check
+                       : button.choice ? Icon::arrow_down
+                                       : Icon::menu;
+    if (call_pill(draw, p, id.c_str(), ImVec2(cx, row), button.width, button.label, glyph,
+                  button.readback, !button.in_flight, clip)) {
       g.state->pressed_call = button.key;
+    }
+    if (button.open) {
+      // Open, its options below: ringed rather than filled, because filled
+      // is the readback's.
+      draw->AddRect(ImVec2(cx, row), ImVec2(cx + button.width, row + kCallHeight),
+                    rgba(p.accent), kCallHeight * 0.5f, 0, 2.0f);
     }
     cx += button.width + kCallGap;
   }
@@ -416,23 +537,54 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
     }
   }
   *widest = std::max(*widest, strip_w);
+  g.state->strip_width = strip_w;
   y += strip_h;
 
-  if (!session.call_error().empty()) {
-    const std::string shown = fit(g.face->semibold, css(kActionPx), session.call_error(),
-                                  most - 20.0f);
-    const float w = measure(g.face->semibold, css(kActionPx), shown).x;
-    y += 4.0f;
-    bool hovered = false;
-    if (hit("call_error", ImVec2(right - w - 4.0f, y), ImVec2(w + 4.0f, 18.0f), &hovered)) {
-      g.state->pressed_dismiss_call = true;
-    }
-    text(draw, g.face->semibold, css(kActionPx), ImVec2(right - w - 2.0f, y + 2.0f),
-         rgba(p.danger), shown, p);
-    y += 18.0f;
-    *widest = std::max(*widest, w + 4.0f);
+  return strip_tail(draw, session, p, right, y, strip_w, widest);
+}
+
+// --- the typing line ---------------------------------------------------------
+//
+// A pilot who would rather type than speak or press: Enter sends what they
+// wrote as a typed call, the way the panel's box does, without opening the
+// panel. As wide as the call strip under it, or the bar where there is none.
+
+constexpr float kTypeHeight = 28.0f;
+
+float typing_line(ImDrawList *draw, const Palette &p, float right, float y, float bar_width,
+                  float *widest) {
+  const float most = gui::HudPlacement{}.width - kPad * 2.0f;
+  const float width =
+      std::clamp(std::max(g.state->strip_width, bar_width), 240.0f, most);
+  y += kGap;
+  const ImVec2 min(right - width, y);
+  const ImVec2 max(right, y + kTypeHeight);
+  draw->AddRectFilled(min, max, glass(p), kTypeHeight * 0.5f);
+  draw->AddRect(min, max, edge(p), kTypeHeight * 0.5f, 1.0f);
+
+  const float px = css(kActionPx + 1.0f);
+  ImGui::PushFont(g.face->regular, px);
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_FrameBgActive, IM_COL32(0, 0, 0, 0));
+  ImGui::PushStyleColor(ImGuiCol_Text, rgba(p.text));
+  ImGui::PushStyleColor(ImGuiCol_TextDisabled, rgba(p.text_dim));
+  ImGui::PushStyleColor(ImGuiCol_InputTextCursor, rgba(p.accent));
+  ImGui::PushStyleColor(ImGuiCol_TextSelectedBg, rgba(p.accent, 0.35f));
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, (kTypeHeight - px) * 0.5f));
+  ImGui::SetCursorScreenPos(ImVec2(min.x + 14.0f, min.y));
+  ImGui::SetNextItemWidth(width - 28.0f);
+  if (ImGui::InputTextWithHint("##hud_typed", "Type a call, Enter to send",
+                               g.state->typed, sizeof(g.state->typed),
+                               ImGuiInputTextFlags_EnterReturnsTrue)) {
+    g.state->pressed_text = g.state->typed;
+    g.state->typed[0] = '\0';
   }
-  return y;
+  ImGui::PopStyleVar();
+  ImGui::PopStyleColor(7);
+  ImGui::PopFont();
+  *widest = std::max(*widest, width);
+  return y + kTypeHeight;
 }
 
 // --- one frame ---------------------------------------------------------------
@@ -606,13 +758,19 @@ void build(HudSession &session, std::int64_t wall) {
   widest = std::max(widest, row_width);
   float y = top + kBarHeight;
 
+  // ---- a line to type a call in, as wide as the strip under it ----
+  if (session.shows_typing()) {
+    y = typing_line(draw, p, right, y, row_width, &widest);
+  }
+
   // ---- the calls a pilot can make by pressing a button ----
   y = call_strip(draw, session, p, right, y, &widest);
 
   // ---- the transmissions ----
   const float bubble_max = gui::HudPlacement{}.width - kPad * 2.0f;
   const float wrap = bubble_max - kBubblePadX * 2.0f;
-  for (const HudLine &line : session.feed().lines()) {
+  static const std::vector<HudLine> kNone;
+  for (const HudLine &line : session.shows_transcript() ? session.feed().lines() : kNone) {
     const float opacity = gui::hud_line_opacity(line, wall);
     if (opacity <= 0.0f) {
       continue;
