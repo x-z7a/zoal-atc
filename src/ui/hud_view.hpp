@@ -17,6 +17,11 @@ struct HudViewState {
   std::string pressed_call;
   bool pressed_next = false;
   bool pressed_dismiss_call = false;
+  // What the pilot typed in the HUD's line, and what they sent with Enter.
+  char typed[256] = {};
+  std::string pressed_text;
+  // The call strip's width last frame, which the typing line matches.
+  float strip_width = 0.0f;
   // How far the call strip is scrolled, in boxels.
   float strip_scroll = 0.0f;
   // What the last frame drew, so the window can be made exactly that big.

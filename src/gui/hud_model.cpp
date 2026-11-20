@@ -343,6 +343,11 @@ const HudCallItem *HudCallMenu::find(std::string_view key) const {
     if (item.key == key) {
       return &item;
     }
+    for (const HudCallItem &option : item.options) {
+      if (option.key == key) {
+        return &option;
+      }
+    }
   }
   return nullptr;
 }
@@ -350,6 +355,9 @@ const HudCallItem *HudCallMenu::find(std::string_view key) const {
 void HudCalls::put(HudCallMenu menu) {
   for (HudCallItem &item : menu.items) {
     item.role = menu.role;
+    for (HudCallItem &option : item.options) {
+      option.role = menu.role;
+    }
   }
   const std::uint64_t frequency_hz = menu.frequency_hz;
   bool replaced = false;

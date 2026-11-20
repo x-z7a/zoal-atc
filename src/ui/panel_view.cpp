@@ -1260,6 +1260,38 @@ void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
   flow.help("Reads back a clearance or instruction for you, with the readback "
             "button, once the transmission has finished playing on your radio. "
             "Off, you press the readback yourself.");
+  flow.end_setting();
+
+  flow.begin_setting();
+  flow.label("Typing line on the HUD");
+  flow.gap();
+  const bool typing = session.hud_typing();
+  if (button(inner, "hud_typing", ImVec2(flow.x + 2.0f, flow.y),
+             ImVec2(button_width(inner, "Off") + 12.0f, kButtonHeight), typing ? "On" : "Off",
+             typing ? Variant::filled : Variant::outlined, session.settings_loaded())) {
+    flow.ui.later([&session, typing, steady] { session.set_hud_typing(!typing, steady); });
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help("A line under the HUD's bar to type a call in and send with Enter, "
+            "without opening this panel. Off, the HUD shows only its buttons.");
+  flow.end_setting();
+
+  flow.begin_setting();
+  flow.label("Transcript on the HUD");
+  flow.gap();
+  const bool transcript = session.hud_transcript();
+  if (button(inner, "hud_transcript", ImVec2(flow.x + 2.0f, flow.y),
+             ImVec2(button_width(inner, "Off") + 12.0f, kButtonHeight),
+             transcript ? "On" : "Off", transcript ? Variant::filled : Variant::outlined,
+             session.settings_loaded())) {
+    flow.ui.later(
+        [&session, transcript, steady] { session.set_hud_transcript(!transcript, steady); });
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help("The last few transmissions under the HUD's buttons. Off, you hear "
+            "them on the radio and read them in this panel's radio log.");
   flow.error(session.local().error);
 }
 
