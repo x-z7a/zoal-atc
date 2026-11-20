@@ -33,6 +33,9 @@ struct Position {
 
 constexpr Position kPositions[] = {
     {"clearance_delivery", "Clearance Delivery", HudTone::delivery},
+    // The console names the seat by its role, "delivery"; the line above is
+    // the name v1 used. Without this one, Delivery read "ATC" on the HUD.
+    {"delivery", "Clearance Delivery", HudTone::delivery},
     {"ground", "Ground", HudTone::surface},
     {"tower", "Tower", HudTone::tower},
     {"departure", "Departure", HudTone::radar},
