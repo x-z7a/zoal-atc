@@ -47,6 +47,9 @@ void stop_hud();
 // press is never left waiting for the next time it is opened.
 void tick_hud();
 
+// A call is waiting for acceptance before the cockpit can speak it.
+bool hud_awaiting_own_call();
+
 // The plugin's settings.changed notice (a theme picked in the panel).
 void hud_settings_changed(const std::string &payload_json);
 

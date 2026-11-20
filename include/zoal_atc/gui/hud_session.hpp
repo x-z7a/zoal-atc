@@ -112,6 +112,7 @@ public:
       std::function<void(const std::string &, std::uint64_t)> speak) {
     speak_own_ = std::move(speak);
   }
+  bool awaiting_own_call() const;
 
   const HudFeed &feed() const { return feed_; }
   const HudMenu &menu() const { return menu_; }
@@ -130,9 +131,11 @@ private:
     std::uint64_t frequency_hz = 0;
   };
 
-  void handle(const std::string &envelope, std::int64_t wall_ms);
+  void handle(const std::string &envelope, std::uint64_t steady_ms,
+              std::int64_t wall_ms);
   void handle_status(const std::string &envelope);
-  void handle_event(const std::string &envelope, std::int64_t wall_ms);
+  void handle_event(const std::string &envelope, std::uint64_t steady_ms,
+                    std::int64_t wall_ms);
   void handle_response(const std::string &envelope, std::int64_t wall_ms);
   // Sends one request. Returns false, with the refusal in `error`, when the
   // bridge would not take it.
@@ -141,6 +144,7 @@ private:
   bool send_json(const std::string &request, Pending pending,
                  std::uint64_t steady_ms, std::string &error);
   void ask_for_menu(std::uint64_t steady_ms);
+  std::string radio_fields() const;
   void maybe_read_back(std::uint64_t steady_ms, std::int64_t wall_ms);
   void run(HudAction action, std::uint64_t steady_ms, std::int64_t wall_ms);
 
@@ -161,6 +165,8 @@ private:
   // console that comes back is asked again.
   std::uint64_t asked_hz_ = 0;
   bool asked_reachable_ = false;
+  std::uint64_t next_menu_retry_ms_ = 0;
+  int menu_retries_left_ = 0;
   bool auto_readback_ = false;
   bool shows_typing_ = true;
   bool shows_transcript_ = true;

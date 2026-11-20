@@ -716,6 +716,37 @@ void test_subscription_outlives_the_panel_while_the_hud_is_up() {
   expect_true(!bridge.subscribed(), "nobody left listening");
 }
 
+void test_controller_log_waits_while_the_pilot_speaks() {
+  using zoal_atc::gui::GuiView;
+  zoal_atc::gui::GuiBridge bridge(test_config());
+  bring_up(bridge);
+  bridge.attach_panel(0, GuiView::hud);
+  bridge.take_js_messages(64, GuiView::hud);
+  bridge.take_js_messages(64, GuiView::panel);
+  const auto history = bridge.submit(R"({"action":"comm_log"})", 0);
+  const auto press = bridge.submit(R"({"action":"pilot_call"})", 0, GuiView::hud);
+
+  bridge.hold_controller_log(true);
+  bridge.on_socket_frame(gui_event("comm_log", R"({"kind":"pilot","text":"readback"})"), 1);
+  bridge.on_socket_frame(gui_event("comm_log", R"({"kind":"atc","text":"contact Ground"})"), 1);
+  bridge.on_socket_frame(gui_response(press.request_id, "{}"), 2);
+  bridge.on_socket_frame(gui_response(history.request_id, "[]"), 2);
+
+  for (const auto view : {GuiView::panel, GuiView::hud}) {
+    const auto visible = bridge.take_js_messages(64, view);
+    expect_size(visible.size(), view == GuiView::hud ? 2 : 1,
+                "only pilot text and call acceptance can go through");
+    for (const auto &message : visible) {
+      expect_true(!message.controller_log, "no ATC line escapes the hold");
+    }
+  }
+  bridge.hold_controller_log(false);
+  expect_size(bridge.take_js_messages(64, GuiView::hud).size(), 1,
+              "the HUD gets the queued ATC entry");
+  expect_size(bridge.take_js_messages(64, GuiView::panel).size(), 2,
+              "the panel gets the ATC entry and history");
+}
+
 int main() {
   test_submit_needs_a_console();
   test_attach_subscribes_and_acks();
@@ -739,6 +770,7 @@ int main() {
   test_events_reach_each_view_on_its_own_terms();
   test_answers_go_to_the_view_that_asked();
   test_subscription_outlives_the_panel_while_the_hud_is_up();
+  test_controller_log_waits_while_the_pilot_speaks();
 
   if (g_failures != 0) {
     return EXIT_FAILURE;

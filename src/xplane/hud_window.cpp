@@ -232,6 +232,10 @@ void hud_settings_changed(const std::string &payload_json) {
   }
 }
 
+bool hud_awaiting_own_call() {
+  return g_hud && g_hud->session->awaiting_own_call();
+}
+
 void hud_reply_spoken(const std::string &text) {
   if (g_hud) {
     g_hud->session->reply_spoken(text, wall_now());

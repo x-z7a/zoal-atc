@@ -1,5 +1,7 @@
 #include "zoal_atc/gui/gui_bridge.hpp"
 
+#include "zoal_atc/transport/json_util.hpp"
+
 #include <algorithm>
 #include <utility>
 
@@ -8,6 +10,11 @@ namespace zoal_atc::gui {
 namespace {
 
 constexpr GuiView kAllViews[kGuiViewCount] = {GuiView::panel, GuiView::hud};
+
+bool is_controller_log(const GuiEvent &event) {
+  return event.event == "comm_log" &&
+         transport::json_raw_field(event.payload_json, "kind") == R"("atc")";
+}
 
 } // namespace
 
@@ -63,7 +70,8 @@ SubmitResult GuiBridge::submit(const std::string &panel_request_json,
   }
 
   const std::uint64_t id = next_request_id_++;
-  pending_[id] = Pending{now_ms + config_.request_timeout_ms, false, view};
+  pending_[id] = Pending{now_ms + config_.request_timeout_ms, false, view,
+                         request->action == "comm_log"};
 
   GuiRequest frame;
   frame.request_id = id;
@@ -195,7 +203,7 @@ bool GuiBridge::on_socket_frame(const std::string &frame,
     for (const GuiView view : kAllViews) {
       ViewState &state = view_locked(view);
       if (state.attached && state.visible) {
-        enqueue_js_locked(view, build_js_event(*event));
+        enqueue_js_locked(view, build_js_event(*event), is_controller_log(*event));
       } else if (superseded) {
         // An update this page never saw and that the cache no longer holds is
         // genuinely lost to it, so say so rather than let it believe it saw
@@ -270,6 +278,11 @@ std::vector<std::string> GuiBridge::take_socket_frames() {
   return frames;
 }
 
+void GuiBridge::hold_controller_log(bool hold) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  holding_controller_log_ = hold;
+}
+
 std::vector<JsMessage> GuiBridge::take_js_messages(std::size_t max,
                                                    GuiView view) {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -277,9 +290,13 @@ std::vector<JsMessage> GuiBridge::take_js_messages(std::size_t max,
   std::vector<JsMessage> messages;
   const std::size_t count = std::min(max, queue.size());
   messages.reserve(count);
-  for (std::size_t i = 0; i < count; ++i) {
-    messages.push_back(std::move(queue.front()));
-    queue.pop_front();
+  for (auto it = queue.begin(); it != queue.end() && messages.size() < count;) {
+    if (holding_controller_log_ && it->controller_log) {
+      ++it;
+      continue;
+    }
+    messages.push_back(std::move(*it));
+    it = queue.erase(it);
   }
   return messages;
 }
@@ -320,7 +337,8 @@ void GuiBridge::settle_locked(const Pending &pending,
   }
   // A response is delivered even to a hidden page: it is a correlated answer
   // to something the page asked for, and its JavaScript is still waiting.
-  enqueue_js_locked(pending.view, build_js_response(response));
+  enqueue_js_locked(pending.view, build_js_response(response),
+                    pending.comm_history && response.ok);
 }
 
 void GuiBridge::settle_subscribe_locked(const GuiResponse &response,
@@ -369,7 +387,8 @@ void GuiBridge::fail_all_locked(const std::string &reason,
   }
 }
 
-void GuiBridge::enqueue_js_locked(GuiView view, std::string payload) {
+void GuiBridge::enqueue_js_locked(GuiView view, std::string payload,
+                                  bool controller_log) {
   ViewState &state = view_locked(view);
   if (!state.attached) {
     return;
@@ -379,7 +398,8 @@ void GuiBridge::enqueue_js_locked(GuiView view, std::string payload) {
     state.queue.pop_front();
     ++state.dropped_events;
   }
-  state.queue.push_back(JsMessage{kConsoleEventChannel, std::move(payload)});
+  state.queue.push_back(JsMessage{kConsoleEventChannel, std::move(payload),
+                                 controller_log});
 }
 
 void GuiBridge::enqueue_status_locked() {
@@ -400,7 +420,7 @@ void GuiBridge::enqueue_status_locked(GuiView view) {
 void GuiBridge::replay_locked(GuiView view) {
   enqueue_status_locked(view);
   for (const auto &event : cache_) {
-    enqueue_js_locked(view, build_js_event(event));
+    enqueue_js_locked(view, build_js_event(event), is_controller_log(event));
   }
 }
 
