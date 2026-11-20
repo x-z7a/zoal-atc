@@ -124,7 +124,12 @@ void start_hud(gui::GuiBridge &bridge,
   g_hud = std::make_unique<Hud>();
   g_hud->steady_ms = std::move(steady_ms);
   g_hud->cockpit = std::move(cockpit);
-  g_hud->window = std::make_unique<ImguiWindow>(0, 40, 440, 0, build);
+  // The typing line takes the sim's keyboard while it is being typed into,
+  // and gives it back the moment it is not: without this the cursor showed
+  // and every key still went to X-Plane's commands.
+  ImguiWindow::Options options;
+  options.keyboard = true;
+  g_hud->window = std::make_unique<ImguiWindow>(0, 40, 440, 0, build, options);
   if (!g_hud->window->valid()) {
     hud_log("X-Plane did not create the HUD window (it needs X-Plane 12.4.4 "
             "or newer); the panel still works");
