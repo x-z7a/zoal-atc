@@ -406,6 +406,17 @@ void PanelSession::pick_theme(HudTheme theme, std::uint64_t steady_ms) {
        pending, steady_ms);
 }
 
+void PanelSession::pick_voice(std::uint64_t voice, std::uint64_t steady_ms) {
+  send("save_settings", R"({"myVoice":)" + std::to_string(voice) + "}",
+       Pending{Request::save_settings, &local_}, steady_ms);
+}
+
+void PanelSession::set_auto_readback(bool on, std::uint64_t steady_ms) {
+  send("save_settings",
+       std::string(R"({"autoReadback":)") + (on ? "true" : "false") + "}",
+       Pending{Request::save_settings, &local_}, steady_ms);
+}
+
 void PanelSession::import_now(std::uint64_t steady_ms) {
   // Named rather than left to the console: a console only learns a changed ID
   // on the next connection, and sending it means an import works the moment
@@ -607,6 +618,12 @@ void PanelSession::apply_settings(const std::string &payload_json) {
   }
   settings_loaded_ = true;
   simbrief_pilot_id_ = top_string(payload_json, "simbriefPilotId").value_or("");
+  if (const auto voice = json_raw_field(payload_json, "myVoice")) {
+    my_voice_ = std::strtoull(voice->c_str(), nullptr, 10);
+  }
+  if (const auto on = json_raw_field(payload_json, "autoReadback")) {
+    auto_readback_ = *on == "true";
+  }
   if (const auto theme = top_string(payload_json, "theme")) {
     theme_ = hud_theme_from_name(*theme);
   }

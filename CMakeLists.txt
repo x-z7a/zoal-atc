@@ -132,6 +132,7 @@ if(ZOAL_ATC_BUILD_PLUGIN OR ZOAL_ATC_BUILD_PREVIEW)
     add_library(zoal_atc_ui STATIC
         src/ui/kit.cpp
         src/ui/panel_view.cpp
+        src/ui/hud_view.cpp
     )
     target_link_libraries(zoal_atc_ui PUBLIC zoal_atc_imgui zoal_atc_core)
     set_target_properties(zoal_atc_ui PROPERTIES POSITION_INDEPENDENT_CODE ON)

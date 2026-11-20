@@ -62,6 +62,7 @@ std::string atc_line(const std::string &text) {
 // xplane_plugin.cpp does, recording what it was asked.
 struct Rig {
   std::vector<std::string> local_actions;
+  std::vector<std::string> tunes;
   std::string theme = "graphite";
   GuiBridge bridge;
   HudSession hud{bridge};
@@ -69,7 +70,7 @@ struct Rig {
   Rig() {
     bridge.set_local_action(
         [this](const std::string &action,
-               const std::string &) -> std::optional<LocalAnswer> {
+               const std::string &payload) -> std::optional<LocalAnswer> {
           if (action == "settings") {
             local_actions.push_back(action);
             return LocalAnswer{true, R"({"theme":")" + theme + R"("})", ""};
@@ -77,6 +78,11 @@ struct Rig {
           if (action == "open_panel") {
             local_actions.push_back(action);
             return LocalAnswer{true, R"({"opened":true})", ""};
+          }
+          if (action == "tune_radio") {
+            local_actions.push_back(action);
+            tunes.push_back(payload);
+            return LocalAnswer{true, "{}", ""};
           }
           return std::nullopt;
         });
@@ -338,6 +344,192 @@ void reads_a_comm_log_entry() {
   expect_true(!parse_hud_entry("null").has_value(), "null payload");
 }
 
+// --- calls by button ---------------------------------------------------------
+
+constexpr std::uint64_t kGround = 121'900'000;
+constexpr std::uint64_t kTower = 118'800'000;
+
+std::string ground_menu(std::uint64_t revision, bool readback) {
+  std::string items =
+      R"({"key":"taxi_departure","label":"Taxi for departure","sentence":"Ground, AC21, ready to taxi"})";
+  if (readback) {
+    items = R"({"key":"readback:abc","label":"Read back","sentence":"taxi via A, AC21","readback":true},)" +
+            items;
+  }
+  return R"({"frequencyHz":121900000,"role":"ground","station":"CYOW_GND","revision":)" +
+         std::to_string(revision) +
+         R"(,"nextFrequencyHz":118800000,"items":[)" + items + "]}";
+}
+
+void asks_the_position_on_a_new_channel_for_its_menu() {
+  Rig rig;
+  rig.bring_up();
+  rig.sent();
+  rig.hud.set_radio(1, kGround, 0);
+  rig.hud.pump(0, kWall);
+  expect_true(rig.last_request("pilot_menu") != 0, "asked on tuning");
+  rig.hud.pump(1, kWall);
+  expect_true(rig.last_request("pilot_menu") == 0, "asked once per channel");
+  rig.hud.set_radio(1, kTower, 2);
+  rig.hud.pump(2, kWall);
+  expect_true(rig.last_request("pilot_menu") != 0, "asked again on retuning");
+}
+
+void parses_a_menu() {
+  const auto menu = parse_call_menu(ground_menu(4, true));
+  expect_true(menu.has_value(), "parsed");
+  if (!menu) {
+    return;
+  }
+  expect_true(menu->frequency_hz == kGround, "its channel");
+  expect_true(menu->next_frequency_hz == kTower, "the next channel");
+  expect_true(menu->items.size() == 2, "two items");
+  expect_true(menu->readback() != nullptr, "a readback");
+  expect_str(menu->items.at(1).sentence, "Ground, AC21, ready to taxi", "the sentence");
+  expect_true(!parse_call_menu(R"({"items":[]})").has_value(), "no channel");
+  expect_str(format_mhz(126'575'000), "126.575", "an 8.33 channel");
+}
+
+void a_press_is_a_call_spoken_once_the_console_takes_it() {
+  Rig rig;
+  std::vector<std::string> spoken;
+  rig.hud.set_own_call_speaker(
+      [&spoken](const std::string &sentence, std::uint64_t) { spoken.push_back(sentence); });
+  rig.bring_up();
+  rig.hud.set_radio(1, kGround, 0);
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(1, false)), 0);
+  rig.hud.pump(0, kWall);
+  expect_true(rig.hud.calls() != nullptr, "the tuned channel's menu");
+
+  rig.sent();
+  rig.hud.press_call("taxi_departure", 1, kWall);
+  std::uint64_t id = 0;
+  std::string frame;
+  for (const auto &item : rig.sent()) {
+    if (item.what == "pilot_call") {
+      id = item.id;
+      frame = item.frame;
+    }
+  }
+  expect_true(id != 0, "a pilot_call went to the console");
+  expect_true(frame.find("taxi_departure") != std::string::npos, "with the key");
+  expect_true(rig.hud.call_in_flight("taxi_departure"), "in flight");
+  rig.hud.press_call("taxi_departure", 1, kWall);
+  expect_true(rig.last_request("pilot_call") == 0, "not sent twice");
+  expect_true(spoken.empty(), "not spoken before the console took it");
+
+  rig.bridge.on_socket_frame(gui_ok(id), 2);
+  rig.hud.pump(2, kWall);
+  expect_true(spoken.size() == 1 && spoken.front() == "Ground, AC21, ready to taxi",
+              "spoken in the pilot's voice");
+  expect_true(!rig.hud.call_in_flight("taxi_departure"), "settled");
+}
+
+void a_refused_call_is_shown_and_not_spoken() {
+  Rig rig;
+  std::vector<std::string> spoken;
+  rig.hud.set_own_call_speaker(
+      [&spoken](const std::string &sentence, std::uint64_t) { spoken.push_back(sentence); });
+  rig.bring_up();
+  rig.hud.set_radio(1, kGround, 0);
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(1, false)), 0);
+  rig.hud.pump(0, kWall);
+  rig.sent();
+  rig.hud.press_call("taxi_departure", 1, kWall);
+  const std::uint64_t id = rig.last_request("pilot_call");
+  rig.bridge.on_socket_frame(gui_refused(id, "the console could not take your call"), 2);
+  rig.hud.pump(2, kWall);
+  expect_true(spoken.empty(), "a refused call was never made");
+  expect_str(rig.hud.call_error(), "the console could not take your call", "why");
+}
+
+void auto_readback_reads_back_what_was_heard() {
+  Rig rig;
+  rig.bring_up();
+  rig.hud.on_settings_changed(R"({"autoReadback":true})");
+  rig.hud.set_radio(1, kGround, 0);
+  rig.hud.pump(0, kWall);
+  rig.sent();
+
+  // Heard first, menu second: the readback is pressed when the menu arrives.
+  rig.hud.reply_heard(kGround, 1, kWall);
+  expect_true(rig.last_request("pilot_call") == 0, "nothing to read back yet");
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(2, true)), 2);
+  rig.hud.pump(2, kWall + 1'000);
+  expect_true(rig.last_request("pilot_call") != 0, "read back on its own");
+
+  // The same readback is not pressed twice.
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(3, true)), 3);
+  rig.hud.pump(3, kWall + 2'000);
+  rig.hud.reply_heard(kGround, 4, kWall + 2'000);
+  expect_true(rig.last_request("pilot_call") == 0, "once");
+}
+
+void auto_readback_off_presses_nothing() {
+  Rig rig;
+  rig.bring_up();
+  rig.hud.set_radio(1, kGround, 0);
+  rig.hud.pump(0, kWall);
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(2, true)), 1);
+  rig.hud.pump(1, kWall);
+  rig.sent();
+  rig.hud.reply_heard(kGround, 2, kWall);
+  expect_true(rig.last_request("pilot_call") == 0, "off by default");
+}
+
+// A tower working ground control: Tower's and Ground's menus on one channel
+// are shown together, readbacks first, and a press names its role.
+void a_shared_channel_shows_both_roles() {
+  Rig rig;
+  rig.bring_up();
+  rig.hud.set_radio(1, kTower, 0);
+  rig.bridge.on_socket_frame(
+      gui_event("pilot_menu",
+                R"({"frequencyHz":118800000,"role":"tower","station":"VVNB_TWR","revision":3,)"
+                R"("items":[{"key":"runway_vacated","label":"Clear of runway","sentence":"Tower, AC21, clear of the runway"},)"
+                R"({"key":"radio_check","label":"Radio check","sentence":"Tower, AC21, radio check"}]})"),
+      0);
+  rig.bridge.on_socket_frame(
+      gui_event("pilot_menu",
+                R"({"frequencyHz":118800000,"role":"ground","station":"VVNB_TWR_GND","revision":1,)"
+                R"("items":[{"key":"taxi_gate","label":"Taxi to the gate","sentence":"Ground, AC21, request taxi to the gate"},)"
+                R"({"key":"radio_check","label":"Radio check","sentence":"Ground, AC21, radio check"}]})"),
+      0);
+  rig.hud.pump(0, kWall);
+  const HudCallMenu *menu = rig.hud.calls();
+  expect_true(menu != nullptr, "a merged menu");
+  if (menu == nullptr) {
+    return;
+  }
+  expect_true(menu->items.size() == 3, "both roles' calls, the radio check once");
+  expect_str(menu->items.front().key, "taxi_gate", "the role heard from last first");
+  expect_true(menu->find("runway_vacated") != nullptr, "and the other role's");
+
+  rig.sent();
+  rig.hud.press_call("runway_vacated", 1, kWall);
+  std::string frame;
+  for (const auto &item : rig.sent()) {
+    if (item.what == "pilot_call") {
+      frame = item.frame;
+    }
+  }
+  expect_true(frame.find(R"("role":"tower")") != std::string::npos, "the press names its role");
+}
+
+void the_next_frequency_tunes_the_selected_radio() {
+  Rig rig;
+  rig.bring_up();
+  rig.hud.set_radio(2, kGround, 0);
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(1, false)), 0);
+  rig.hud.pump(0, kWall);
+  rig.hud.press_next_frequency(1);
+  expect_true(rig.tunes.size() == 1, "tuned once");
+  if (!rig.tunes.empty()) {
+    expect_true(rig.tunes.front().find("118.800") != std::string::npos, "to Tower");
+    expect_true(rig.tunes.front().find(R"("com":2)") != std::string::npos, "on COM2");
+  }
+}
+
 } // namespace
 
 int main() {
@@ -355,6 +547,14 @@ int main() {
   opens_the_panel_without_the_console();
   an_answer_for_someone_else_is_ignored();
   reads_a_comm_log_entry();
+  asks_the_position_on_a_new_channel_for_its_menu();
+  parses_a_menu();
+  a_press_is_a_call_spoken_once_the_console_takes_it();
+  a_refused_call_is_shown_and_not_spoken();
+  auto_readback_reads_back_what_was_heard();
+  auto_readback_off_presses_nothing();
+  the_next_frequency_tunes_the_selected_radio();
+  a_shared_channel_shows_both_roles();
 
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";
