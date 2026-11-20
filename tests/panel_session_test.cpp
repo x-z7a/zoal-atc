@@ -66,6 +66,8 @@ struct Rig {
   std::vector<Asked> local;
   std::string theme = "graphite";
   std::string pilot_id = "123456";
+  std::uint64_t my_voice = 0;
+  bool auto_readback = false;
   std::string token;
   bool refuse_theme = false;
   GuiBridge bridge;
@@ -77,7 +79,8 @@ struct Rig {
                const std::string &payload) -> std::optional<LocalAnswer> {
           auto settings = [this] {
             return R"({"simbriefPilotId":")" + pilot_id + R"(","theme":")" +
-                   theme + R"("})";
+                   theme + R"(","myVoice":)" + std::to_string(my_voice) +
+                   R"(,"autoReadback":)" + (auto_readback ? "true" : "false") + "}";
           };
           if (action == "settings") {
             local.push_back({action, payload});
@@ -93,6 +96,12 @@ struct Rig {
             }
             if (const auto id = json_string_field(payload, "simbriefPilotId")) {
               pilot_id = *id;
+            }
+            if (const auto voice = zoal_atc::transport::json_uint_field(payload, "myVoice")) {
+              my_voice = *voice;
+            }
+            if (const auto on = zoal_atc::transport::json_bool_field(payload, "autoReadback")) {
+              auto_readback = *on;
             }
             return LocalAnswer{true, settings(), ""};
           }
@@ -385,6 +394,23 @@ void imports_the_plan() {
              "the answer is the plan");
 }
 
+// The voice a pressed call is spoken in, and auto readback, are the plugin's
+// to store, like the theme.
+void saves_the_call_settings_locally() {
+  Rig rig;
+  rig.bring_up();
+  rig.panel.pump(0, kWall);
+  expect_true(rig.panel.my_voice() == 0, "the default voice");
+  expect_true(!rig.panel.auto_readback(), "auto readback is off");
+  rig.panel.pick_voice(21, 0);
+  rig.panel.set_auto_readback(true, 0);
+  rig.panel.pump(0, kWall);
+  expect_true(rig.my_voice == 21, "the voice is stored");
+  expect_true(rig.auto_readback, "auto readback is stored");
+  expect_true(rig.panel.my_voice() == 21, "and shown");
+  expect_true(rig.panel.auto_readback(), "and shown on");
+}
+
 void saves_settings_locally() {
   Rig rig;
   rig.bring_up();
@@ -445,6 +471,7 @@ int main() {
   ends_the_flight_on_the_second_press();
   imports_the_plan();
   saves_settings_locally();
+  saves_the_call_settings_locally();
   splits_a_json_array();
 
   if (g_failures != 0) {

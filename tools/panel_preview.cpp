@@ -5,13 +5,22 @@
 //   panel_preview <fonts-dir> <out.ppm> [home|settings] [graphite|daylight|night]
 //                 [width height] [scale] [full|empty|unreachable|armed]
 //                 [mouse_x mouse_y]
+//   panel_preview <fonts-dir> <out.ppm> hud [graphite|daylight|night]
+//                 [width height] [scale] <scene.json>
+//
+// The HUD mode draws the radio HUD from a scene the console's own controller
+// tests write (atc internal/scenario, ZOAL_ATC_HUD_SCENES): the callsign, the
+// channel, the last lines said and the menu that position offered, played into
+// a HudSession as the console's events and drawn by the plugin's HUD code.
 //
 // It exists so a change to the panel's look can be checked -- and compared
 // across the three themes -- without starting the sim.
 
+#include "../src/ui/hud_view.hpp"
 #include "../src/ui/kit.hpp"
 #include "../src/ui/panel_view.hpp"
 #include "zoal_atc/gui/gui_bridge.hpp"
+#include "zoal_atc/gui/hud_session.hpp"
 #include "zoal_atc/gui/panel_session.hpp"
 #include "zoal_atc/transport/json_util.hpp"
 
@@ -215,6 +224,127 @@ std::string entry(const std::string &kind, const std::string &text,
   return out + "}";
 }
 
+// --- the HUD, from a scene ----------------------------------------------------
+
+std::string read_all(const std::string &path) {
+  std::ifstream in(path, std::ios::binary);
+  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+std::string quoted(const std::string &value) {
+  return "\"" + transport::json_escape(value) + "\"";
+}
+
+// The scene's menu (contract.Menu) as the console's pilot_menu event carries it.
+std::string menu_event(const std::string &scene) {
+  const std::string menu = transport::json_raw_field(scene, "menu").value_or("{}");
+  std::string items = "[";
+  if (const auto raw = transport::json_raw_field(menu, "items")) {
+    if (const auto elements = transport::json_array_elements(*raw)) {
+      bool first = true;
+      for (const std::string &item : *elements) {
+        items += first ? "" : ",";
+        first = false;
+        items += item;
+      }
+    }
+  }
+  items += "]";
+  const std::uint64_t next =
+      transport::json_uint_field(menu, "next_frequency_hz").value_or(0);
+  return R"({"frequencyHz":)" +
+         std::to_string(transport::json_uint_field(scene, "frequencyHz").value_or(0)) +
+         R"(,"role":)" + quoted(transport::json_string_field(scene, "role").value_or("")) +
+         R"(,"station":)" + quoted(transport::json_string_field(scene, "station").value_or("")) +
+         R"(,"revision":1,"nextFrequencyHz":)" + std::to_string(next) +
+         R"(,"items":)" + items + "}";
+}
+
+int render_hud(const std::string &fonts, const std::string &out, const std::string &theme,
+               int width, int height, float scale, const std::string &scene_path) {
+  const std::string scene = read_all(scene_path);
+  if (scene.empty()) {
+    std::cerr << "no scene at " << scene_path << "\n";
+    return 2;
+  }
+  gui::GuiBridge bridge;
+  bridge.set_local_action([&](const std::string &action, const std::string &)
+                              -> std::optional<gui::LocalAnswer> {
+    if (action == "settings") {
+      return gui::LocalAnswer{true, R"({"theme":")" + theme + R"("})", ""};
+    }
+    return std::nullopt;
+  });
+  gui::HudSession session(bridge);
+
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  io.IniFilename = nullptr;
+  io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+  io.Fonts->TexDesiredFormat = ImTextureFormat_RGBA32;
+  io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
+  io.DisplayFramebufferScale = ImVec2(scale, scale);
+  const ui::Typeface face = ui::load_typeface(
+      fonts, fonts, [](const std::string &line) { std::cerr << line << "\n"; });
+  ImGui::GetStyle().ItemSpacing = ImVec2(0.0f, 0.0f);
+
+  const std::int64_t wall = 1'794'052'800'000;
+  const std::string at = "2026-11-07T12:00:00Z";
+  bridge.set_connected(true, 0);
+  session.attach(0);
+  for (const std::string &frame : bridge.take_socket_frames()) {
+    if (transport::json_string_field(frame, "type").value_or("") == "gui_subscribe") {
+      bridge.on_socket_frame(
+          gui_ok(transport::json_uint_field(frame, "request_id").value_or(0)), 0);
+    }
+  }
+  session.pump(0, wall);
+  const std::uint64_t channel = transport::json_uint_field(scene, "frequencyHz").value_or(0);
+  session.set_radio(1, channel, 0);
+  bridge.on_socket_frame(
+      gui_event("flight_snapshot",
+                R"({"hasSession":true,"callsign":)" +
+                    quoted(transport::json_string_field(scene, "callsign").value_or("")) + "}"),
+      0);
+  if (const auto raw = transport::json_raw_field(scene, "lines")) {
+    if (const auto lines = transport::json_array_elements(*raw)) {
+      for (const std::string &line : *lines) {
+        bridge.on_socket_frame(
+            gui_event("comm_log",
+                      entry(transport::json_string_field(line, "kind").value_or("atc"),
+                            transport::json_escape(
+                                transport::json_string_field(line, "text").value_or("")),
+                            transport::json_string_field(line, "spokenBy").value_or(""), at)),
+            0);
+      }
+    }
+  }
+  bridge.on_socket_frame(gui_event("pilot_menu", menu_event(scene)), 0);
+
+  ui::HudViewState state;
+  for (int i = 0; i < 4; ++i) {
+    session.pump(0, wall);
+    bridge.take_socket_frames();
+    io.DeltaTime = 1.0f / 60.0f;
+    io.AddMousePosEvent(-1.0f, -1.0f);
+    ImGui::NewFrame();
+    ui::draw_hud(session, state, face, ui::HudFrame{wall, true});
+    ImGui::Render();
+    update_textures(ImGui::GetDrawData());
+  }
+  Image image;
+  image.resize(static_cast<int>(static_cast<float>(width) * scale),
+               static_cast<int>(static_cast<float>(height) * scale));
+  paint_sky(image);
+  render(ImGui::GetDrawData(), image, scale);
+  ImGui::DestroyContext();
+  if (!write_ppm(image, out)) {
+    std::cerr << "could not write " << out << "\n";
+    return 1;
+  }
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -232,6 +362,13 @@ int main(int argc, char **argv) {
   const int width = argc > 6 ? std::atoi(argv[5]) : 1200;
   const int height = argc > 6 ? std::atoi(argv[6]) : 800;
   const float scale = argc > 7 ? static_cast<float>(std::atof(argv[7])) : 1.0f;
+  if (tab == "hud") {
+    if (argc < 9) {
+      std::cerr << "usage: panel_preview <fonts-dir> <out.ppm> hud <theme> <width> <height> <scale> <scene.json>\n";
+      return 2;
+    }
+    return render_hud(fonts, out, theme, width, height, scale, argv[8]);
+  }
   const std::string mode = argc > 8 ? argv[8] : "full";
   const float mouse_x = argc > 10 ? static_cast<float>(std::atof(argv[9])) : -1.0f;
   const float mouse_y = argc > 10 ? static_cast<float>(std::atof(argv[10])) : -1.0f;
