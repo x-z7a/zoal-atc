@@ -32,9 +32,11 @@ class Synthesizer {
 public:
   virtual ~Synthesizer() = default;
 
-  // synthesize says text in the given speaker's voice. An empty Audio is a
-  // failure: the reply is then read by X-Plane's own speech instead.
-  virtual Audio synthesize(const std::string &text, int speaker) = 0;
+  // synthesize says text in the given speaker's voice, read as language (an
+  // ISO 639-1 code; empty is English). An empty Audio is a failure: the reply
+  // is then read by X-Plane's own speech instead.
+  virtual Audio synthesize(const std::string &text, int speaker,
+                           const std::string &language) = 0;
 
   // speakers is how many voices this synthesizer has.
   virtual int speakers() const = 0;
@@ -101,10 +103,11 @@ public:
   SynthesisQueue(const SynthesisQueue &) = delete;
   SynthesisQueue &operator=(const SynthesisQueue &) = delete;
 
-  // submit queues text to be said in the console's voice. Urgent speech is
-  // synthesised ahead of anything waiting.
+  // submit queues text to be said in the console's voice, read as language
+  // (empty is English). Urgent speech is synthesised ahead of anything
+  // waiting.
   std::shared_ptr<Speech> submit(const std::string &text, std::uint64_t voice,
-                                 bool urgent);
+                                 bool urgent, const std::string &language = "");
 
   // shared returns sentence audio that outlives the Speech, for a player that
   // must keep a buffer alive until the mixer lets go of it.
@@ -116,6 +119,7 @@ private:
     std::string text;
     int speaker = 0;
     bool urgent = false;
+    std::string language;
     std::shared_ptr<Speech> speech;
   };
 

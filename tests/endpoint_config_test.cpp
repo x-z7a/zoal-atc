@@ -201,6 +201,20 @@ int main() {
     require_eq(result.endpoint.host, "atc.zoal.app", "url still applied");
   }
 
+  // The language replies are spoken in survives a url line, and whatever was
+  // typed is read down to one this plugin can be answered in, so it never
+  // reaches the hello as written.
+  {
+    const auto result = apply_config_text(
+        "language = FR-ca\nurl = ws://atc.zoal.app/plugin\n", WebSocketEndpoint{});
+    require(result.ok, "language parsed: " + result.error);
+    require_eq(result.endpoint.language, "fr", "French, from fr-CA");
+    const auto german = apply_config_text("language = de\n", WebSocketEndpoint{});
+    require_eq(german.endpoint.language, "en", "a language nobody wrote is English");
+    const auto forged = apply_config_text("language = es\",\"x\":\"y\n", WebSocketEndpoint{});
+    require_eq(forged.endpoint.language, "en", "a forged value is English, never written as typed");
+  }
+
   // The identity is interpolated into a JSON frame, so a quote or control
   // character in it would let the file forge fields of its own.
   {

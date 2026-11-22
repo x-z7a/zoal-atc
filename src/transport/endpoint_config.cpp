@@ -309,6 +309,7 @@ EndpointConfigResult apply_config_text(std::string_view text,
       // decides whether the plugin has one (phase22 M1).
       parsed.endpoint.client_id = base.client_id;
       parsed.endpoint.simbrief_id = base.simbrief_id;
+      parsed.endpoint.language = base.language;
       base = std::move(parsed.endpoint);
     } else if (key == "token" || key == "auth_token") {
       if (!token_is_safe(value)) {
@@ -334,6 +335,10 @@ EndpointConfigResult apply_config_text(std::string_view text,
             "config key `" + key + "`: contains an unsafe character");
       }
       base.simbrief_id = value;
+    } else if (key == "language") {
+      // Read down to one of the languages this plugin can be answered in, so
+      // whatever was typed here never reaches a frame as written.
+      base.language = reply_language(value);
     }
     // Any other key belongs to a version of this plugin that is not us.
 
