@@ -1275,8 +1275,7 @@ void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
   flow.gap();
   flow.help("Controllers answer you in this language. Push-to-talk and typed "
             "calls are still English only: speak and type to them in English. "
-            "Changing it reconnects to the console. Delivery speaks Spanish and "
-            "French today; the other controllers still answer in English.");
+            "Changing it reconnects to the console.");
   flow.end_setting();
 
   flow.begin_setting();
