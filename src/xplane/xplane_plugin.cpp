@@ -13,6 +13,7 @@
 #include "zoal_atc/transport/endpoint_config.hpp"
 #include "zoal_atc/transport/json_util.hpp"
 #include "zoal_atc/transport/speech_text.hpp"
+#include "zoal_atc/gui/i18n.hpp"
 #include "zoal_atc/transport/websocket_client.hpp"
 #include "zoal_atc/weather/metar.hpp"
 #include "hud_window.hpp"
@@ -476,6 +477,9 @@ std::string settings_json() {
 
 // Reads the two call settings from the config text.
 void load_call_settings(const std::string &text) {
+  // The panel and the HUD are drawn in the language replies are spoken in.
+  zoal_atc::gui::set_ui_language(
+      zoal_atc::transport::reply_language(config_value(text, "language").value_or("en")));
   g_my_voice = 0;
   if (const auto voice = config_value(text, "my_voice")) {
     char *end = nullptr;
@@ -579,6 +583,7 @@ handle_local_gui_action(const std::string &action,
                                           "could not write " + g_config_path};
       }
       log_line("reply language set to " + language + " from the panel");
+      zoal_atc::gui::set_ui_language(language);
       // Unlike the pilot ID, this re-dials: the hello is how the console
       // learns it, and a pilot who just chose French expects the next reply
       // in French. Push-to-talk and typing are unaffected and stay English.

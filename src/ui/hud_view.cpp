@@ -1,6 +1,7 @@
 #include "hud_view.hpp"
 
 #include "kit.hpp"
+#include "zoal_atc/gui/i18n.hpp"
 #include "zoal_atc/gui/hud_layout.hpp"
 
 #include <algorithm>
@@ -20,6 +21,7 @@ namespace zoal_atc::ui {
 namespace {
 
 using gui::HudAction;
+using gui::tr;
 using gui::HudLine;
 using gui::HudSession;
 using gui::HudTheme;
@@ -188,16 +190,16 @@ std::vector<ActionButton> action_buttons(const HudSession &session) {
   std::vector<ActionButton> buttons;
   const bool reloaded = menu.done() == HudAction::reload_plan;
   buttons.push_back({"reload", reloaded ? Icon::check : Icon::reload,
-                     reloaded ? "Plan reloaded" : "Reload plan",
+                     reloaded ? tr("Plan reloaded") : tr("Reload plan"),
                      menu.reload_enabled(), false, reloaded});
   const bool started = menu.done() == HudAction::end_flight;
   buttons.push_back({"new_flight",
                      menu.armed() ? Icon::warn
                                   : (started ? Icon::check : Icon::plane),
-                     menu.armed() ? "Confirm"
-                                  : (started ? "Started" : "New flight"),
+                     menu.armed() ? tr("Confirm")
+                                  : (started ? tr("Started") : tr("New flight")),
                      menu.new_flight_enabled(), menu.armed(), started});
-  buttons.push_back({"open_panel", Icon::panel, "Open panel",
+  buttons.push_back({"open_panel", Icon::panel, tr("Open panel"),
                      menu.open_panel_enabled(), false, false});
   for (ActionButton &button : buttons) {
     button.width = 8.0f + kIcon + 5.0f +
@@ -234,8 +236,11 @@ struct CallButton {
 // Returns whether it was clicked. `clip` is the visible part of the strip, so
 // a button scrolled out of sight cannot be pressed.
 bool call_pill(ImDrawList *draw, const Palette &p, const char *id, ImVec2 min,
-               float width, const std::string &label, Icon glyph, bool filled,
+               float width, const std::string &english, Icon glyph, bool filled,
                bool enabled, ImVec4 clip) {
+  // A button's label in the pilot's language; what it says on the radio is
+  // the console's and is not this.
+  const std::string label = gui::tr(english);
   const ImVec2 max(min.x + width, min.y + kCallHeight);
   const ImVec2 hit_min(std::max(min.x, clip.x), min.y);
   const ImVec2 hit_max(std::min(max.x, clip.z), max.y);
@@ -291,7 +296,8 @@ bool scroll_arrow(ImDrawList *draw, const Palette &p, const char *id, ImVec2 min
   return clicked && enabled;
 }
 
-float pill_width(const std::string &label, bool with_icon) {
+float pill_width(const std::string &english, bool with_icon) {
+  const std::string label = gui::tr(english);
   float width = kCallPadX * 2.0f;
   if (with_icon) {
     width += kIcon + (label.empty() ? 0.0f : 5.0f);
@@ -574,7 +580,7 @@ float typing_line(ImDrawList *draw, const Palette &p, float right, float y, floa
   ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, (kTypeHeight - px) * 0.5f));
   ImGui::SetCursorScreenPos(ImVec2(min.x + 14.0f, min.y));
   ImGui::SetNextItemWidth(width - 28.0f);
-  if (ImGui::InputTextWithHint("##hud_typed", "Type a call, Enter to send",
+  if (ImGui::InputTextWithHint("##hud_typed", tr("Type a call, Enter to send"),
                                g.state->typed, sizeof(g.state->typed),
                                ImGuiInputTextFlags_EnterReturnsTrue)) {
     g.state->pressed_text = g.state->typed;
@@ -620,7 +626,7 @@ void build(HudSession &session, std::int64_t wall) {
   // ---- the bar ----
   const std::string title =
       session.callsign().empty() ? "zoal-atc" : session.callsign();
-  const std::string warn = "CONSOLE UNREACHABLE";
+  const std::string warn = tr("CONSOLE UNREACHABLE");
   // The flight number stays on the bar with the menu open: it is what the
   // pilot reads to know whose calls the buttons make.
   float bar_width = 11.0f + kLed + 8.0f + kHandle + 3.0f;
@@ -746,7 +752,7 @@ void build(HudSession &session, std::int64_t wall) {
       const float tx = bx + 8.0f + kIcon + 5.0f;
       if (button.armed) {
         draw->AddText(semibold, css(kActionPx), ImVec2(tx, mid - css(kActionPx) * 0.5f),
-                      faded(fg, alpha), button.label.c_str());
+                      faded(fg, alpha), gui::tr(button.label).c_str());
       } else {
         text(draw, semibold, css(kActionPx), ImVec2(tx, mid - css(kActionPx) * 0.5f), fg,
              button.label, p, alpha);
@@ -779,10 +785,10 @@ void build(HudSession &session, std::int64_t wall) {
     const bool from_pilot = entry.kind != "atc";
     const HudTone tone = gui::hud_tone(entry);
     const unsigned seat = seat_colour(p, tone);
-    const std::string speaker = upper(gui::hud_speaker(entry, session.callsign()));
+    const std::string speaker = upper(gui::tr(gui::hud_speaker(entry, session.callsign())));
     const std::string tag =
         entry.overheard
-            ? (entry.addressed_to.empty() ? "overheard" : "to " + entry.addressed_to)
+            ? (entry.addressed_to.empty() ? "overheard" : tr("to ") + entry.addressed_to)
             : "";
 
     const std::vector<std::string> lines =
