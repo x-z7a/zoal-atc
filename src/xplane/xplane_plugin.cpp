@@ -14,6 +14,7 @@
 #include "zoal_atc/transport/json_util.hpp"
 #include "zoal_atc/transport/speech_text.hpp"
 #include "zoal_atc/gui/i18n.hpp"
+#include "zoal_atc/gui/logbook.hpp"
 #include "zoal_atc/transport/websocket_client.hpp"
 #include "zoal_atc/weather/metar.hpp"
 #include "hud_window.hpp"
@@ -235,6 +236,10 @@ bool g_auto_readback = false;
 bool g_hud_typing = true;
 // The HUD's last few transmissions. Shown unless the pilot turns them off.
 bool g_hud_transcript = true;
+// The radio log on disk, under the plugin folder (gui/logbook.hpp), and how
+// many files each of its folders keeps.
+std::unique_ptr<zoal_atc::gui::Logbook> g_logbook;
+std::uint64_t g_logbook_keep = zoal_atc::gui::Logbook::kDefaultKeep;
 // am_adam: a voice no station is given by default, so a pilot who never picks
 // one does not sound like their controller.
 constexpr std::uint64_t kDefaultPilotVoice = 12;
@@ -471,6 +476,7 @@ std::string settings_json() {
       << R"(,"autoReadback":)" << (g_auto_readback ? "true" : "false")
       << R"(,"hudTyping":)" << (g_hud_typing ? "true" : "false")
       << R"(,"hudTranscript":)" << (g_hud_transcript ? "true" : "false")
+      << R"(,"logbookKeep":)" << g_logbook_keep
       << "}";
   return out.str();
 }
@@ -491,6 +497,18 @@ void load_call_settings(const std::string &text) {
   g_auto_readback = config_value(text, "auto_readback").value_or("") == "true";
   g_hud_typing = config_value(text, "hud_typing").value_or("true") != "false";
   g_hud_transcript = config_value(text, "hud_transcript").value_or("true") != "false";
+  g_logbook_keep = zoal_atc::gui::Logbook::kDefaultKeep;
+  if (const auto keep = config_value(text, "logbook_keep")) {
+    char *end = nullptr;
+    const unsigned long long n = std::strtoull(keep->c_str(), &end, 10);
+    if (end != keep->c_str() && n <= 1000) {
+      g_logbook_keep = n;
+    }
+  }
+  if (g_logbook) {
+    g_logbook->set_keep(static_cast<std::size_t>(g_logbook_keep));
+    g_logbook->set_language(zoal_atc::gui::ui_language());
+  }
 }
 
 // Defined with the datarefs below. Writes the COM dataref a tune names and
@@ -584,11 +602,31 @@ handle_local_gui_action(const std::string &action,
       }
       log_line("reply language set to " + language + " from the panel");
       zoal_atc::gui::set_ui_language(language);
+      if (g_logbook) {
+        g_logbook->set_language(language);
+      }
       // Unlike the pilot ID, this re-dials: the hello is how the console
       // learns it, and a pilot who just chose French expects the next reply
       // in French. Push-to-talk and typing are unaffected and stay English.
       if (g_websocket) {
         g_websocket->relanguage(language);
+      }
+    }
+    const auto logbook_keep = zoal_atc::transport::json_uint_field(payload_json, "logbookKeep");
+    if (logbook_keep.has_value()) {
+      if (*logbook_keep > 1000) {
+        return zoal_atc::gui::LocalAnswer{false, "null", "keep at most 1000 logs"};
+      }
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "logbook_keep",
+          std::to_string(*logbook_keep));
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_logbook_keep = *logbook_keep;
+      if (g_logbook) {
+        g_logbook->set_keep(static_cast<std::size_t>(g_logbook_keep));
       }
     }
     const auto my_voice = zoal_atc::transport::json_uint_field(payload_json, "myVoice");
@@ -1747,6 +1785,9 @@ TelemetrySnapshot sample_telemetry() {
   // The last callsign slot 0 held, while it holds none (held_callsign).
   static std::string last_callsign;
   s.callsign = tel::held_callsign(traffic.ownship.callsign, last_callsign);
+  if (g_logbook) {
+    g_logbook->set_callsign(s.callsign);
+  }
   s.icao_type = traffic.ownship.icao_type;
   s.mode_s_id = traffic.ownship.mode_s_id;
   s.traffic = traffic.targets;
@@ -2190,6 +2231,17 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     const std::string models = zoal_atc::gui::join_path(
         zoal_atc::gui::plugin_root_from_binary_path(binary), "models");
 
+    // The radio log on the pilot's disk, beside the models.
+    g_logbook = std::make_unique<zoal_atc::gui::Logbook>(zoal_atc::gui::join_path(
+        zoal_atc::gui::plugin_root_from_binary_path(binary), "logbook"));
+    g_logbook->set_keep(static_cast<std::size_t>(g_logbook_keep));
+    g_logbook->set_language(zoal_atc::gui::ui_language());
+    g_gui_bridge.set_event_observer([](const zoal_atc::gui::GuiEvent &event) {
+      if (event.event == "comm_log" && g_logbook) {
+        g_logbook->record(event.payload_json);
+      }
+    });
+
     // Declared only when the model is here, so the console sends a client
     // that cannot transcribe nothing it cannot use.
     const std::string model = zoal_atc::gui::join_path(models, kSttModelName);
@@ -2302,6 +2354,9 @@ PLUGIN_API void XPluginStop() {
   g_transport_sink.reset(); // joins the transcription thread first
   g_transcriber.reset();
   g_websocket.reset();
+  // The receiver thread is gone, so nothing can be writing a line.
+  g_gui_bridge.set_event_observer(nullptr);
+  g_logbook.reset();
   g_recorder.reset();
   log_line("plugin stopped");
 }

@@ -172,6 +172,18 @@ const Row kRows[] = {
     {"Imported plan", "Plan importado", "Plan importé"},
     {"No plan imported yet.", "Aún no se ha importado ningún plan.", "Aucun plan importé pour l'instant."},
     {"Import now", "Importar ahora", "Importer maintenant"},
+    {"Logbook", "Registro de vuelo", "Carnet de vol"},
+    {"Logs kept", "Registros guardados", "Journaux conservés"},
+    {"All", "Todos", "Tous"},
+    {"Every transmission of a flight is written to the logbook folder inside the zoal-atc plugin "
+     "folder, one file per callsign and day, in English and in the reply language. Only the newest "
+     "files are kept; past 100 keeps them all.",
+     "Cada transmisión de un vuelo se escribe en la carpeta logbook dentro de la carpeta del plugin "
+     "zoal-atc, un archivo por indicativo y día, en inglés y en el idioma de las respuestas. Solo se "
+     "guardan los archivos más recientes; por encima de 100 se guardan todos.",
+     "Chaque transmission d'un vol est écrite dans le dossier logbook du dossier du plugin zoal-atc, "
+     "un fichier par indicatif et par jour, en anglais et dans la langue des réponses. Seuls les "
+     "fichiers les plus récents sont conservés ; au-delà de 100, tous le sont."},
     // The HUD.
     {"Plan reloaded", "Plan recargado", "Plan rechargé"},
     {"Reload plan", "Recargar plan", "Recharger le plan"},
