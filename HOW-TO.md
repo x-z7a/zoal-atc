@@ -44,6 +44,17 @@ You need **X-Plane 12.4.4 or newer**. On a Mac, allow X-Plane to use the
 microphone when asked. You can also turn this on later under System Settings →
 Privacy & Security → Microphone.
 
+### Updating
+
+zoal-atc works with the **Skunkcrafts Updater**. Once you have installed a
+release zip, the updater finds the `skunkcrafts_updater.cfg` in the `zoal-atc`
+folder and keeps the plugin up to date for you. The voice and speech models
+are not part of these updates. They rarely change, and when they do, the
+release notes will ask you to install the full zip again.
+
+On a Mac, the plugin is signed and notarized by Apple, so X-Plane loads it
+without a security warning.
+
 ## 3. First-time setup and requirements
 
 ### What you need
