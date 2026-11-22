@@ -167,6 +167,9 @@ struct ATCReplyMessage {
   // frequency_hz is the channel the controller said it on; zero from a
   // console that does not name one.
   std::uint64_t frequency_hz = 0;
+  // language is the language text is in, an ISO 639-1 code; empty from a
+  // console that does not name one, which is English.
+  std::string language;
   std::uint64_t queued_at_ms = 0;
   bool own_call = false;
   // speech is the reply being synthesised in that voice, started the moment
@@ -460,6 +463,9 @@ std::string settings_json() {
       << R"(","theme":")"
       << zoal_atc::gui::panel_theme_or_default(
              config_value(text, "panel_theme").value_or(std::string()))
+      << R"(","language":")"
+      << zoal_atc::transport::reply_language(
+             config_value(text, "language").value_or("en"))
       << R"(","myVoice":)" << g_my_voice
       << R"(,"autoReadback":)" << (g_auto_readback ? "true" : "false")
       << R"(,"hudTyping":)" << (g_hud_typing ? "true" : "false")
@@ -557,6 +563,28 @@ handle_local_gui_action(const std::string &action,
       // sends it with an import explicitly. Dropping a live connection the way
       // a token change does would take a pilot off the air to change a
       // preference that is not about being on the air.
+    }
+    const auto language_field =
+        zoal_atc::transport::json_string_field(payload_json, "language");
+    if (language_field.has_value()) {
+      const std::string language = zoal_atc::transport::reply_language(*language_field);
+      if (language != *language_field) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "unknown language: " + *language_field};
+      }
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "language", language);
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      log_line("reply language set to " + language + " from the panel");
+      // Unlike the pilot ID, this re-dials: the hello is how the console
+      // learns it, and a pilot who just chose French expects the next reply
+      // in French. Push-to-talk and typing are unaffected and stay English.
+      if (g_websocket) {
+        g_websocket->relanguage(language);
+      }
     }
     const auto my_voice = zoal_atc::transport::json_uint_field(payload_json, "myVoice");
     if (my_voice.has_value()) {
@@ -754,6 +782,8 @@ std::optional<ATCReplyMessage> parse_atc_reply(const std::string &payload) {
   reply.generation = json_uint_field(payload, "generation").value_or(0);
   reply.voice = json_uint_field(payload, "voice").value_or(0);
   reply.frequency_hz = json_uint_field(payload, "frequency_hz").value_or(0);
+  reply.language = zoal_atc::transport::reply_language(
+      json_string_field(payload, "language").value_or("en"));
   return reply;
 }
 
@@ -764,9 +794,13 @@ bool urgent_speech(const ATCReplyMessage &reply);
 void queue_atc_reply(ATCReplyMessage reply) {
   reply.queued_at_ms = monotonic_ms();
   if (g_synthesis && reply.speak && !reply.text.empty()) {
-    reply.speech = g_synthesis->submit(
-        zoal_atc::transport::radio_text(reply.text), reply.voice,
-        urgent_speech(reply));
+    // radio_text reads a frequency's digits out in English; a reply in
+    // another language arrives with its numbers already in words.
+    const std::string said = reply.language == "en"
+                                 ? zoal_atc::transport::radio_text(reply.text)
+                                 : reply.text;
+    reply.speech = g_synthesis->submit(said, reply.voice, urgent_speech(reply),
+                                       reply.language);
   }
   std::lock_guard<std::mutex> lock(g_reply_mutex);
   if (reply.generation != 0 && reply.voice != 0 && reply.frequency_hz != 0) {

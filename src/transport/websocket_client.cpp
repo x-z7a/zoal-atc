@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <chrono>
 #include <cstring>
@@ -364,6 +365,31 @@ void WebSocketClient::reauthenticate(std::string token) {
   close_locked();
 }
 
+void WebSocketClient::relanguage(std::string language) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  language = reply_language(language);
+  if (endpoint_.language == language) {
+    return;
+  }
+  endpoint_.language = std::move(language);
+  reconnect_gate_.reset();
+  close_locked();
+}
+
+std::string reply_language(const std::string &code) {
+  std::string primary;
+  for (const char c : code) {
+    if (c == '-' || c == '_') {
+      break;
+    }
+    primary.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+  }
+  if (primary == "es" || primary == "fr") {
+    return primary;
+  }
+  return "en";
+}
+
 std::string WebSocketClient::auth_token() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return endpoint_.auth_token;
@@ -413,6 +439,12 @@ WebSocketStatus WebSocketClient::send_hello_locked() {
       frame += (i == 0 ? "\"" : ",\"") + endpoint_.capabilities[i] + "\"";
     }
     frame += "]";
+  }
+  // Fenced by reply_language to one of three codes, so it cannot carry a
+  // quote into this literal.
+  const std::string language = reply_language(endpoint_.language);
+  if (language != "en") {
+    frame += ",\"language\":\"" + language + "\"";
   }
   frame += "}";
   return send_text_locked(frame);

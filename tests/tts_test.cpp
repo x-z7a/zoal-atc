@@ -27,9 +27,11 @@ class FakeSynthesizer final : public tts::Synthesizer {
 public:
   explicit FakeSynthesizer(bool fail = false) : fail_(fail) {}
 
-  tts::Audio synthesize(const std::string &text, int speaker) override {
+  tts::Audio synthesize(const std::string &text, int speaker,
+                        const std::string &language) override {
     {
       std::lock_guard<std::mutex> lock(mutex);
+      languages.push_back(language);
       said.push_back(text);
       speakers_used.push_back(speaker);
     }
@@ -46,6 +48,7 @@ public:
   std::mutex mutex;
   std::vector<std::string> said;
   std::vector<int> speakers_used;
+  std::vector<std::string> languages;
 
 private:
   bool fail_;
@@ -167,6 +170,22 @@ int main() {
     std::lock_guard<std::mutex> lock(synth->mutex);
     require(synth->speakers_used.size() == 2 && synth->speakers_used[0] == 2,
             "voice three is speaker two");
+  }
+
+  // A reply in French is read as French, sentence by sentence, and one the
+  // console named no language for is English.
+  {
+    auto fake = std::make_unique<FakeSynthesizer>();
+    auto *synth = fake.get();
+    tts::SynthesisQueue queue(std::move(fake), 5);
+    auto french = queue.submit("Delta un, reçu. Restez à l'écoute.", 3, false, "fr");
+    require(wait_finished(*french), "French synthesis finishes");
+    auto english = queue.submit("Delta 1, roger.", 3, false);
+    require(wait_finished(*english), "English synthesis finishes");
+    std::lock_guard<std::mutex> lock(synth->mutex);
+    require(synth->languages.size() == 3 && synth->languages[0] == "fr" &&
+                synth->languages[1] == "fr" && synth->languages[2].empty(),
+            "every French sentence is read as French, and English as English");
   }
 
   // A synthesizer that cannot speak fails the transmission, so X-Plane's own

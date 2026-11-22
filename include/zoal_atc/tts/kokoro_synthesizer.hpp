@@ -2,6 +2,7 @@
 #define ZOAL_ATC_TTS_KOKORO_SYNTHESIZER_HPP
 
 #include "zoal_atc/tts/synthesis.hpp"
+#include "zoal_atc/tts/voice_catalogue.hpp"
 
 #include <mutex>
 #include <string>
@@ -46,7 +47,8 @@ public:
   KokoroSynthesizer(const KokoroSynthesizer &) = delete;
   KokoroSynthesizer &operator=(const KokoroSynthesizer &) = delete;
 
-  Audio synthesize(const std::string &text, int speaker) override;
+  Audio synthesize(const std::string &text, int speaker,
+                   const std::string &language) override;
   int speakers() const override { return speakers_; }
   void warm() override;
 
@@ -69,6 +71,15 @@ private:
   std::mutex mutex_;
   Engine american_{"lexicon-us-en.txt", "en-us"};
   Engine british_{"lexicon-gb-en.txt", "en"};
+  // A reply the console sent in Spanish or French is read with espeak's
+  // pronunciation of that language, whatever voice says it: the lexicon is
+  // English's and is consulted only for English words, such as a callsign's
+  // telephony, that espeak would otherwise spell.
+  Engine spanish_{"lexicon-us-en.txt", "es"};
+  Engine french_{"lexicon-us-en.txt", "fr-fr"};
+
+  // engine_for is the engine that reads text in language with voice.
+  Engine &engine_for(const std::string &language, const CatalogueVoice &voice);
 };
 
 }  // namespace zoal_atc::tts

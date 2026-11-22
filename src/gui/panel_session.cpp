@@ -411,6 +411,17 @@ void PanelSession::pick_voice(std::uint64_t voice, std::uint64_t steady_ms) {
        Pending{Request::save_settings, &local_}, steady_ms);
 }
 
+void PanelSession::pick_language(const std::string &language, std::uint64_t voice,
+                                 std::uint64_t steady_ms) {
+  // Shown at once, saved behind it, like the theme: the settings the save
+  // answers with put it right if the plugin refused it.
+  language_ = language;
+  my_voice_ = voice;
+  send("save_settings",
+       R"({"language":")" + language + R"(","myVoice":)" + std::to_string(voice) + "}",
+       Pending{Request::save_settings, &local_}, steady_ms);
+}
+
 void PanelSession::set_auto_readback(bool on, std::uint64_t steady_ms) {
   send("save_settings",
        std::string(R"({"autoReadback":)") + (on ? "true" : "false") + "}",
@@ -632,6 +643,9 @@ void PanelSession::apply_settings(const std::string &payload_json) {
   simbrief_pilot_id_ = top_string(payload_json, "simbriefPilotId").value_or("");
   if (const auto voice = json_raw_field(payload_json, "myVoice")) {
     my_voice_ = std::strtoull(voice->c_str(), nullptr, 10);
+  }
+  if (const auto language = top_string(payload_json, "language")) {
+    language_ = *language == "es" || *language == "fr" ? *language : "en";
   }
   if (const auto on = json_raw_field(payload_json, "autoReadback")) {
     auto_readback_ = *on == "true";

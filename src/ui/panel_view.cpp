@@ -9,6 +9,7 @@
 #include <cstring>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "imgui_internal.h"
 
@@ -1214,12 +1215,73 @@ std::string voice_label(const std::string &name) {
 
 // The voice a pressed call is spoken in, and whether a transmission is read
 // back the moment it has played (atc docs/architecture/pilot-menu.md).
+// The languages a pilot can be answered in, in the words of each.
+struct ReplyLanguage {
+  const char *code;
+  const char *name;
+};
+constexpr ReplyLanguage kReplyLanguages[] = {
+    {"en", "English"}, {"es", "Espa\xC3\xB1ol"}, {"fr", "Fran\xC3\xA7" "ais"}};
+
+// The voices a pilot may pick for their own calls: the speakers of the
+// language they are answered in, so a pilot flying in French sounds like one.
+// The whole catalogue for a language with nobody in it.
+std::vector<std::uint64_t> pilot_voices(const std::string &language) {
+  std::vector<std::uint64_t> voices = tts::voices_in(language);
+  if (voices.empty()) {
+    for (std::uint64_t n = 1; n <= tts::voice_catalogue().size(); ++n) {
+      voices.push_back(n);
+    }
+  }
+  return voices;
+}
+
+// The voice shown for a language: the one picked when it speaks it, else
+// that language's first, and English's default am_adam (12).
+std::uint64_t pilot_voice_in(const std::string &language, std::uint64_t picked) {
+  const std::vector<std::uint64_t> voices = pilot_voices(language);
+  if (picked == 0 && language == "en") {
+    picked = 12;
+  }
+  if (std::find(voices.begin(), voices.end(), picked) != voices.end()) {
+    return picked;
+  }
+  return voices.front();
+}
+
 void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
                     std::uint64_t steady) {
   const auto &voices = tts::voice_catalogue();
   const std::uint64_t count = voices.size();
-  // Zero is the plugin's default, am_adam (12).
-  const std::uint64_t shown = session.my_voice() == 0 ? 12 : session.my_voice();
+  const bool ready = session.settings_loaded() && count > 0;
+
+  flow.label("Reply language");
+  flow.gap();
+  float x = flow.x + 2.0f;
+  for (const ReplyLanguage &language : kReplyLanguages) {
+    const float width = button_width(inner, language.name) + 12.0f;
+    const bool chosen = session.language() == language.code;
+    const std::string id = std::string("language_") + language.code;
+    if (button(inner, id.c_str(), ImVec2(x, flow.y),
+               ImVec2(width, kButtonHeight), language.name,
+               chosen ? Variant::filled : Variant::outlined, ready && !chosen)) {
+      const std::string code = language.code;
+      const std::uint64_t voice = pilot_voice_in(code, session.my_voice());
+      flow.ui.later([&session, code, voice, steady] { session.pick_language(code, voice, steady); });
+    }
+    x += width + 8.0f;
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help("Controllers answer you in this language. Push-to-talk and typed "
+            "calls are still English only: speak and type to them in English. "
+            "Changing it reconnects to the console. Delivery speaks Spanish and "
+            "French today; the other controllers still answer in English.");
+  flow.end_setting();
+
+  flow.begin_setting();
+  const std::vector<std::uint64_t> offered = pilot_voices(session.language());
+  const std::uint64_t shown = pilot_voice_in(session.language(), session.my_voice());
   const std::string name =
       shown >= 1 && shown <= count ? voice_label(voices[shown - 1].name) : std::string("default");
   flow.label("My voice");
@@ -1227,15 +1289,16 @@ void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
   flow.gap();
   const float pw = button_width(inner, "Previous");
   const float nw = button_width(inner, "Next");
-  const bool ready = session.settings_loaded() && count > 0;
+  const auto at = std::find(offered.begin(), offered.end(), shown);
+  const std::size_t index = at == offered.end() ? 0 : static_cast<std::size_t>(at - offered.begin());
   if (button(inner, "voice_previous", ImVec2(flow.x + 2.0f, flow.y), ImVec2(pw, kButtonHeight),
              "Previous", Variant::outlined, ready)) {
-    const std::uint64_t voice = shown <= 1 ? count : shown - 1;
+    const std::uint64_t voice = offered[index == 0 ? offered.size() - 1 : index - 1];
     flow.ui.later([&session, voice, steady] { session.pick_voice(voice, steady); });
   }
   if (button(inner, "voice_next", ImVec2(flow.x + 2.0f + pw + 8.0f, flow.y),
              ImVec2(nw, kButtonHeight), "Next", Variant::outlined, ready)) {
-    const std::uint64_t voice = shown >= count ? 1 : shown + 1;
+    const std::uint64_t voice = offered[(index + 1) % offered.size()];
     flow.ui.later([&session, voice, steady] { session.pick_voice(voice, steady); });
   }
   flow.y += kButtonHeight;

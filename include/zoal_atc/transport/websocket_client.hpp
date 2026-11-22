@@ -46,7 +46,17 @@ struct WebSocketEndpoint {
   // protocol: "local_stt" when it transcribes push-to-talk itself. Each is a
   // plain token, character-fenced like client_id.
   std::vector<std::string> capabilities;
+  // The language the pilot chose to be answered in, an ISO 639-1 code from
+  // reply_language(): "en", "es" or "fr". Sent on the hello where it is not
+  // English, so a console that predates it is spoken to exactly as before.
+  // Only replies change: push-to-talk and typing stay English.
+  std::string language = "en";
 };
+
+// reply_language is a language this plugin can be answered in, from what a
+// config or the panel wrote: "es" for "es", "ES" or "es-MX". Anything else is
+// English.
+std::string reply_language(const std::string &code);
 
 struct WebSocketStatus {
   bool ok = true;
@@ -84,6 +94,10 @@ public:
   // The reconnect itself is the receiver loop's job - it already re-dials
   // whatever it finds here.
   void reauthenticate(std::string token);
+  // relanguage changes the language sent on the hello and re-dials, so the
+  // console learns it on the next connection. Saving the language already
+  // set keeps the connection.
+  void relanguage(std::string language);
 
   // The token currently in use, for a panel that offers to change it.
   [[nodiscard]] std::string auth_token() const;

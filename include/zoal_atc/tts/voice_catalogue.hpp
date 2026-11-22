@@ -2,6 +2,7 @@
 #define ZOAL_ATC_TTS_VOICE_CATALOGUE_HPP
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,16 @@ constexpr std::size_t kStyleFloats = 510 * 256;
 constexpr const char *kCatalogueVoicesFile = "voices-zoal.bin";
 
 const std::vector<CatalogueVoice> &voice_catalogue();
+
+// voice_language is the language a catalogue voice is a native speaker of, an
+// ISO 639-1 code, read from Kokoro's own speaker name ("ff_siwis" is French)
+// or, for a blend, from the speaker it is mostly made of. "en" for American
+// and British alike.
+std::string voice_language(const CatalogueVoice &voice);
+
+// voices_in is every voice, numbered from one, that is a native speaker of a
+// language. Empty for a language the catalogue has nobody for.
+std::vector<std::uint64_t> voices_in(const std::string &language);
 
 // blend_catalogue is the catalogue's table from the stock one: kStockSpeakers
 // speakers in, one style table per catalogue entry out. Empty when stock is

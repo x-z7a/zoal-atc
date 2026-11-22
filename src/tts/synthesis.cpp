@@ -236,13 +236,13 @@ SynthesisQueue::~SynthesisQueue() {
 }
 
 std::shared_ptr<Speech> SynthesisQueue::submit(const std::string &text,
-                                               std::uint64_t voice,
-                                               bool urgent) {
+                                               std::uint64_t voice, bool urgent,
+                                               const std::string &language) {
   auto speech = std::make_shared<Speech>();
   Job job{text,
           speaker_for(voice, synthesizer_ ? synthesizer_->speakers() : 0,
                       default_speaker_),
-          urgent, speech};
+          urgent, language, speech};
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (jobs_.size() >= kMaxWaiting) {
@@ -284,7 +284,7 @@ void SynthesisQueue::run() {
       if (failed) {
         break;
       }
-      Audio audio = synthesizer_->synthesize(sentence, job.speaker);
+      Audio audio = synthesizer_->synthesize(sentence, job.speaker, job.language);
       if (audio.pcm.empty()) {
         failed = true;
         break;
