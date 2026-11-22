@@ -1,5 +1,6 @@
 #include "panel_view.hpp"
 
+#include "zoal_atc/gui/i18n.hpp"
 #include "zoal_atc/tts/voice_catalogue.hpp"
 
 #include <algorithm>
@@ -12,6 +13,8 @@
 #include <vector>
 
 #include "imgui_internal.h"
+
+using zoal_atc::gui::tr;
 
 namespace zoal_atc::ui {
 
@@ -503,7 +506,7 @@ void mast(const Ui &ui, PanelSession &session, ImVec2 min, float width,
   }
   float chip_left = 0.0f;
   status_chip(ui, ImVec2(right - close_d - 10.0f, min.y), session.reachable(),
-              "Console " + gui::describe_link(session.link()), &chip_left);
+              tr("Console ") + gui::describe_link(session.link()), &chip_left);
 
   const float eyebrow_px = 11.0f;
   const float title_px = 20.0f;
@@ -516,7 +519,7 @@ void mast(const Ui &ui, PanelSession &session, ImVec2 min, float width,
   // A bezel caption, not a landing page's headline.
   tracked_text(ui.draw, ui.face, ui.face.bold, ui.css(title_px),
                ImVec2(min.x + 4.0f, centred(ty, title_box, ui.css(title_px))),
-               p.text, "Radio Panel", -0.01f);
+               p.text, tr("Radio Panel"), -0.01f);
 }
 
 // --- tabs: a segmented control -----------------------------------------------------------
@@ -525,7 +528,7 @@ constexpr float kTabsHeight = 36.0f;
 
 void tabs(const Ui &ui, PanelViewState &state, ImVec2 min) {
   const Palette &p = ui.p;
-  const char *labels[] = {"Home", "Settings"};
+  const char *labels[] = {tr("Home"), tr("Settings")};
   const float px = ui.css(13.0f);
   float width = 3.0f * 2.0f + 2.0f;
   float widths[2];
@@ -653,10 +656,10 @@ constexpr float kSpeakerGap = 3.0f;
 Bubble measure_bubble(const Ui &ui, const HudEntry &entry,
                       const std::string &own_callsign, float max_width) {
   Bubble b;
-  b.speaker = upper(gui::hud_speaker(entry, own_callsign));
+  b.speaker = upper(tr(gui::hud_speaker(entry, own_callsign)));
   if (entry.overheard) {
     b.tag = upper(entry.addressed_to.empty() ? "overheard"
-                                             : "to " + entry.addressed_to);
+                                             : tr("to ") + entry.addressed_to);
   }
   const float px = ui.css(kBubblePx);
   b.lines = wrap_lines(ui.face.regular, px, entry.text,
@@ -786,9 +789,9 @@ void comm_log(const Ui &ui, PanelSession &session, PanelViewState &state,
   const float width = ImGui::GetContentRegionAvail().x;
   if (entries.empty()) {
     // An empty radio says what fills it, rather than nothing at all.
-    const std::string first = "No transmissions yet";
+    const std::string first = tr("No transmissions yet");
     const std::string second =
-        "Hold push-to-talk, or type a transmission below.";
+        tr("Hold push-to-talk, or type a transmission below.");
     const float fp = ui.css(15.0f);
     const float sp = ui.css(13.0f);
     const float cy = origin.y + size.y * 0.5f - 22.0f;
@@ -836,9 +839,9 @@ void comm_log(const Ui &ui, PanelSession &session, PanelViewState &state,
   // came in.
   if (state.pending_below > 0) {
     const std::string label = state.pending_below == 1
-                                  ? "1 new transmission"
+                                  ? tr("1 new transmission")
                                   : std::to_string(state.pending_below) +
-                                        " new transmissions";
+                                        tr(" new transmissions");
     const float bw = button_width(ui, label, 13.0f, 14.0f) + 18.0f;
     const ImVec2 bmin(min.x + size.x - 12.0f - bw, min.y + size.y - 10.0f - 30.0f);
     ui.draw->AddRectFilled(ImVec2(bmin.x, bmin.y + 2.0f),
@@ -873,13 +876,13 @@ void home(const Ui &ui, PanelSession &session, PanelViewState &state,
       (width - kTileGap * static_cast<float>(columns - 1)) / static_cast<float>(columns);
 
   // Armed is a warning colour: the next press throws a clearance away.
-  TileAction new_flight{session.armed() ? "Confirm" : "New flight", !busy,
+  TileAction new_flight{session.armed() ? tr("Confirm") : tr("New flight"), !busy,
                         [&session, steady, wall] {
                           session.press_new_flight(steady, wall);
                         },
                         session.armed() ? Variant::warn : Variant::text};
   const auto &plan = session.plan();
-  TileAction import{plan.has_value() && plan->has_plan ? "Reload" : "SimBrief",
+  TileAction import{plan.has_value() && plan->has_plan ? tr("Reload") : "SimBrief",
                     !busy, [&session, steady] { session.import_plan(steady); }};
 
   struct Readout {
@@ -888,22 +891,22 @@ void home(const Ui &ui, PanelSession &session, PanelViewState &state,
     TileAction *action;
   };
   std::vector<Readout> readouts = {
-      {"flight", "Flight",
+      {"flight", tr("Flight"),
        session.callsign().empty() ? "waiting" : session.callsign(),
        session.lifecycle(), &new_flight},
       {"com1", "COM1",
        gui::format_frequency(telemetry ? telemetry->frequency_mhz : 0.0),
        telemetry ? gui::format_standby(telemetry->standby_mhz) : "", nullptr},
-      {"alt", "Altitude", telemetry ? gui::format_altitude(*telemetry) : gui::kUnknown,
+      {"alt", tr("Altitude"), telemetry ? gui::format_altitude(*telemetry) : gui::kUnknown,
        telemetry ? gui::format_groundspeed(telemetry->groundspeed_kts) : "",
        nullptr},
-      {"traffic", "Traffic",
+      {"traffic", tr("Traffic"),
        telemetry ? gui::format_traffic(*telemetry) : gui::kUnknown,
        telemetry ? telemetry->airport : "", nullptr},
-      {"facility", "Facility",
+      {"facility", tr("Facility"),
        gui::format_facility_count(session.facility_count().value_or(0)), "",
        nullptr},
-      {"plan", "Filed plan", gui::format_plan_route(plan),
+      {"plan", tr("Filed plan"), gui::format_plan_route(plan),
        gui::format_plan_detail(plan), &import},
   };
   for (std::size_t i = 0; i < readouts.size(); ++i) {
@@ -928,11 +931,11 @@ void home(const Ui &ui, PanelSession &session, PanelViewState &state,
   float cy = cmin.y + 10.0f;
 
   const float head = 16.0f;
-  label_text(ui, ImVec2(ix + 2.0f, centred(cy, head, ui.css(11.0f))), "Radio",
+  label_text(ui, ImVec2(ix + 2.0f, centred(cy, head, ui.css(11.0f))), tr("Radio"),
              p.text_dim);
   // The receive light, beside the radio's name.
   const ImU32 led = session.reachable() ? p.active : p.warn;
-  const ImVec2 led_at(ix + 2.0f + label_width(ui, "Radio") + 10.0f, cy + head * 0.5f);
+  const ImVec2 led_at(ix + 2.0f + label_width(ui, tr("Radio")) + 10.0f, cy + head * 0.5f);
   ui.draw->AddCircleFilled(led_at, 7.0f, faded(led, 0.15f));
   ui.draw->AddCircleFilled(led_at, 4.0f, led);
   const std::string dropped = gui::format_dropped_events(session.link().dropped_events);
@@ -961,8 +964,8 @@ void home(const Ui &ui, PanelSession &session, PanelViewState &state,
   // ---- the composer: docked to the log, as a chat's input is ----
   ui.draw->AddLine(ImVec2(ix, by), ImVec2(ix + iw, by), p.border, 1.0f);
   by += 1.0f + 8.0f;
-  const float tune_w = button_width(ui, "Tune");
-  const float send_w = button_width(ui, "Send");
+  const float tune_w = button_width(ui, tr("Tune"));
+  const float send_w = button_width(ui, tr("Send"));
   const float bdy = (kInputHeight - kButtonHeight) * 0.5f;
   float x = ix;
 
@@ -972,7 +975,7 @@ void home(const Ui &ui, PanelSession &session, PanelViewState &state,
                     state.tune, sizeof(state.tune), {"118.800", false, true});
   x += 110.0f + 6.0f;
   tune |= button(ui, "tune_button", ImVec2(x, by + bdy),
-                 ImVec2(tune_w, kButtonHeight), "Tune", Variant::tonal, !busy);
+                 ImVec2(tune_w, kButtonHeight), tr("Tune"), Variant::tonal, !busy);
   x += tune_w + 12.0f;
   if (tune && !busy) {
     const std::string value = trimmed(state.tune);
@@ -985,9 +988,9 @@ void home(const Ui &ui, PanelSession &session, PanelViewState &state,
   const float say_w = std::max(120.0f, ix + iw - x - 6.0f - send_w);
   bool send = field(ui, "say", ImVec2(x, by), ImVec2(say_w, kInputHeight),
                     state.say, sizeof(state.say),
-                    {"Type a transmission\xE2\x80\xA6"});
+                    {tr("Type a transmission\xE2\x80\xA6")});
   send |= button(ui, "send", ImVec2(x + say_w + 6.0f, by + bdy),
-                 ImVec2(send_w, kButtonHeight), "Send", Variant::filled, !busy);
+                 ImVec2(send_w, kButtonHeight), tr("Send"), Variant::filled, !busy);
   if (send && !busy) {
     const std::string value = trimmed(state.say);
     if (!value.empty()) {
@@ -1081,7 +1084,7 @@ void theme_picker(Flow &flow, PanelSession &session) {
   for (const ThemeOption &option : kThemes) {
     most_lines = std::max(
         most_lines,
-        wrap_lines(ui.face.regular, desc_px, option.description, text_w).size());
+        wrap_lines(ui.face.regular, desc_px, tr(option.description), text_w).size());
   }
   const float block =
       14.0f * 1.4f + 2.0f + desc_line * static_cast<float>(most_lines);
@@ -1134,10 +1137,10 @@ void theme_picker(Flow &flow, PanelSession &session) {
     const float top = centred(min.y, card_h, block);
     ui.draw->AddText(ui.face.semibold, name_px,
                      ImVec2(tx, centred(top, 14.0f * 1.4f, name_px)), p.text,
-                     option.name);
+                     tr(option.name));
     float dy = top + 14.0f * 1.4f + 2.0f;
     for (const std::string &line :
-         wrap_lines(ui.face.regular, desc_px, option.description, text_w)) {
+         wrap_lines(ui.face.regular, desc_px, tr(option.description), text_w)) {
       ui.draw->AddText(ui.face.regular, desc_px,
                        ImVec2(tx, centred(dy, desc_line, desc_px)), p.text_dim,
                        line.c_str());
@@ -1196,18 +1199,18 @@ std::string voice_label(const std::string &name) {
   }
   const char *accent = nullptr;
   switch (name[0]) {
-  case 'a': accent = "American"; break;
-  case 'b': accent = "British"; break;
-  case 'e': accent = "Spanish"; break;
-  case 'f': accent = "French"; break;
-  case 'h': accent = "Hindi"; break;
-  case 'i': accent = "Italian"; break;
-  case 'j': accent = "Japanese"; break;
-  case 'p': accent = "Portuguese"; break;
-  case 'z': accent = "Mandarin"; break;
+  case 'a': accent = tr("American"); break;
+  case 'b': accent = tr("British"); break;
+  case 'e': accent = tr("Spanish"); break;
+  case 'f': accent = tr("French"); break;
+  case 'h': accent = tr("Hindi"); break;
+  case 'i': accent = tr("Italian"); break;
+  case 'j': accent = tr("Japanese"); break;
+  case 'p': accent = tr("Portuguese"); break;
+  case 'z': accent = tr("Mandarin"); break;
   default: return name;
   }
-  const char *voice = name[1] == 'f' ? " female" : (name[1] == 'm' ? " male" : "");
+  const char *voice = name[1] == 'f' ? tr(" female") : (name[1] == 'm' ? tr(" male") : "");
   std::string given = name.substr(3);
   given[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(given[0])));
   return given + " \xC2\xB7 " + accent + voice;
@@ -1255,7 +1258,7 @@ void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
   const std::uint64_t count = voices.size();
   const bool ready = session.settings_loaded() && count > 0;
 
-  flow.label("Reply language");
+  flow.label(tr("Reply language"));
   flow.gap();
   float x = flow.x + 2.0f;
   for (const ReplyLanguage &language : kReplyLanguages) {
@@ -1273,10 +1276,9 @@ void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
   }
   flow.y += kButtonHeight;
   flow.gap();
-  flow.help("Controllers answer you in this language. Push-to-talk and typed "
+  flow.help(tr("Controllers answer you in this language. Push-to-talk and typed "
             "calls are still English only: speak and type to them in English. "
-            "Changing it reconnects to the console. Delivery speaks Spanish and "
-            "French today; the other controllers still answer in English.");
+            "Changing it reconnects to the console."));
   flow.end_setting();
 
   flow.begin_setting();
@@ -1284,77 +1286,77 @@ void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
   const std::uint64_t shown = pilot_voice_in(session.language(), session.my_voice());
   const std::string name =
       shown >= 1 && shown <= count ? voice_label(voices[shown - 1].name) : std::string("default");
-  flow.label("My voice");
+  flow.label(tr("My voice"));
   flow.strong(name);
   flow.gap();
-  const float pw = button_width(inner, "Previous");
-  const float nw = button_width(inner, "Next");
+  const float pw = button_width(inner, tr("Previous"));
+  const float nw = button_width(inner, tr("Next"));
   const auto at = std::find(offered.begin(), offered.end(), shown);
   const std::size_t index = at == offered.end() ? 0 : static_cast<std::size_t>(at - offered.begin());
   if (button(inner, "voice_previous", ImVec2(flow.x + 2.0f, flow.y), ImVec2(pw, kButtonHeight),
-             "Previous", Variant::outlined, ready)) {
+             tr("Previous"), Variant::outlined, ready)) {
     const std::uint64_t voice = offered[index == 0 ? offered.size() - 1 : index - 1];
     flow.ui.later([&session, voice, steady] { session.pick_voice(voice, steady); });
   }
   if (button(inner, "voice_next", ImVec2(flow.x + 2.0f + pw + 8.0f, flow.y),
-             ImVec2(nw, kButtonHeight), "Next", Variant::outlined, ready)) {
+             ImVec2(nw, kButtonHeight), tr("Next"), Variant::outlined, ready)) {
     const std::uint64_t voice = offered[(index + 1) % offered.size()];
     flow.ui.later([&session, voice, steady] { session.pick_voice(voice, steady); });
   }
   flow.y += kButtonHeight;
   flow.gap();
-  flow.help("A call you make with the HUD's buttons is spoken in this voice on "
+  flow.help(tr("A call you make with the HUD's buttons is spoken in this voice on "
             "your radio, so you hear yourself call. It is never the voice the "
-            "controller on that frequency speaks in.");
+            "controller on that frequency speaks in."));
   flow.end_setting();
 
   flow.begin_setting();
-  flow.label("Auto readback");
+  flow.label(tr("Auto readback"));
   flow.gap();
   const bool on = session.auto_readback();
-  const std::string toggle = on ? "On" : "Off";
+  const std::string toggle = on ? tr("On") : tr("Off");
   if (button(inner, "auto_readback", ImVec2(flow.x + 2.0f, flow.y),
-             ImVec2(button_width(inner, "Off") + 12.0f, kButtonHeight), toggle,
+             ImVec2(button_width(inner, tr("Off")) + 12.0f, kButtonHeight), toggle,
              on ? Variant::filled : Variant::outlined, session.settings_loaded())) {
     flow.ui.later([&session, on, steady] { session.set_auto_readback(!on, steady); });
   }
   flow.y += kButtonHeight;
   flow.gap();
-  flow.help("Reads back a clearance or instruction for you, with the readback "
+  flow.help(tr("Reads back a clearance or instruction for you, with the readback "
             "button, once the transmission has finished playing on your radio. "
-            "Off, you press the readback yourself.");
+            "Off, you press the readback yourself."));
   flow.end_setting();
 
   flow.begin_setting();
-  flow.label("Typing line on the HUD");
+  flow.label(tr("Typing line on the HUD"));
   flow.gap();
   const bool typing = session.hud_typing();
   if (button(inner, "hud_typing", ImVec2(flow.x + 2.0f, flow.y),
-             ImVec2(button_width(inner, "Off") + 12.0f, kButtonHeight), typing ? "On" : "Off",
+             ImVec2(button_width(inner, tr("Off")) + 12.0f, kButtonHeight), typing ? tr("On") : tr("Off"),
              typing ? Variant::filled : Variant::outlined, session.settings_loaded())) {
     flow.ui.later([&session, typing, steady] { session.set_hud_typing(!typing, steady); });
   }
   flow.y += kButtonHeight;
   flow.gap();
-  flow.help("A line under the HUD's bar to type a call in and send with Enter, "
-            "without opening this panel. Off, the HUD shows only its buttons.");
+  flow.help(tr("A line under the HUD's bar to type a call in and send with Enter, "
+            "without opening this panel. Off, the HUD shows only its buttons."));
   flow.end_setting();
 
   flow.begin_setting();
-  flow.label("Transcript on the HUD");
+  flow.label(tr("Transcript on the HUD"));
   flow.gap();
   const bool transcript = session.hud_transcript();
   if (button(inner, "hud_transcript", ImVec2(flow.x + 2.0f, flow.y),
-             ImVec2(button_width(inner, "Off") + 12.0f, kButtonHeight),
-             transcript ? "On" : "Off", transcript ? Variant::filled : Variant::outlined,
+             ImVec2(button_width(inner, tr("Off")) + 12.0f, kButtonHeight),
+             transcript ? tr("On") : tr("Off"), transcript ? Variant::filled : Variant::outlined,
              session.settings_loaded())) {
     flow.ui.later(
         [&session, transcript, steady] { session.set_hud_transcript(!transcript, steady); });
   }
   flow.y += kButtonHeight;
   flow.gap();
-  flow.help("The last few transmissions under the HUD's buttons. Off, you hear "
-            "them on the radio and read them in this panel's radio log.");
+  flow.help(tr("The last few transmissions under the HUD's buttons. Off, you hear "
+            "them on the radio and read them in this panel's radio log."));
   flow.error(session.local().error);
 }
 
@@ -1387,31 +1389,31 @@ void settings(const Ui &ui, PanelSession &session, PanelViewState &state,
             origin.y};
 
   // ---- appearance ----
-  flow.section("Appearance");
+  flow.section(tr("Appearance"));
   flow.begin_setting();
-  flow.label("Theme");
+  flow.label(tr("Theme"));
   flow.gap();
   theme_picker(flow, session);
   flow.gap();
-  flow.help("Applies to this panel and the HUD, and is remembered for this "
-            "aircraft.");
+  flow.help(tr("Applies to this panel and the HUD, and is remembered for this "
+            "aircraft."));
   flow.end_setting();
 
   // ---- calls by button ----
-  flow.section("Calls by button");
+  flow.section(tr("Calls by button"));
   flow.begin_setting();
   calls_settings(flow, session, inner, steady);
   flow.end_setting();
 
   // ---- connection ----
-  flow.section("Connection");
+  flow.section(tr("Connection"));
   flow.begin_setting();
-  flow.label("Console");
+  flow.label(tr("Console"));
   flow.strong(session.console_url().empty() ? gui::kUnknown
                                             : session.console_url());
   flow.gap();
-  flow.help("Where this plugin connects. Fixed here \xE2\x80\x94 change it in "
-            "Output/preferences/zoal_atc.cfg if you run your own console.");
+  flow.help(tr("Where this plugin connects. Fixed here \xE2\x80\x94 change it in "
+            "Output/preferences/zoal_atc.cfg if you run your own console."));
   flow.end_setting();
 
   flow.begin_setting();
@@ -1422,11 +1424,11 @@ void settings(const Ui &ui, PanelSession &session, PanelViewState &state,
   // locking the field until then would take away the one control that
   // repairs a mistyped credential.
   save_token |= control_row(
-      flow, "token", "Access token", state.token, sizeof(state.token),
-      {"Leave empty if the console is open", !state.token_revealed, false,
+      flow, "token", tr("Access token"), state.token, sizeof(state.token),
+      {tr("Leave empty if the console is open"), !state.token_revealed, false,
        session.connection_loaded()},
-      {{state.token_revealed ? "Hide" : "Show", Variant::outlined, true, &reveal},
-       {"Save token", Variant::tonal, session.connection_loaded(), &save_token}});
+      {{state.token_revealed ? tr("Hide") : tr("Show"), Variant::outlined, true, &reveal},
+       {tr("Save token"), Variant::tonal, session.connection_loaded(), &save_token}});
   if (reveal) {
     state.token_revealed = !state.token_revealed;
   }
@@ -1435,43 +1437,43 @@ void settings(const Ui &ui, PanelSession &session, PanelViewState &state,
     ui.later([&session, token, steady] { session.save_token(token, steady); });
   }
   flow.gap();
-  flow.help("Authorises this aircraft with the console. Saving reconnects, so "
+  flow.help(tr("Authorises this aircraft with the console. Saving reconnects, so "
             "the status above tells you straight away whether it was "
             "accepted. Unlike everything else here it is stored by the "
             "plugin, not the console \xE2\x80\x94 it has to work while the "
             "console is unreachable, because it is how it becomes reachable. "
-            "Save it empty to clear it.");
+            "Save it empty to clear it."));
   flow.error(session.local().error);
   flow.end_setting();
 
   // ---- flight plan ----
-  flow.section("Flight plan");
+  flow.section(tr("Flight plan"));
   flow.begin_setting();
   bool save_pilot = false;
   save_pilot |= control_row(
-      flow, "pilot", "SimBrief pilot ID", state.pilot_id, sizeof(state.pilot_id),
-      {"Pilot ID", false, false, session.settings_loaded()},
-      {{"Save", Variant::tonal, session.settings_loaded(), &save_pilot}});
+      flow, "pilot", tr("SimBrief pilot ID"), state.pilot_id, sizeof(state.pilot_id),
+      {tr("Pilot ID"), false, false, session.settings_loaded()},
+      {{tr("Save"), Variant::tonal, session.settings_loaded(), &save_pilot}});
   if (save_pilot && session.settings_loaded()) {
     const std::string id = trimmed(state.pilot_id);
     ui.later([&session, id, steady] { session.save_pilot_id(id, steady); });
   }
   flow.gap();
-  flow.help("Remembered for this aircraft, so an import needs no ID. Two pilots "
-            "connected to one console each keep their own.");
+  flow.help(tr("Remembered for this aircraft, so an import needs no ID. Two pilots "
+            "connected to one console each keep their own."));
   flow.end_setting();
 
   flow.begin_setting();
-  flow.label("Imported plan");
+  flow.label(tr("Imported plan"));
   flow.strong(gui::format_plan_route(session.plan()));
   flow.gap();
   const std::string detail = gui::format_plan_detail(session.plan());
-  flow.help(detail.empty() ? "No plan imported yet." : detail);
+  flow.help(detail.empty() ? tr("No plan imported yet.") : detail);
   flow.gap();
   flow.gap();
-  const float iw = button_width(inner, "Import now");
+  const float iw = button_width(inner, tr("Import now"));
   if (button(inner, "import", ImVec2(flow.x + 2.0f, flow.y),
-             ImVec2(iw, kButtonHeight), "Import now", Variant::filled,
+             ImVec2(iw, kButtonHeight), tr("Import now"), Variant::filled,
              !session.settings().busy())) {
     ui.later([&session, steady] { session.import_now(steady); });
   }

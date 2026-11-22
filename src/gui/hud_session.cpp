@@ -1,4 +1,5 @@
 #include "zoal_atc/gui/hud_session.hpp"
+#include "zoal_atc/gui/i18n.hpp"
 
 #include "zoal_atc/transport/json_util.hpp"
 
@@ -91,6 +92,7 @@ static std::optional<HudCallItem> parse_call_item(const std::string &element, bo
   item.key = top_string(element, "key").value_or("");
   item.label = top_string(element, "label").value_or("");
   item.sentence = top_string(element, "sentence").value_or("");
+  item.said = top_string(element, "said").value_or("");
   item.readback = top_bool(element, "readback");
   if (top) {
     if (const auto raw = json_raw_field(element, "options")) {
@@ -286,14 +288,19 @@ void HudSession::press_call(const std::string &key, std::uint64_t steady_ms,
   const std::string request =
       R"({"action":"pilot_call","payload":{"key":")" +
       transport::json_escape(item->key) + R"(","sentence":")" +
-      transport::json_escape(item->sentence) + R"(","role":")" +
+      transport::json_escape(item->sentence) + R"(","said":")" +
+      transport::json_escape(item->said) + R"(","role":")" +
       transport::json_escape(item->role) + R"(",)" + radio_fields() + "}}";
+  // The pilot hears themselves say it in their language where the console
+  // offered the words; the English sentence is what is sent either way.
+  const bool translated = !item->said.empty();
   std::string error;
   if (!send_json(request,
                  Pending{Request::call, HudAction::none, item->key,
-                         item->sentence, active_hz_},
+                         translated ? item->said : item->sentence, active_hz_,
+                         translated ? ui_language() : std::string()},
                  steady_ms, error)) {
-    call_error_ = error.empty() ? "the call could not be sent" : error;
+    call_error_ = error.empty() ? tr("the call could not be sent") : error;
     return;
   }
   in_flight_.insert(item->key);
@@ -327,7 +334,7 @@ void HudSession::submit_text(const std::string &text, std::uint64_t steady_ms) {
   std::string error;
   if (!send_json(request, Pending{Request::call, HudAction::none, "", said, active_hz_},
                  steady_ms, error)) {
-    call_error_ = error.empty() ? "the message could not be sent" : error;
+    call_error_ = error.empty() ? tr("the message could not be sent") : error;
   }
 }
 
@@ -352,7 +359,7 @@ void HudSession::press_next_frequency(std::uint64_t steady_ms) {
                  Pending{Request::tune, HudAction::none, "", "",
                          menu->next_frequency_hz},
                  steady_ms, error)) {
-    call_error_ = error.empty() ? "the radio could not be tuned" : error;
+    call_error_ = error.empty() ? tr("the radio could not be tuned") : error;
   }
 }
 
@@ -442,7 +449,7 @@ bool HudSession::send(const std::string &action, Pending pending,
 bool HudSession::send_json(const std::string &request, Pending pending,
                            std::uint64_t steady_ms, std::string &error) {
   if (!attached_) {
-    error = "the HUD is not attached to the console";
+    error = tr("the HUD is not attached to the console");
     return false;
   }
   const SubmitResult result = bridge_.submit(request, steady_ms, GuiView::hud);
@@ -532,18 +539,18 @@ void HudSession::handle_response(const std::string &envelope,
     return;
   case Request::tune:
     if (!ok) {
-      call_error_ = top_string(envelope, "error").value_or("the radio could not be tuned");
+      call_error_ = top_string(envelope, "error").value_or(tr("the radio could not be tuned"));
     }
     return;
   case Request::call:
     in_flight_.erase(pending.key);
     if (!ok) {
-      call_error_ = top_string(envelope, "error").value_or("the console refused the call");
+      call_error_ = top_string(envelope, "error").value_or(tr("the console refused the call"));
       return;
     }
     // Taken: the pilot hears themselves make it, as on a real radio.
     if (speak_own_) {
-      speak_own_(pending.sentence, pending.frequency_hz);
+      speak_own_(pending.sentence, pending.frequency_hz, pending.language);
     }
     return;
   case Request::action:
