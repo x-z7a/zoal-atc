@@ -92,6 +92,7 @@ static std::optional<HudCallItem> parse_call_item(const std::string &element, bo
   item.key = top_string(element, "key").value_or("");
   item.label = top_string(element, "label").value_or("");
   item.sentence = top_string(element, "sentence").value_or("");
+  item.said = top_string(element, "said").value_or("");
   item.readback = top_bool(element, "readback");
   if (top) {
     if (const auto raw = json_raw_field(element, "options")) {
@@ -287,12 +288,17 @@ void HudSession::press_call(const std::string &key, std::uint64_t steady_ms,
   const std::string request =
       R"({"action":"pilot_call","payload":{"key":")" +
       transport::json_escape(item->key) + R"(","sentence":")" +
-      transport::json_escape(item->sentence) + R"(","role":")" +
+      transport::json_escape(item->sentence) + R"(","said":")" +
+      transport::json_escape(item->said) + R"(","role":")" +
       transport::json_escape(item->role) + R"(",)" + radio_fields() + "}}";
+  // The pilot hears themselves say it in their language where the console
+  // offered the words; the English sentence is what is sent either way.
+  const bool translated = !item->said.empty();
   std::string error;
   if (!send_json(request,
                  Pending{Request::call, HudAction::none, item->key,
-                         item->sentence, active_hz_},
+                         translated ? item->said : item->sentence, active_hz_,
+                         translated ? ui_language() : std::string()},
                  steady_ms, error)) {
     call_error_ = error.empty() ? tr("the call could not be sent") : error;
     return;
@@ -544,7 +550,7 @@ void HudSession::handle_response(const std::string &envelope,
     }
     // Taken: the pilot hears themselves make it, as on a real radio.
     if (speak_own_) {
-      speak_own_(pending.sentence, pending.frequency_hz);
+      speak_own_(pending.sentence, pending.frequency_hz, pending.language);
     }
     return;
   case Request::action:

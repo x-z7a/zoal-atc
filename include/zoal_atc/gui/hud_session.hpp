@@ -109,7 +109,7 @@ public:
 
   // Speaks a call the console took, in the pilot's voice, on this channel.
   void set_own_call_speaker(
-      std::function<void(const std::string &, std::uint64_t)> speak) {
+      std::function<void(const std::string &, std::uint64_t, const std::string &)> speak) {
     speak_own_ = std::move(speak);
   }
   bool awaiting_own_call() const;
@@ -140,6 +140,8 @@ private:
     std::string key;
     std::string sentence;
     std::uint64_t frequency_hz = 0;
+    // language is the language sentence is said in: empty for English.
+    std::string language;
   };
 
   void handle(const std::string &envelope, std::uint64_t steady_ms,
@@ -198,7 +200,7 @@ private:
   // Words whose voice already started, for a line that arrives after it: the
   // reply and its line reach the cockpit as two frames, in either order.
   std::vector<HeldLine> spoken_;
-  std::function<void(const std::string &, std::uint64_t)> speak_own_;
+  std::function<void(const std::string &, std::uint64_t, const std::string &)> speak_own_;
   std::function<bool(std::uint64_t)> controller_speech_pending_;
 };
 

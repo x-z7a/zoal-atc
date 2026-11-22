@@ -837,7 +837,8 @@ std::uint64_t pilot_voice_on(std::uint64_t frequency_hz) {
 }
 
 // speak_own_call says a call the console took, in the pilot's voice.
-void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz) {
+void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz,
+                    const std::string &language) {
   if (sentence.empty() || !g_synthesis) {
     return;
   }
@@ -849,8 +850,10 @@ void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz) {
   call.voice = pilot_voice_on(frequency_hz);
   call.frequency_hz = frequency_hz;
   call.queued_at_ms = monotonic_ms();
+  call.language = zoal_atc::transport::reply_language(language.empty() ? "en" : language);
   call.speech = g_synthesis->submit(
-      zoal_atc::transport::radio_text(call.text), call.voice, true);
+      call.language == "en" ? zoal_atc::transport::radio_text(call.text) : call.text,
+      call.voice, true, call.language == "en" ? "" : call.language);
   g_own_calls.push_back(std::move(call));
 }
 
