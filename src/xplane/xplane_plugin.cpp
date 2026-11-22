@@ -13,6 +13,7 @@
 #include "zoal_atc/transport/endpoint_config.hpp"
 #include "zoal_atc/transport/json_util.hpp"
 #include "zoal_atc/transport/speech_text.hpp"
+#include "zoal_atc/gui/i18n.hpp"
 #include "zoal_atc/transport/websocket_client.hpp"
 #include "zoal_atc/weather/metar.hpp"
 #include "hud_window.hpp"
@@ -476,6 +477,9 @@ std::string settings_json() {
 
 // Reads the two call settings from the config text.
 void load_call_settings(const std::string &text) {
+  // The panel and the HUD are drawn in the language replies are spoken in.
+  zoal_atc::gui::set_ui_language(
+      zoal_atc::transport::reply_language(config_value(text, "language").value_or("en")));
   g_my_voice = 0;
   if (const auto voice = config_value(text, "my_voice")) {
     char *end = nullptr;
@@ -579,6 +583,7 @@ handle_local_gui_action(const std::string &action,
                                           "could not write " + g_config_path};
       }
       log_line("reply language set to " + language + " from the panel");
+      zoal_atc::gui::set_ui_language(language);
       // Unlike the pilot ID, this re-dials: the hello is how the console
       // learns it, and a pilot who just chose French expects the next reply
       // in French. Push-to-talk and typing are unaffected and stay English.
@@ -832,7 +837,8 @@ std::uint64_t pilot_voice_on(std::uint64_t frequency_hz) {
 }
 
 // speak_own_call says a call the console took, in the pilot's voice.
-void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz) {
+void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz,
+                    const std::string &language) {
   if (sentence.empty() || !g_synthesis) {
     return;
   }
@@ -844,8 +850,10 @@ void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz) {
   call.voice = pilot_voice_on(frequency_hz);
   call.frequency_hz = frequency_hz;
   call.queued_at_ms = monotonic_ms();
+  call.language = zoal_atc::transport::reply_language(language.empty() ? "en" : language);
   call.speech = g_synthesis->submit(
-      zoal_atc::transport::radio_text(call.text), call.voice, true);
+      call.language == "en" ? zoal_atc::transport::radio_text(call.text) : call.text,
+      call.voice, true, call.language == "en" ? "" : call.language);
   g_own_calls.push_back(std::move(call));
 }
 

@@ -1,4 +1,5 @@
 #include "zoal_atc/gui/hud_session.hpp"
+#include "zoal_atc/gui/i18n.hpp"
 
 #include "zoal_atc/transport/json_util.hpp"
 
@@ -403,7 +404,7 @@ void a_press_is_a_call_spoken_once_the_console_takes_it() {
   Rig rig;
   std::vector<std::string> spoken;
   rig.hud.set_own_call_speaker(
-      [&spoken](const std::string &sentence, std::uint64_t) { spoken.push_back(sentence); });
+      [&spoken](const std::string &sentence, std::uint64_t, const std::string &) { spoken.push_back(sentence); });
   rig.bring_up();
   rig.hud.set_radio(1, kGround, 0);
   rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(1, false)), 0);
@@ -438,11 +439,52 @@ void a_press_is_a_call_spoken_once_the_console_takes_it() {
   expect_true(!rig.hud.awaiting_own_call(), "the accepted call is now handed to audio");
 }
 
+// A pilot answered in Spanish hears themselves say the call in Spanish, and
+// the English sentence is still what the console is sent.
+void a_press_in_another_language_is_said_in_it() {
+  zoal_atc::gui::set_ui_language("es");
+  Rig rig;
+  std::vector<std::string> spoken;
+  std::vector<std::string> languages;
+  rig.hud.set_own_call_speaker(
+      [&](const std::string &sentence, std::uint64_t, const std::string &language) {
+        spoken.push_back(sentence);
+        languages.push_back(language);
+      });
+  rig.bring_up();
+  rig.hud.set_radio(1, kGround, 0);
+  const std::string menu =
+      R"({"frequencyHz":121900000,"role":"ground","station":"CYOW_GND","revision":1,"items":[)"
+      R"({"key":"taxi_departure","label":"Taxi","sentence":"Ground, AC21, request taxi","said":"Ground, AC21, solicito rodaje"}]})";
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", menu), 0);
+  rig.hud.pump(0, kWall);
+  rig.sent();
+  rig.hud.press_call("taxi_departure", 1, kWall);
+  std::uint64_t id = 0;
+  std::string frame;
+  for (const auto &item : rig.sent()) {
+    if (item.what == "pilot_call") {
+      id = item.id;
+      frame = item.frame;
+    }
+  }
+  expect_true(frame.find(R"("sentence":"Ground, AC21, request taxi")") != std::string::npos,
+              "the English is sent");
+  expect_true(frame.find(R"("said":"Ground, AC21, solicito rodaje")") != std::string::npos,
+              "with what the pilot said");
+  rig.bridge.on_socket_frame(gui_ok(id), 2);
+  rig.hud.pump(2, kWall);
+  expect_true(spoken.size() == 1 && spoken.front() == "Ground, AC21, solicito rodaje",
+              "said in Spanish");
+  expect_true(languages.size() == 1 && languages.front() == "es", "read as Spanish");
+  zoal_atc::gui::set_ui_language("en");
+}
+
 void a_refused_call_is_shown_and_not_spoken() {
   Rig rig;
   std::vector<std::string> spoken;
   rig.hud.set_own_call_speaker(
-      [&spoken](const std::string &sentence, std::uint64_t) { spoken.push_back(sentence); });
+      [&spoken](const std::string &sentence, std::uint64_t, const std::string &) { spoken.push_back(sentence); });
   rig.bring_up();
   rig.hud.set_radio(1, kGround, 0);
   rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(1, false)), 0);
@@ -654,7 +696,7 @@ void a_typed_call_is_sent_and_spoken() {
   Rig rig;
   std::vector<std::string> spoken;
   rig.hud.set_own_call_speaker(
-      [&spoken](const std::string &sentence, std::uint64_t) { spoken.push_back(sentence); });
+      [&spoken](const std::string &sentence, std::uint64_t, const std::string &) { spoken.push_back(sentence); });
   rig.bring_up();
   rig.sent();
   rig.hud.submit_text("  request higher  ", 1);
@@ -712,6 +754,7 @@ int main() {
   asks_the_position_on_a_new_channel_for_its_menu();
   parses_a_menu();
   a_press_is_a_call_spoken_once_the_console_takes_it();
+  a_press_in_another_language_is_said_in_it();
   a_refused_call_is_shown_and_not_spoken();
   auto_readback_reads_back_what_was_heard();
   auto_readback_waits_for_the_controller_to_finish();

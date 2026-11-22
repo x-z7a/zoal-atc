@@ -1,4 +1,5 @@
 #include "zoal_atc/gui/panel_session.hpp"
+#include "zoal_atc/gui/i18n.hpp"
 
 #include "zoal_atc/transport/json_util.hpp"
 
@@ -125,12 +126,12 @@ std::string format_frequency(double mhz) {
 }
 
 std::string format_standby(double mhz) {
-  return mhz != 0.0 ? "sby " + fixed3(mhz) : "";
+  return mhz != 0.0 ? tr("sby ") + fixed3(mhz) : "";
 }
 
 std::string format_altitude(const PanelTelemetry &telemetry) {
   return telemetry.on_ground
-             ? "on ground"
+             ? tr("on ground")
              : format_thousands(telemetry.altitude_ft_msl) + " ft";
 }
 
@@ -143,14 +144,14 @@ std::string format_groundspeed(double knots) {
 // thing the panel must not say when it does not know.
 std::string format_traffic(const PanelTelemetry &telemetry) {
   if (telemetry.surveillance == "current") {
-    return std::to_string(telemetry.traffic_count) + " contacts";
+    return std::to_string(telemetry.traffic_count) + tr(" contacts");
   }
-  return telemetry.surveillance.empty() ? "unavailable"
+  return telemetry.surveillance.empty() ? tr("unavailable")
                                         : telemetry.surveillance;
 }
 
 std::string format_facility_count(std::int64_t count) {
-  return count == 1 ? "1 aircraft" : std::to_string(count) + " aircraft";
+  return count == 1 ? tr("1 aircraft") : std::to_string(count) + tr(" aircraft");
 }
 
 std::string format_plan_route(const std::optional<PanelFlightPlan> &plan) {
@@ -162,7 +163,7 @@ std::string format_plan_route(const std::optional<PanelFlightPlan> &plan) {
     route += route.empty() ? plan->destination
                            : " \xE2\x86\x92 " + plan->destination; // an arrow
   }
-  return route.empty() ? "filed" : route;
+  return route.empty() ? tr("filed") : route;
 }
 
 std::string format_plan_detail(const std::optional<PanelFlightPlan> &plan) {
@@ -177,7 +178,7 @@ std::string format_plan_detail(const std::optional<PanelFlightPlan> &plan) {
     parts.push_back(format_thousands(plan->cruise_alt_ft) + " ft");
   }
   if (!plan->first_fix.empty()) {
-    parts.push_back("first " + plan->first_fix);
+    parts.push_back(tr("first ") + plan->first_fix);
   }
   if (!plan->route.empty()) {
     parts.push_back(plan->route);
@@ -190,19 +191,19 @@ std::string format_plan_detail(const std::optional<PanelFlightPlan> &plan) {
 }
 
 std::string format_dropped_events(std::uint64_t dropped) {
-  return dropped > 0 ? std::to_string(dropped) + " updates dropped" : "";
+  return dropped > 0 ? std::to_string(dropped) + tr(" updates dropped") : "";
 }
 
 std::string describe_link(const PanelLink &link) {
   if (!link.connected) {
-    return "disconnected";
+    return tr("disconnected");
   }
   if (!link.subscribed) {
-    return "subscribing";
+    return tr("subscribing");
   }
   return link.pending > 0
-             ? "connected (" + std::to_string(link.pending) + " in flight)"
-             : "connected";
+             ? tr("connected (") + std::to_string(link.pending) + tr(" in flight)")
+             : tr("connected");
 }
 
 std::optional<double> parse_frequency(const std::string &text) {
@@ -331,12 +332,12 @@ PanelFreshness PanelSession::freshness(std::int64_t wall_ms) const {
 std::string PanelSession::freshness_message(std::int64_t wall_ms) const {
   switch (freshness(wall_ms)) {
   case PanelFreshness::unreachable:
-    return "Console unreachable \xE2\x80\x94 values are last known";
+    return tr("Console unreachable \xE2\x80\x94 values are last known");
   case PanelFreshness::paused:
-    return "Simulator paused";
+    return tr("Simulator paused");
   case PanelFreshness::stale: {
     const auto age = wall_ms - last_telemetry_wall_ms_.value_or(wall_ms);
-    return "No telemetry for " + std::to_string((age + 500) / 1000) + "s";
+    return tr("No telemetry for ") + std::to_string((age + 500) / 1000) + "s";
   }
   case PanelFreshness::fresh:
     break;
@@ -417,6 +418,8 @@ void PanelSession::pick_language(const std::string &language, std::uint64_t voic
   // answers with put it right if the plugin refused it.
   language_ = language;
   my_voice_ = voice;
+  // The panel and the HUD are drawn in the language at once.
+  set_ui_language(language);
   send("save_settings",
        R"({"language":")" + language + R"(","myVoice":)" + std::to_string(voice) + "}",
        Pending{Request::save_settings, &local_}, steady_ms);
@@ -460,7 +463,7 @@ void PanelSession::send(const std::string &action,
   }
   if (!attached_) {
     if (runner != nullptr) {
-      runner->error = "the panel is not attached to the plugin";
+      runner->error = tr("the panel is not attached to the plugin");
     }
     return;
   }
@@ -580,7 +583,7 @@ void PanelSession::handle_response(const std::string &envelope) {
     if (!ok) {
       pending.runner->error = top_string(envelope, "error").value_or("");
       if (pending.runner->error.empty()) {
-        pending.runner->error = "the request was refused";
+        pending.runner->error = tr("the request was refused");
       }
     }
   }
@@ -646,6 +649,7 @@ void PanelSession::apply_settings(const std::string &payload_json) {
   }
   if (const auto language = top_string(payload_json, "language")) {
     language_ = *language == "es" || *language == "fr" ? *language : "en";
+    set_ui_language(language_);
   }
   if (const auto on = json_raw_field(payload_json, "autoReadback")) {
     auto_readback_ = *on == "true";

@@ -40,6 +40,7 @@ add_library(zoal_atc_core STATIC
     src/stt/transcript_frame.cpp
     src/tts/synthesis.cpp
     src/tts/voice_catalogue.cpp
+    src/gui/i18n.cpp
     src/telemetry/telemetry_frame.cpp
     src/telemetry/traffic.cpp
     src/transport/async_websocket_ptt_sink.cpp
@@ -361,4 +362,5 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_local_stt_tests tests/local_stt_test.cpp)
     zoal_atc_add_test(zoal_atc_tts_tests tests/tts_test.cpp)
     zoal_atc_add_test(zoal_atc_voice_catalogue_tests tests/voice_catalogue_test.cpp)
+    zoal_atc_add_test(zoal_atc_i18n_tests tests/i18n_test.cpp)
 endif()

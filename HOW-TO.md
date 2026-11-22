@@ -188,8 +188,9 @@ server.
 
 - **Only replies change.** Push-to-talk and typed calls are still **English
   only**: speak and type to ATC in English, whatever language they answer in.
-- **Delivery first.** Clearance Delivery answers in Spanish and French today.
-  Ground, Tower and the other controllers still answer in English for now.
+- **Every controller.** Delivery, Ground, Tower, Departure, Approach, Center
+  and Oceanic all answer in the language you pick. Airport, fix and position
+  names are said as published.
 - **Voices to match.** A reply in Spanish or French is read by a Spanish or
   French speaker. **My voice** then lists only that language's speakers.
 - German is not available yet: the speech model has no German voice.

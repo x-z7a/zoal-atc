@@ -99,6 +99,9 @@ struct HudCallItem {
   std::string key;
   std::string label;
   std::string sentence;
+  // said is the sentence in the pilot's language, where the console offered
+  // one: what the pilot's voice says. The sentence is still what is sent.
+  std::string said;
   // The item that reads back the instruction outstanding.
   bool readback = false;
   // The role whose menu offered it, sent back with a press so a channel two
