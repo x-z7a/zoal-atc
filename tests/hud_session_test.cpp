@@ -478,6 +478,31 @@ void auto_readback_reads_back_what_was_heard() {
   expect_true(rig.last_request("pilot_call") == 0, "once");
 }
 
+// A controller still queued on the channel is not heard yet, so auto readback
+// waits for it rather than reading back on the strength of the transmission
+// before it. When the last one finishes, the readback goes.
+void auto_readback_waits_for_the_controller_to_finish() {
+  Rig rig;
+  rig.bring_up();
+  bool queued = true;
+  rig.hud.set_controller_speech_pending([&queued](std::uint64_t) { return queued; });
+  rig.hud.on_settings_changed(R"({"autoReadback":true})");
+  rig.hud.set_radio(1, kGround, 0);
+  rig.hud.pump(0, kWall);
+  rig.sent();
+
+  // The transmission before it played, and the readback arrived, but the
+  // instruction it reads back is still waiting its turn.
+  rig.hud.reply_heard(kGround, 1, kWall);
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(2, true)), 2);
+  rig.hud.pump(2, kWall + 1'000);
+  expect_true(rig.last_request("pilot_call") == 0, "not while the controller is still to be heard");
+
+  queued = false;
+  rig.hud.reply_heard(kGround, 3, kWall + 6'000);
+  expect_true(rig.last_request("pilot_call") != 0, "read back once it has played");
+}
+
 void auto_readback_off_presses_nothing() {
   Rig rig;
   rig.bring_up();
@@ -689,6 +714,7 @@ int main() {
   a_press_is_a_call_spoken_once_the_console_takes_it();
   a_refused_call_is_shown_and_not_spoken();
   auto_readback_reads_back_what_was_heard();
+  auto_readback_waits_for_the_controller_to_finish();
   auto_readback_off_presses_nothing();
   the_next_frequency_tunes_the_selected_radio();
   a_shared_channel_shows_both_roles();

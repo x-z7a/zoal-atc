@@ -114,6 +114,17 @@ public:
   }
   bool awaiting_own_call() const;
 
+  // Whether a controller's transmission on this channel is still waiting to
+  // play or playing. Auto readback waits for it: a readback is of what the
+  // pilot has heard, and a readback pressed while the controller is still
+  // queued answers words nobody has heard yet. Out of Ottawa three Center
+  // transmissions queued behind one another, and "proceed direct TUKIR" was
+  // read back twenty seconds before it played, because the one before it had
+  // just finished.
+  void set_controller_speech_pending(std::function<bool(std::uint64_t)> pending) {
+    controller_speech_pending_ = std::move(pending);
+  }
+
   const HudFeed &feed() const { return feed_; }
   const HudMenu &menu() const { return menu_; }
   // The console is there: the socket is up and the subscription answered.
@@ -188,6 +199,7 @@ private:
   // reply and its line reach the cockpit as two frames, in either order.
   std::vector<HeldLine> spoken_;
   std::function<void(const std::string &, std::uint64_t)> speak_own_;
+  std::function<bool(std::uint64_t)> controller_speech_pending_;
 };
 
 // The console's comm_log payload (a CommLogEntry) as a HUD line; nullopt when
