@@ -149,6 +149,9 @@ void start_hud(gui::GuiBridge &bridge,
   if (g_hud->cockpit.speak_own_call) {
     g_hud->session->set_own_call_speaker(g_hud->cockpit.speak_own_call);
   }
+  if (g_hud->cockpit.controller_speech_pending) {
+    g_hud->session->set_controller_speech_pending(g_hud->cockpit.controller_speech_pending);
+  }
   g_hud->session->attach(steady_now());
 
   g_hud->command =
