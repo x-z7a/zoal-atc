@@ -366,9 +366,12 @@ void HudSession::reply_heard(std::uint64_t frequency_hz,
 }
 
 // Auto readback presses the readback the moment there is both a transmission
-// the pilot heard and a menu offering its readback, whichever came second.
-// Only a transmission that played counts: the readback says the pilot heard
-// it, and a pilot whose radio did not play it did not.
+// the pilot heard and a menu offering its readback, whichever came second,
+// and nothing more from a controller on this channel is still to play. Only a
+// transmission that played counts: the readback says the pilot heard it, and a
+// pilot whose radio did not play it did not. A transmission still queued is
+// one they have not heard either, and when it finishes reply_heard looks
+// again.
 void HudSession::maybe_read_back(std::uint64_t steady_ms,
                                  std::int64_t wall_ms) {
   if (!auto_readback_) {
@@ -382,6 +385,9 @@ void HudSession::maybe_read_back(std::uint64_t steady_ms,
   }
   const auto heard = heard_at_.find(active_hz_);
   if (heard == heard_at_.end() || wall_ms - heard->second > kAutoReadbackWindowMs) {
+    return;
+  }
+  if (controller_speech_pending_ && controller_speech_pending_(active_hz_)) {
     return;
   }
   auto_pressed_.insert(item->key);

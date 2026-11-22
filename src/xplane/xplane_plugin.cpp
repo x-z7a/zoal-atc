@@ -26,6 +26,7 @@
 #include <XPLMSound.h>
 #include <XPLMUtilities.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <limits>
@@ -812,6 +813,22 @@ void speak_own_call(const std::string &sentence, std::uint64_t frequency_hz) {
   call.speech = g_synthesis->submit(
       zoal_atc::transport::radio_text(call.text), call.voice, true);
   g_own_calls.push_back(std::move(call));
+}
+
+// controller_speech_pending is whether a controller's transmission on a channel
+// is still to be heard: waiting in the queue, or on the air now. A transmission
+// another aircraft was given, overheard on the party line, carries no
+// generation and is not one the pilot reads back.
+bool controller_speech_pending(std::uint64_t frequency_hz) {
+  const auto ours = [frequency_hz](const ATCReplyMessage &reply) {
+    return reply.generation != 0 && !reply.own_call && reply.speak && !reply.text.empty() &&
+           (frequency_hz == 0 || reply.frequency_hz == 0 || reply.frequency_hz == frequency_hz);
+  };
+  if (g_active_speech.has_value() && ours(g_active_speech->reply)) {
+    return true;
+  }
+  std::lock_guard<std::mutex> lock(g_reply_mutex);
+  return std::any_of(g_reply_queue.begin(), g_reply_queue.end(), ours);
 }
 
 bool pilot_has_the_radio() {
@@ -2099,6 +2116,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     return std::make_pair(com, tuned_com_hz(com));
   };
   cockpit.speak_own_call = speak_own_call;
+  cockpit.controller_speech_pending = controller_speech_pending;
   // Only where there are voices to wait for.
   cockpit.speaks_replies = [] { return g_synthesis != nullptr; };
   zoal_atc::xplane::start_hud(g_gui_bridge, monotonic_ms, std::move(cockpit));
