@@ -74,6 +74,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-latest, windows-latest]
+    # Whether the Apple signing and notarization secrets are available here,
+    # read once so a step's condition can ask (a step's if cannot read secrets).
+    env:
+      HAS_SIGNING: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' && secrets.CODESIGN_IDENTITY != '' }}
+      HAS_NOTARY: ${{ secrets.APPLE_ID != '' && secrets.CODESIGN_IDENTITY != '' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -115,11 +120,41 @@ jobs:
           path: .cache/models
           key: models-${{ hashFiles('scripts/ensure-models.sh') }}
 
+      # macOS: a Developer ID signature on the .xpl and a notarized package,
+      # as zoal-honeycomb ships, so Gatekeeper loads the plugin without the
+      # pilot having to clear its quarantine by hand. Without the signing
+      # secrets (a fork, a repository they are not shared with) the package
+      # is built as before and the run says so.
+      - name: Import Apple code signing certificate
+        if: ${{ runner.os == 'macOS' && env.HAS_SIGNING == 'true' }}
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.P12_PASSWORD }}
+
       - name: Package release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: make archive-plugin
+          ZOAL_ATC_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          CODESIGN_IDENTITY: ${{ runner.os == 'macOS' && env.HAS_SIGNING == 'true' && secrets.CODESIGN_IDENTITY || '' }}
+        run: |
+          if [ "${RUNNER_OS}" = "macOS" ] && [ -z "${CODESIGN_IDENTITY}" ]; then
+            echo "::warning::No CODESIGN_IDENTITY secret: the macOS plugin is not Developer ID signed"
+          fi
+          make archive-plugin CODESIGN_IDENTITY="${CODESIGN_IDENTITY}"
+
+      - name: Notarize macOS package
+        if: ${{ runner.os == 'macOS' && env.HAS_NOTARY == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="$(ls dist/zoal-atc-*.zip)"
+          xcrun notarytool submit "${package}" \
+            --apple-id "${{ secrets.APPLE_ID }}" \
+            --password "${{ secrets.MAC_DEV_PASSWORD }}" \
+            --team-id "${{ secrets.APPLE_TEAMID }}" \
+            --wait
 
       - name: Upload package to release
         if: ${{ startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && inputs.tag != '') }}
@@ -258,3 +293,79 @@ jobs:
           if [ "${is_draft}" = "true" ]; then
             gh release delete "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --yes
           fi
+
+  # Skunkcrafts Updater, as zoal-honeycomb publishes it: the plugin's files on
+  # the `release` branch with a CRC32 whitelist, which an installed copy's
+  # skunkcrafts_updater.cfg points at. The three platform packages are merged
+  # into one tree, the way a pilot who flies on two machines installs it.
+  #
+  # The models are left out. Whisper's and Kokoro's files are each over
+  # GitHub's 100MB limit for a file in a branch, they change far less often
+  # than the plugin, and a file the whitelist does not name is one the updater
+  # leaves alone: a pilot installs them once from the release zip, and the
+  # updater keeps the plugin, its runtime and its fonts current.
+  updater:
+    name: Publish Skunkcrafts Updater branch
+    needs: [publish]
+    runs-on: ubuntu-24.04
+    if: ${{ needs.publish.result == 'success' && !contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Merge the platform packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p packages merged
+          gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'zoal-atc-*.zip' --dir packages
+          for package in packages/*.zip; do
+            unzip -q -o "${package}" -d merged
+          done
+          rm -rf merged/zoal-atc/models
+          sed "s/REPLACE_ME/${RELEASE_TAG}/g" skunkcrafts_updater.cfg > merged/zoal-atc/skunkcrafts_updater.cfg
+          printf '%s\n' "${RELEASE_TAG}" > "merged/zoal-atc/${RELEASE_TAG}"
+          ls -la merged/zoal-atc
+
+      - name: Write the whitelist
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd merged/zoal-atc
+          rm -f skunkcrafts_updater_whitelist.txt
+          python3 - <<'PY'
+          import os, zlib
+          lines = []
+          for root, _, files in os.walk("."):
+              for name in files:
+                  path = os.path.relpath(os.path.join(root, name), ".")
+                  if "skunkcrafts_updater" in path:
+                      continue
+                  with open(path, "rb") as f:
+                      lines.append("%s|%d" % (path.replace(os.sep, "/"), zlib.crc32(f.read()) & 0xffffffff))
+          with open("skunkcrafts_updater_whitelist.txt", "w") as out:
+              out.write("\n".join(sorted(lines)) + "\n")
+          PY
+          touch skunkcrafts_updater_blacklist.txt
+          wc -l skunkcrafts_updater_whitelist.txt
+
+      - name: Push the release branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan release
+          git rm -rq --cached .
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name merged -exec rm -rf {} +
+          mv merged/zoal-atc release
+          rm -rf merged
+          git add release
+          git commit -qm "release ${RELEASE_TAG}"
+          git push -f origin release

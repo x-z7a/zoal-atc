@@ -211,9 +211,20 @@ release-plugin: plugin models
 # creates them, and on a Windows runner `find` is as likely to resolve to
 # System32's unrelated find.exe as to the MSYS one - which would fail the
 # release for a file that cannot exist there.
+# CODESIGN_IDENTITY signs the macOS .xpl with a Developer ID, hardened runtime
+# and a secure timestamp, which notarization requires; the release workflow
+# sets it from the repository's signing secrets. Left empty the plugin is
+# shipped as the linker signed it, which is what a local build is.
+CODESIGN_IDENTITY ?=
+
 archive-plugin: release-plugin
 ifeq ($(PLATFORM),macos)
 	find "$(RELEASE_DIR)" -name .DS_Store -delete
+	@if [ -n "$(CODESIGN_IDENTITY)" ]; then \
+		codesign --force --timestamp --options runtime --sign "$(CODESIGN_IDENTITY)" \
+			"$(RELEASE_DIR)/$(PLUGIN_PLATFORM_DIR)/zoal-atc.xpl" && \
+		codesign --verify --strict --verbose=2 "$(RELEASE_DIR)/$(PLUGIN_PLATFORM_DIR)/zoal-atc.xpl"; \
+	fi
 endif
 	cd "$(DIST_DIR)" && cmake -E tar cf "zoal-atc-$(PLATFORM)-$(ARCH).zip" --format=zip "zoal-atc"
 
