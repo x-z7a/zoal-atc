@@ -112,6 +112,25 @@ void test_prepare_refuses_a_foreign_table() {
   std::filesystem::remove_all(dir);
 }
 
+// A pilot answered in French is offered French speakers for their own calls:
+// ff_siwis and the blends made mostly of her, and nobody else.
+void test_voices_by_language() {
+  const auto french = voices_in("fr");
+  require(!french.empty() && french.front() == 31, "ff_siwis is voice 31");
+  for (const std::uint64_t voice : french) {
+    require(voice_language(voice_catalogue()[voice - 1]) == "fr", "every French voice is French");
+  }
+  require(french.size() == 4, "ff_siwis and her three blends");
+  const auto spanish = voices_in("es");
+  require(spanish.size() == 6, "three Spanish speakers and three blends");
+  const auto english = voices_in("en");
+  for (const std::uint64_t voice : english) {
+    require(std::string(voice_catalogue()[voice - 1].name) != "am_santa", "no Santa");
+  }
+  require(english.size() == 27, "the American and British speakers, less Santa");
+  require(voices_in("de").empty(), "nobody speaks German");
+}
+
 }  // namespace
 
 int main() {
@@ -120,6 +139,7 @@ int main() {
   test_blends_are_weighted_sums();
   test_prepare_is_idempotent();
   test_prepare_refuses_a_foreign_table();
+  test_voices_by_language();
   std::cout << "voice catalogue tests passed\n";
   return 0;
 }

@@ -86,6 +86,41 @@ bool model_ends_with(const std::filesystem::path &model, const std::string &suff
 
 const std::vector<CatalogueVoice> &voice_catalogue() { return kCatalogue; }
 
+std::string voice_language(const CatalogueVoice &voice) {
+  int speaker = voice.parts[0].speaker;
+  if (voice.parts[1].speaker >= 0 && voice.parts[1].weight > voice.parts[0].weight) {
+    speaker = voice.parts[1].speaker;
+  }
+  if (speaker < 0 || speaker >= kStockSpeakers ||
+      static_cast<std::size_t>(speaker) >= kCatalogue.size()) {
+    return "en";
+  }
+  switch (kCatalogue[static_cast<std::size_t>(speaker)].name[0]) {
+  case 'e': return "es";
+  case 'f': return "fr";
+  case 'h': return "hi";
+  case 'i': return "it";
+  case 'j': return "ja";
+  case 'p': return "pt";
+  case 'z': return "zh";
+  default: return "en";
+  }
+}
+
+std::vector<std::uint64_t> voices_in(const std::string &language) {
+  std::vector<std::uint64_t> out;
+  for (std::size_t i = 0; i < kCatalogue.size(); ++i) {
+    // am_santa is Santa Claus, and nobody's own voice on a radio either.
+    if (std::string(kCatalogue[i].name) == "am_santa") {
+      continue;
+    }
+    if (voice_language(kCatalogue[i]) == language) {
+      out.push_back(static_cast<std::uint64_t>(i + 1));
+    }
+  }
+  return out;
+}
+
 std::vector<float> blend_catalogue(const std::vector<float> &stock) {
   const std::size_t speakers = static_cast<std::size_t>(kStockSpeakers);
   if (stock.size() != speakers * kStyleFloats) {

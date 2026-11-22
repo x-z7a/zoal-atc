@@ -180,6 +180,20 @@ Kokoro. Nothing is sent to the cloud for this. Here is how it works:
 The voices are built once, the first time you start the plugin. Nothing is
 downloaded for this, but the `zoal-atc` plugin folder must be writable.
 
+### Reply language
+
+In the panel's **Settings**, **Reply language** picks the language controllers
+answer you in: English, Español or Français. Changing it reconnects to the ATC
+server.
+
+- **Only replies change.** Push-to-talk and typed calls are still **English
+  only**: speak and type to ATC in English, whatever language they answer in.
+- **Delivery first.** Clearance Delivery answers in Spanish and French today.
+  Ground, Tower and the other controllers still answer in English for now.
+- **Voices to match.** A reply in Spanish or French is read by a Spanish or
+  French speaker. **My voice** then lists only that language's speakers.
+- German is not available yet: the speech model has no German voice.
+
 ## 8. Getting help
 
 - **GitHub:** report bugs or ask questions at

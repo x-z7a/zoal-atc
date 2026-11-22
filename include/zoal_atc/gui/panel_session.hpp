@@ -154,6 +154,8 @@ public:
   // The voice a call made by button is spoken in, numbered as the console
   // numbers a station's; zero is the plugin's default.
   std::uint64_t my_voice() const { return my_voice_; }
+  // The language controllers answer this pilot in: "en", "es" or "fr".
+  const std::string &language() const { return language_; }
   bool auto_readback() const { return auto_readback_; }
   bool hud_typing() const { return hud_typing_; }
   bool hud_transcript() const { return hud_transcript_; }
@@ -186,6 +188,11 @@ public:
   // Shown at once, saved behind it; a refused save puts the old one back.
   void pick_theme(HudTheme theme, std::uint64_t steady_ms);
   void pick_voice(std::uint64_t voice, std::uint64_t steady_ms);
+  // The language replies are spoken in, with the voice the pilot's own calls
+  // are said in, chosen from that language's speakers. Saving it re-dials the
+  // console, which learns the language on the hello.
+  void pick_language(const std::string &language, std::uint64_t voice,
+                     std::uint64_t steady_ms);
   void set_auto_readback(bool on, std::uint64_t steady_ms);
   void set_hud_typing(bool on, std::uint64_t steady_ms);
   void set_hud_transcript(bool on, std::uint64_t steady_ms);
@@ -253,6 +260,7 @@ private:
   bool settings_loaded_ = false;
   std::string simbrief_pilot_id_;
   std::uint64_t my_voice_ = 0;
+  std::string language_ = "en";
   bool auto_readback_ = false;
   bool hud_typing_ = true;
   bool hud_transcript_ = true;

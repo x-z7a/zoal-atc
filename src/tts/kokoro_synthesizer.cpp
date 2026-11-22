@@ -34,7 +34,7 @@ KokoroSynthesizer::KokoroSynthesizer(std::string model_dir, bool catalogue)
       speakers_(catalogue ? static_cast<int>(voice_catalogue().size()) : kEnglishSpeakers) {}
 
 KokoroSynthesizer::~KokoroSynthesizer() {
-  for (Engine *engine : {&american_, &british_}) {
+  for (Engine *engine : {&american_, &british_, &spanish_, &french_}) {
     if (engine->tts != nullptr) {
       SherpaOnnxDestroyOfflineTts(engine->tts);
     }
@@ -73,7 +73,9 @@ const SherpaOnnxOfflineTts *KokoroSynthesizer::load_locked(Engine &engine) {
   std::string lexicon = (dir / engine.lexicon).string();
   const std::filesystem::path aviation =
       dir / aviation_lexicon_file(engine.lang == std::string("en") ? Lexicon::British : Lexicon::American);
-  if (file(aviation)) {
+  // The aviation lexicon is English's words, and only an English engine reads it.
+  const bool english = std::string(engine.lang).rfind("en", 0) == 0;
+  if (english && file(aviation)) {
     lexicon += "," + aviation.string();
   }
 
@@ -112,7 +114,19 @@ void KokoroSynthesizer::warm() {
   }
 }
 
-Audio KokoroSynthesizer::synthesize(const std::string &text, int speaker) {
+KokoroSynthesizer::Engine &KokoroSynthesizer::engine_for(const std::string &language,
+                                                         const CatalogueVoice &voice) {
+  if (language == "es") {
+    return spanish_;
+  }
+  if (language == "fr") {
+    return french_;
+  }
+  return voice.lexicon == Lexicon::British ? british_ : american_;
+}
+
+Audio KokoroSynthesizer::synthesize(const std::string &text, int speaker,
+                                    const std::string &language) {
   std::lock_guard<std::mutex> lock(mutex_);
   Audio out;
   if (text.empty()) {
@@ -120,8 +134,7 @@ Audio KokoroSynthesizer::synthesize(const std::string &text, int speaker) {
   }
   const int sid = std::clamp(speaker, 0, speakers_ - 1);
   const CatalogueVoice &voice = voice_catalogue()[static_cast<std::size_t>(sid)];
-  const SherpaOnnxOfflineTts *tts =
-      load_locked(voice.lexicon == Lexicon::British ? british_ : american_);
+  const SherpaOnnxOfflineTts *tts = load_locked(engine_for(language, voice));
   if (tts == nullptr) {
     return out;
   }
