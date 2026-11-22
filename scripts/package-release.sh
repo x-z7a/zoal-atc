@@ -45,6 +45,13 @@ models_dir="${ZOAL_ATC_MODELS:-${repo_root}/.cache/models}"
 cmake -E make_directory "${release_dir}/models"
 cmake -E copy "${models_dir}/ggml-small.en-q5_1.bin" "${release_dir}/models/ggml-small.en-q5_1.bin"
 cmake -E copy_directory "${models_dir}/kokoro-multi-lang-v1_0" "${release_dir}/models/kokoro-multi-lang-v1_0"
+# Skunkcrafts Updater: the config that points an installed plugin at the
+# release branch, with the version this tree is. The release workflow sets
+# ZOAL_ATC_VERSION to the tag; a local build says "dev", which the updater
+# treats as older than every release.
+version="${ZOAL_ATC_VERSION:-dev}"
+sed "s/REPLACE_ME/${version}/g" "${repo_root}/skunkcrafts_updater.cfg" \
+  > "${release_dir}/skunkcrafts_updater.cfg"
 cmake -E make_directory "${release_dir}/licenses"
 cmake -E copy "${repo_root}/licenses-third-party/THIRD-PARTY.txt" "${release_dir}/licenses/THIRD-PARTY.txt"
 # Inter, the panel's and the HUD's typeface. The plugin finds it beside itself in fonts/

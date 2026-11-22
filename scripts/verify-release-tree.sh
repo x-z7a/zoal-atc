@@ -80,6 +80,7 @@ require_dir "models/kokoro-multi-lang-v1_0/espeak-ng-data"
 require_file "models/kokoro-multi-lang-v1_0/lexicon-us-en.txt"
 require_file "models/kokoro-multi-lang-v1_0/lexicon-gb-en.txt"
 require_file "licenses/THIRD-PARTY.txt"
+require_file "skunkcrafts_updater.cfg"
 # The panel's and the HUD's typeface. Without it they fall back to X-Plane's
 # Roboto, which ImGui sets unevenly -- a release that looks broken without
 # being broken.
