@@ -157,6 +157,8 @@ public:
   // The language controllers answer this pilot in: "en", "es" or "fr".
   const std::string &language() const { return language_; }
   bool auto_readback() const { return auto_readback_; }
+  // How many radio logs each logbook folder keeps; zero keeps all.
+  std::uint64_t logbook_keep() const { return logbook_keep_; }
   bool hud_typing() const { return hud_typing_; }
   bool hud_transcript() const { return hud_transcript_; }
   std::uint64_t settings_revision() const { return settings_revision_; }
@@ -194,6 +196,7 @@ public:
   void pick_language(const std::string &language, std::uint64_t voice,
                      std::uint64_t steady_ms);
   void set_auto_readback(bool on, std::uint64_t steady_ms);
+  void set_logbook_keep(std::uint64_t keep, std::uint64_t steady_ms);
   void set_hud_typing(bool on, std::uint64_t steady_ms);
   void set_hud_transcript(bool on, std::uint64_t steady_ms);
   // Settings' import, naming the pilot ID stored here.
@@ -262,6 +265,7 @@ private:
   std::uint64_t my_voice_ = 0;
   std::string language_ = "en";
   bool auto_readback_ = false;
+  std::uint64_t logbook_keep_ = 20;
   bool hud_typing_ = true;
   bool hud_transcript_ = true;
   std::uint64_t settings_revision_ = 0;

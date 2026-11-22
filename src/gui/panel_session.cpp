@@ -425,6 +425,12 @@ void PanelSession::pick_language(const std::string &language, std::uint64_t voic
        Pending{Request::save_settings, &local_}, steady_ms);
 }
 
+void PanelSession::set_logbook_keep(std::uint64_t keep, std::uint64_t steady_ms) {
+  logbook_keep_ = keep;
+  send("save_settings", R"({"logbookKeep":)" + std::to_string(keep) + "}",
+       Pending{Request::save_settings, &local_}, steady_ms);
+}
+
 void PanelSession::set_auto_readback(bool on, std::uint64_t steady_ms) {
   send("save_settings",
        std::string(R"({"autoReadback":)") + (on ? "true" : "false") + "}",
@@ -650,6 +656,9 @@ void PanelSession::apply_settings(const std::string &payload_json) {
   if (const auto language = top_string(payload_json, "language")) {
     language_ = *language == "es" || *language == "fr" ? *language : "en";
     set_ui_language(language_);
+  }
+  if (const auto keep = json_raw_field(payload_json, "logbookKeep")) {
+    logbook_keep_ = std::strtoull(keep->c_str(), nullptr, 10);
   }
   if (const auto on = json_raw_field(payload_json, "autoReadback")) {
     auto_readback_ = *on == "true";

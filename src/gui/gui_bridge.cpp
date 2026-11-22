@@ -188,6 +188,12 @@ bool GuiBridge::on_socket_frame(const std::string &frame,
   }
 
   if (const auto event = parse_gui_event(frame); event.has_value()) {
+    {
+      std::lock_guard<std::mutex> observing(observer_mutex_);
+      if (observer_) {
+        observer_(*event);
+      }
+    }
     std::lock_guard<std::mutex> lock(mutex_);
     const auto cached =
         std::find_if(cache_.begin(), cache_.end(),
@@ -463,6 +469,15 @@ bool GuiBridge::any_attached_locked() const {
     }
   }
   return false;
+}
+
+} // namespace zoal_atc::gui
+
+namespace zoal_atc::gui {
+
+void GuiBridge::set_event_observer(std::function<void(const GuiEvent &event)> observer) {
+  std::lock_guard<std::mutex> lock(observer_mutex_);
+  observer_ = std::move(observer);
 }
 
 } // namespace zoal_atc::gui

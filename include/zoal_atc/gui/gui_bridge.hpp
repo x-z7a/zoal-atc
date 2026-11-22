@@ -135,6 +135,11 @@ public:
                                                const std::string &payload_json)>
           handler);
 
+  // set_event_observer sees every gui_event the console pushes, whether or not
+  // a page is open to show it: the logbook keeps the radio log with the panel
+  // closed. Called on the websocket receiver thread, outside the bridge's lock.
+  void set_event_observer(std::function<void(const GuiEvent &event)> observer);
+
   // set_panel_visible gates the high-volume event stream. A hidden page keeps
   // only the latest of each event; showing it again replays that.
   void set_panel_visible(bool visible, std::uint64_t now_ms,
@@ -212,6 +217,8 @@ private:
 
   GuiBridgeConfig config_;
   mutable std::mutex mutex_;
+  std::mutex observer_mutex_;
+  std::function<void(const GuiEvent &)> observer_;
 
   std::uint64_t next_request_id_ = 1;
   std::unordered_map<std::uint64_t, Pending> pending_;

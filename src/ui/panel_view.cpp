@@ -1252,6 +1252,36 @@ std::uint64_t pilot_voice_in(const std::string &language, std::uint64_t picked) 
   return voices.front();
 }
 
+// How many radio logs the plugin keeps on disk: a stepper, because the number
+// is small and a pilot nudges it rather than types it.
+void logbook_settings(Flow &flow, PanelSession &session, const Ui &inner,
+                      std::uint64_t steady) {
+  flow.begin_setting();
+  const std::uint64_t keep = session.logbook_keep();
+  flow.label(tr("Logs kept"));
+  flow.strong(keep == 0 ? std::string(tr("All")) : std::to_string(keep));
+  flow.gap();
+  const float mw = button_width(inner, "\xE2\x88\x92") + 8.0f; // a minus sign
+  const float pw = button_width(inner, "+") + 8.0f;
+  const bool ready = session.settings_loaded();
+  if (button(inner, "logbook_fewer", ImVec2(flow.x + 2.0f, flow.y), ImVec2(mw, kButtonHeight),
+             "\xE2\x88\x92", Variant::outlined, ready && keep != 1)) {
+    const std::uint64_t next = keep == 0 ? 100 : keep - (keep > 10 ? 5 : 1);
+    flow.ui.later([&session, next, steady] { session.set_logbook_keep(next, steady); });
+  }
+  if (button(inner, "logbook_more", ImVec2(flow.x + 2.0f + mw + 8.0f, flow.y),
+             ImVec2(pw, kButtonHeight), "+", Variant::outlined, ready && keep != 0)) {
+    const std::uint64_t next = keep >= 100 ? 0 : keep + (keep >= 10 ? 5 : 1);
+    flow.ui.later([&session, next, steady] { session.set_logbook_keep(next, steady); });
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help(tr("Every transmission of a flight is written to the logbook folder inside the "
+               "zoal-atc plugin folder, one file per callsign and day, in English and in the "
+               "reply language. Only the newest files are kept; past 100 keeps them all."));
+  flow.end_setting();
+}
+
 void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
                     std::uint64_t steady) {
   const auto &voices = tts::voice_catalogue();
@@ -1404,6 +1434,10 @@ void settings(const Ui &ui, PanelSession &session, PanelViewState &state,
   flow.begin_setting();
   calls_settings(flow, session, inner, steady);
   flow.end_setting();
+
+  // ---- logbook ----
+  flow.section(tr("Logbook"));
+  logbook_settings(flow, session, inner, steady);
 
   // ---- connection ----
   flow.section(tr("Connection"));
