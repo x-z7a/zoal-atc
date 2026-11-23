@@ -69,6 +69,34 @@ std::vector<std::string> sentences(const std::string &text);
 // are not lost under the engine. Applied in place.
 void radio(Audio &audio);
 
+// Reading is one stretch of a sentence and the language it is read in.
+struct Reading {
+  std::string text;
+  // english is a run of ICAO spelling-alphabet words in a sentence in another
+  // language, read as English reads them.
+  bool english = false;
+};
+
+// readings splits a sentence in language (ISO 639-1, empty is English) into
+// the stretches read in that language and the runs of spelling-alphabet words
+// read as English.
+//
+// The alphabet is ICAO's words in every language a controller here speaks
+// (Annex 10 Vol II 5.2.1.3): a Spanish or French controller says "Echo
+// Yankee", not "Eco Yanqui", and says it the way ICAO spells it out, which is
+// English's. Read with espeak's Spanish, "Juliett" was "xuljˈett" and
+// "Uniform" "unifˈoɾm", stressed on the last syllable; with its English they
+// are "dʒˌuːlɪˈɛt" and "jˈuːnɪfˌɔːɹm". A word is one of the alphabet only as
+// the console writes it, capitalised and on its own, so a lower-case "papa"
+// stays the language's own word. The punctuation between two alphabet words
+// goes with the run; the punctuation around it stays with its neighbours. An
+// English sentence is one reading.
+//
+// A language whose controllers say a letter their own way keeps that letter
+// in the language (native_letter in synthesis.cpp). Spanish and French have
+// none.
+std::vector<Reading> readings(const std::string &sentence, const std::string &language);
+
 // Speech is one transmission being synthesised, sentence by sentence. The
 // worker appends to it; the flight loop plays what is ready.
 class Speech {

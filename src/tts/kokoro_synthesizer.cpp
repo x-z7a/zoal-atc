@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <system_error>
@@ -24,6 +25,74 @@ constexpr float kSilenceScale = 0.2f;
 bool file(const std::filesystem::path &path) {
   std::error_code missing;
   return std::filesystem::exists(path, missing);
+}
+
+bool separator(char c) {
+  return c == ' ' || c == ',' || c == '.' || c == ';' || c == ':' || c == '!' || c == '?';
+}
+
+// spoken_part is a reading without the spaces and punctuation around it, which
+// are the pause at the seam rather than something to say.
+std::string spoken_part(const std::string &text) {
+  std::size_t first = 0;
+  while (first < text.size() && separator(text[first])) {
+    ++first;
+  }
+  std::size_t last = text.size();
+  while (last > first && separator(text[last - 1])) {
+    --last;
+  }
+  return text.substr(first, last - first);
+}
+
+std::string leading_separator(const std::string &text) {
+  std::size_t end = 0;
+  while (end < text.size() && separator(text[end])) {
+    ++end;
+  }
+  return text.substr(0, end);
+}
+
+std::string trailing_separator(const std::string &text) {
+  std::size_t begin = text.size();
+  while (begin > 0 && separator(text[begin - 1])) {
+    --begin;
+  }
+  return text.substr(begin);
+}
+
+// kSilence is the level below which a sample at a seam is silence: about
+// forty decibels under full scale.
+constexpr int kSilence = 330;
+// kSeamMarginMs is the quiet kept either side of a seam, so the tail of a
+// soft consonant is not cut off with the silence after it.
+constexpr int kSeamMarginMs = 15;
+
+// join appends part to out at a seam within one sentence: the silence each
+// generation pads itself with is taken off and replaced by the pause the
+// punctuation there asks for, so "via Echo Yankee" sounds like one phrase
+// rather than three recordings.
+void join(Audio &out, const Audio &part, const std::string &gap) {
+  const int rate = out.sample_rate_hz > 0 ? out.sample_rate_hz : part.sample_rate_hz;
+  const std::size_t margin = static_cast<std::size_t>(rate * kSeamMarginMs / 1000);
+  std::size_t end = out.pcm.size();
+  while (end > 0 && std::abs(out.pcm[end - 1]) < kSilence) {
+    --end;
+  }
+  out.pcm.resize(std::min(out.pcm.size(), end + margin));
+  std::size_t begin = 0;
+  while (begin < part.pcm.size() && std::abs(part.pcm[begin]) < kSilence) {
+    ++begin;
+  }
+  begin = begin > margin ? begin - margin : 0;
+  int pause_ms = 40;
+  if (gap.find_first_of(".;!?") != std::string::npos) {
+    pause_ms = 300;
+  } else if (gap.find_first_of(",:") != std::string::npos) {
+    pause_ms = 160;
+  }
+  out.pcm.insert(out.pcm.end(), static_cast<std::size_t>(rate * pause_ms / 1000), 0);
+  out.pcm.insert(out.pcm.end(), part.pcm.begin() + static_cast<std::ptrdiff_t>(begin), part.pcm.end());
 }
 
 }  // namespace
@@ -134,14 +203,41 @@ Audio KokoroSynthesizer::synthesize(const std::string &text, int speaker,
   }
   const int sid = std::clamp(speaker, 0, speakers_ - 1);
   const CatalogueVoice &voice = voice_catalogue()[static_cast<std::size_t>(sid)];
-  const SherpaOnnxOfflineTts *tts = load_locked(engine_for(language, voice));
+  // A sentence in Spanish or French is read in that language, and the
+  // spelling-alphabet words in it as English, in the same voice (readings).
+  std::string pending_gap;
+  for (const Reading &reading : readings(text, language)) {
+    const std::string words = spoken_part(reading.text);
+    if (words.empty()) {
+      pending_gap += reading.text;
+      continue;
+    }
+    Engine &engine = reading.english ? engine_for("en", voice) : engine_for(language, voice);
+    Audio part = generate_locked(engine, words, sid, voice.speed);
+    if (part.pcm.empty()) {
+      return Audio{};
+    }
+    if (out.pcm.empty()) {
+      out = std::move(part);
+    } else {
+      join(out, part, pending_gap + leading_separator(reading.text));
+    }
+    pending_gap = trailing_separator(reading.text);
+  }
+  return out;
+}
+
+Audio KokoroSynthesizer::generate_locked(Engine &engine, const std::string &text, int sid,
+                                         float speed) {
+  Audio out;
+  const SherpaOnnxOfflineTts *tts = load_locked(engine);
   if (tts == nullptr) {
     return out;
   }
   SherpaOnnxGenerationConfig gen;
   std::memset(&gen, 0, sizeof(gen));
   gen.sid = sid;
-  gen.speed = voice.speed;
+  gen.speed = speed;
   gen.silence_scale = kSilenceScale;
   const SherpaOnnxGeneratedAudio *audio = SherpaOnnxOfflineTtsGenerateWithConfig(
       tts, text.c_str(), &gen, nullptr, nullptr);
