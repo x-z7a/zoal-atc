@@ -1,6 +1,7 @@
 #include "zoal_atc/tts/synthesis.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <utility>
 
@@ -138,6 +139,103 @@ std::vector<std::string> sentences(const std::string &text) {
   if (out.size() > 1 && word_count(out.front()) < kMinSentenceWords) {
     out[1] = out.front() + " " + out[1];
     out.erase(out.begin());
+  }
+  return out;
+}
+
+namespace {
+
+// kLetterNames is the ICAO spelling alphabet as the console writes it, with
+// the spellings it has used for three of them.
+constexpr const char *kLetterNames[] = {
+    "Alfa",    "Alpha",  "Bravo",   "Charlie", "Delta",  "Echo",    "Foxtrot",
+    "Golf",    "Hotel",  "India",   "Juliett", "Juliet", "Kilo",    "Lima",
+    "Mike",    "November", "Oscar", "Papa",    "Quebec", "Romeo",   "Sierra",
+    "Tango",   "Uniform", "Victor", "Whiskey", "X-ray",  "Xray",    "Yankee",
+    "Zulu",
+};
+
+bool letter_name(const std::string &word) {
+  for (const char *name : kLetterNames) {
+    if (word == name) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// native_letter is a letter a language's controllers say their own way, read
+// in that language rather than as English. None of the languages a console
+// speaks today has one: Spanish and French controllers say ICAO's words.
+bool native_letter(const std::string &language, const std::string &word) {
+  (void)language;
+  (void)word;
+  return false;
+}
+
+bool word_char(unsigned char c) {
+  // Letters, digits, the hyphen of "X-ray", and every byte of a multi-byte
+  // UTF-8 character, which is a letter of the language ("vía", "décimal").
+  return std::isalnum(c) || c == '-' || c >= 0x80;
+}
+
+}  // namespace
+
+std::vector<Reading> readings(const std::string &sentence, const std::string &language) {
+  if (language.empty() || language == "en") {
+    return {Reading{sentence, false}};
+  }
+  // Words and the separators between them, in order.
+  struct Token {
+    std::string text;
+    bool word = false;
+    bool letter = false;
+  };
+  std::vector<Token> tokens;
+  for (std::size_t i = 0; i < sentence.size();) {
+    const bool word = word_char(static_cast<unsigned char>(sentence[i]));
+    std::size_t j = i;
+    while (j < sentence.size() && word_char(static_cast<unsigned char>(sentence[j])) == word) {
+      ++j;
+    }
+    Token token{sentence.substr(i, j - i), word, false};
+    token.letter = word && letter_name(token.text) && !native_letter(language, token.text);
+    tokens.push_back(std::move(token));
+    i = j;
+  }
+
+  std::vector<Reading> out;
+  auto append = [&out](const std::string &text, bool english) {
+    if (text.empty()) {
+      return;
+    }
+    if (!out.empty() && out.back().english == english) {
+      out.back().text += text;
+    } else {
+      out.push_back(Reading{text, english});
+    }
+  };
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    if (!tokens[i].letter) {
+      append(tokens[i].text, false);
+      continue;
+    }
+    // A run is letter names and the separators between them; it ends at the
+    // last letter name before anything else.
+    std::size_t last = i;
+    for (std::size_t j = i + 1; j < tokens.size(); ++j) {
+      if (tokens[j].letter) {
+        last = j;
+      } else if (tokens[j].word) {
+        break;
+      }
+    }
+    std::string run;
+    for (std::size_t j = i; j <= last; ++j) {
+      run += tokens[j].text;
+    }
+    append(run, true);
+    i = last;
   }
   return out;
 }

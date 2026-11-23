@@ -128,6 +128,51 @@ int main() {
             "a decimal is not a sentence end");
   }
 
+  // In Spanish and French the spelling alphabet is still ICAO's English words,
+  // read as English: espeak's Spanish made "Juliett" "xuljett".
+  {
+    const std::string taxi =
+        "Air Canada cuatro cero nueve seis, ruede a pista uno cinco derecha vía Echo "
+        "Yankee, Echo, Hotel tres, Papa, Juliett, mantenga fuera de la pista dos tres.";
+    const auto parts = tts::readings(taxi, "es");
+    require(parts.size() == 5, "five readings, got " + std::to_string(parts.size()));
+    require(!parts[0].english && parts[0].text ==
+                "Air Canada cuatro cero nueve seis, ruede a pista uno cinco derecha vía ",
+            "the Spanish up to the route: " + parts[0].text);
+    require(parts[1].english && parts[1].text == "Echo Yankee, Echo, Hotel",
+            "the letters and the commas between them are one English run: " + parts[1].text);
+    require(!parts[2].english && parts[2].text == " tres, ",
+            "a Spanish digit ends the run: " + parts[2].text);
+    require(parts[3].english && parts[3].text == "Papa, Juliett",
+            "the next run: " + parts[3].text);
+    require(!parts[4].english && parts[4].text == ", mantenga fuera de la pista dos tres.",
+            "the rest is Spanish: " + parts[4].text);
+
+    std::string rejoined;
+    for (const auto &part : parts) {
+      rejoined += part.text;
+    }
+    require(rejoined == taxi, "nothing is lost between readings");
+
+    const auto french = tts::readings("notifiez que vous avez l'information Bravo.", "fr");
+    require(french.size() == 3 && french[1].english && french[1].text == "Bravo",
+            "an ATIS letter in French is English");
+
+    const auto english = tts::readings("taxi via Echo Yankee.", "en");
+    require(english.size() == 1 && !english[0].english, "an English sentence is one reading");
+    require(tts::readings("taxi via Echo.", "").size() == 1, "no language is English");
+
+    const auto word = tts::readings("la papa y el golf.", "es");
+    require(word.size() == 1 && !word[0].english,
+            "a lower-case word is the language's own, not a letter");
+    const auto inside = tts::readings("Deltaplano Lima.", "es");
+    require(inside.size() == 3 && !inside[0].english && inside[0].text == "Deltaplano " &&
+                inside[1].english && inside[1].text == "Lima",
+            "a letter name inside a longer word is not one");
+    const auto xray = tts::readings("vía X-ray.", "es");
+    require(xray.size() == 3 && xray[1].text == "X-ray", "X-ray keeps its hyphen");
+  }
+
   // A receiver passes speech and loses rumble and hiss: of three equal
   // tones, the one in the voice band comes out far louder than the others.
   {

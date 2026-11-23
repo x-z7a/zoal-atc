@@ -64,6 +64,8 @@ private:
   };
 
   const SherpaOnnxOfflineTts *load_locked(Engine &engine);
+  // generate_locked says text with one engine, in speaker sid's voice.
+  Audio generate_locked(Engine &engine, const std::string &text, int sid, float speed);
 
   std::string model_dir_;
   bool catalogue_;
@@ -72,11 +74,16 @@ private:
   Engine american_{"lexicon-us-en.txt", "en-us"};
   Engine british_{"lexicon-gb-en.txt", "en"};
   // A reply the console sent in Spanish or French is read with espeak's
-  // pronunciation of that language, whatever voice says it: the lexicon is
-  // English's and is consulted only for English words, such as a callsign's
-  // telephony, that espeak would otherwise spell.
+  // pronunciation of that language, whatever voice says it. The lexicon is
+  // never consulted: sherpa-onnx (1.13.8, kokoro-multi-lang-lexicon.cc) hands
+  // the whole text to espeak whenever an engine has a language, so every word
+  // in the sentence is said the way that language says it. The
+  // spelling-alphabet words are said by the English engine instead (readings,
+  // synthesis.hpp).
   Engine spanish_{"lexicon-us-en.txt", "es"};
-  Engine french_{"lexicon-us-en.txt", "fr-fr"};
+  // espeak-ng's French is "fr"; there is no "fr-fr" voice, and with it every
+  // French reply failed to phonemize and was read by X-Plane's own speech.
+  Engine french_{"lexicon-us-en.txt", "fr"};
 
   // engine_for is the engine that reads text in language with voice.
   Engine &engine_for(const std::string &language, const CatalogueVoice &voice);
