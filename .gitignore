@@ -11,3 +11,5 @@
 /dist/
 node_modules/
 *.xpl
+
+gui/zoal-atc/dist
