@@ -64,7 +64,7 @@ it, know that:
    controller.
 
 Requires **X-Plane 12.4.4 or newer**. Out of the box the plugin connects to the
-hosted console at `ws://atc.zoal.app/plugin`, so a fresh install needs no
+hosted console at `wss://atc.zoal.app/plugin`, so a fresh install needs no
 configuration. See **[INSTALL.md](INSTALL.md)** for platforms, configuration,
 SimBrief, authentication and troubleshooting.
 

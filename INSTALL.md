@@ -75,12 +75,12 @@ it back on Enter, Escape or a click elsewhere. Cmd/Ctrl+V pastes.
 ## The console endpoint
 
 By default the plugin connects to the hosted console at
-`ws://atc.zoal.app/plugin`. You only need to configure anything if you run a
+`wss://atc.zoal.app/plugin`. You only need to configure anything if you run a
 console yourself.
 
 The endpoint is resolved at startup, last source winning:
 
-1. the built-in default, `ws://atc.zoal.app/plugin`
+1. the built-in default, `wss://atc.zoal.app/plugin`
 2. `<X-Plane>/Output/preferences/zoal_atc.cfg`
 3. the `ZOAL_ATC_CONSOLE_URL` / `ZOAL_ATC_CONSOLE_TOKEN` environment variables
 

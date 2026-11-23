@@ -113,7 +113,7 @@ struct Rig {
             }
             return LocalAnswer{true,
                                R"({"token":")" + token +
-                                   R"(","url":"ws://atc.zoal.app/plugin"})",
+                                   R"(","url":"wss://atc.zoal.app/plugin"})",
                                ""};
           }
           if (action == "tune_radio") {
@@ -218,7 +218,7 @@ void reads_the_stored_settings_on_the_way_up() {
   expect_true(rig.panel.theme() == HudTheme::night, "the stored theme");
   expect_true(rig.panel.connection_loaded(), "connection read");
   expect_str(rig.panel.token(), "secret", "the stored token");
-  expect_str(rig.panel.console_url(), "ws://atc.zoal.app/plugin", "the url");
+  expect_str(rig.panel.console_url(), "wss://atc.zoal.app/plugin", "the url");
 }
 
 void follows_the_console() {

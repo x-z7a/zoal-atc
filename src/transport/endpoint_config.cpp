@@ -354,7 +354,7 @@ std::string default_config_template() {
       "# zoal-atc plugin configuration\n"
       "#\n"
       "# Where the ATC console is. Leave `url` commented to use the hosted\n"
-      "# console, ws://atc.zoal.app/plugin -- that is the default and it is\n"
+      "# console, wss://atc.zoal.app/plugin -- that is the default and it is\n"
       "# what you want unless you are running a console yourself.\n"
       "#\n"
       "# Uncomment it to point the plugin somewhere else; a console you run on\n"

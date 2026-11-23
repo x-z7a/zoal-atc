@@ -397,7 +397,7 @@ int main(int argc, char **argv) {
     }
     if (action == "connection_settings") {
       return gui::LocalAnswer{true,
-                              R"({"token":"s3cret-token","url":"ws://atc.zoal.app/plugin"})",
+                              R"({"token":"s3cret-token","url":"wss://atc.zoal.app/plugin"})",
                               ""};
     }
     return std::nullopt;
