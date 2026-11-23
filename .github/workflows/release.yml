@@ -308,7 +308,7 @@ jobs:
     name: Publish Skunkcrafts Updater branch
     needs: [publish]
     runs-on: ubuntu-24.04
-    if: ${{ needs.publish.result == 'success' && !contains(github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, '-') }}
+    if: ${{ needs.publish.result == 'success' }}
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
