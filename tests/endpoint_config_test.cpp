@@ -73,7 +73,7 @@ int main() {
   // The deployed console: no port in the URL means the scheme default (80),
   // not the loopback development port.
   {
-    const auto parsed = ok_url("wss://atc.zoal.app/plugin");
+    const auto parsed = ok_url("ws://atc.zoal.app/plugin");
     require_eq(parsed.endpoint.host, "atc.zoal.app", "host parsed");
     require_eq(parsed.endpoint.port, 80, "scheme default port");
     require_eq(parsed.endpoint.path, "/plugin", "path parsed");
@@ -89,9 +89,9 @@ int main() {
 
   // A URL with no path still lands on the console's handler rather than `/`,
   // which answers 404.
-  require_eq(ok_url("wss://atc.zoal.app").endpoint.path, "/plugin",
+  require_eq(ok_url("ws://atc.zoal.app").endpoint.path, "/plugin",
              "path defaults to the console handler");
-  require_eq(ok_url("wss://atc.zoal.app:8765").endpoint.path, "/plugin",
+  require_eq(ok_url("ws://atc.zoal.app:8765").endpoint.path, "/plugin",
              "path defaults with an explicit port too");
 
   // A bare host is a kindness to anyone typing into the config file.
@@ -102,9 +102,9 @@ int main() {
   }
 
   // Scheme is case-insensitive; a trailing slash is a real (root) path.
-  require_eq(ok_url("wss://atc.zoal.app/plugin").endpoint.host, "atc.zoal.app",
+  require_eq(ok_url("WS://atc.zoal.app/plugin").endpoint.host, "atc.zoal.app",
              "uppercase scheme accepted");
-  require_eq(ok_url("wss://atc.zoal.app/").endpoint.path, "/",
+  require_eq(ok_url("ws://atc.zoal.app/").endpoint.path, "/",
              "explicit root path preserved");
 
   // IPv6 literals keep their brackets out of the host but their colons in.
@@ -130,9 +130,9 @@ int main() {
   reject_url("", "empty");
   reject_url("ws://", "no host");
   reject_url("ws:///plugin", "no host");
-  reject_url("wss://atc.zoal.app:notaport/plugin", "non-numeric port");
-  reject_url("wss://atc.zoal.app:0/plugin", "port zero");
-  reject_url("wss://atc.zoal.app:70000/plugin", "port out of range");
+  reject_url("ws://atc.zoal.app:notaport/plugin", "non-numeric port");
+  reject_url("ws://atc.zoal.app:0/plugin", "port zero");
+  reject_url("ws://atc.zoal.app:70000/plugin", "port out of range");
   reject_url("ws://[::1/plugin", "unterminated IPv6 literal");
 
   // --- config file ---------------------------------------------------------
@@ -143,7 +143,7 @@ int main() {
     const std::string text =
         "# zoal-atc console\r\n"
         "\r\n"
-        "url = wss://atc.zoal.app/plugin\r\n"
+        "url = ws://atc.zoal.app/plugin\r\n"
         "token = s3cr3t-value\r\n";
     const auto result = apply_config_text(text, WebSocketEndpoint{});
     require(result.ok, "config parsed: " + result.error);
@@ -193,7 +193,7 @@ int main() {
   // order in the file silently decides whether the plugin has an identity.
   {
     const auto result = apply_config_text(
-        "client_id = keep-me\nurl = wss://atc.zoal.app/plugin\n",
+        "client_id = keep-me\nurl = ws://atc.zoal.app/plugin\n",
         WebSocketEndpoint{});
     require(result.ok, "client_id before url: " + result.error);
     require_eq(result.endpoint.client_id, "keep-me",
@@ -206,7 +206,7 @@ int main() {
   // reaches the hello as written.
   {
     const auto result = apply_config_text(
-        "language = FR-ca\nurl = wss://atc.zoal.app/plugin\n", WebSocketEndpoint{});
+        "language = FR-ca\nurl = ws://atc.zoal.app/plugin\n", WebSocketEndpoint{});
     require(result.ok, "language parsed: " + result.error);
     require_eq(result.endpoint.language, "fr", "French, from fr-CA");
     const auto german = apply_config_text("language = de\n", WebSocketEndpoint{});
