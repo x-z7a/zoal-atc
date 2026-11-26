@@ -78,17 +78,23 @@ ImguiWindow::ImguiWindow(int left, int top, int right, int bottom,
   params.bottom = bottom;
   params.visible = 0;
   params.drawWindowFunc = draw_cb;
-  params.handleMouseClickFunc = click_cb;
-  params.handleRightClickFunc = right_click_cb;
-  params.handleKeyFunc = key_cb;
-  params.handleCursorFunc = cursor_cb;
-  params.handleMouseWheelFunc = wheel_cb;
   params.refcon = this;
-  // No chrome of X-Plane's, and clicks inside the window stop here.
-  params.decorateAsFloatingWindow =
-      options_.resizable ? xplm_WindowDecorationSelfDecoratedResizable
-                         : xplm_WindowDecorationSelfDecorated;
-  params.layer = xplm_WindowLayerFloatingWindows;
+  if (options_.overlay) {
+    // No handlers and no decoration: the sim gets every click and scroll.
+    params.decorateAsFloatingWindow = xplm_WindowDecorationNone;
+    params.layer = xplm_WindowLayerFlightOverlay;
+  } else {
+    params.handleMouseClickFunc = click_cb;
+    params.handleRightClickFunc = right_click_cb;
+    params.handleKeyFunc = key_cb;
+    params.handleCursorFunc = cursor_cb;
+    params.handleMouseWheelFunc = wheel_cb;
+    // No chrome of X-Plane's, and clicks inside the window stop here.
+    params.decorateAsFloatingWindow =
+        options_.resizable ? xplm_WindowDecorationSelfDecoratedResizable
+                           : xplm_WindowDecorationSelfDecorated;
+    params.layer = xplm_WindowLayerFloatingWindows;
+  }
   params.contentType = xplm_WindowContentTypePanelGraphics;
   window_ = XPLMCreateWindowEx(&params);
   if (window_ && options_.resizable) {
@@ -371,7 +377,9 @@ void ImguiWindow::draw() {
   // every frame, and parked off-window when it has left.
   int mx = 0, my = 0;
   XPLMGetMouseLocationGlobal(&mx, &my);
-  if (mx >= left && mx < right && my > bottom && my <= top) {
+  if (options_.overlay) {
+    io.AddMousePosEvent(-FLT_MAX, -FLT_MAX); // an overlay never hovers
+  } else if (mx >= left && mx < right && my > bottom && my <= top) {
     float lx = 0.0f, ly = 0.0f;
     mouse_to_local(mx, my, &lx, &ly);
     io.AddMousePosEvent(lx, ly);

@@ -2,6 +2,7 @@
 #define ZOAL_ATC_XPLANE_HUD_WINDOW_HPP
 
 #include "zoal_atc/gui/gui_bridge.hpp"
+#include "zoal_atc/gui/hud_session.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -56,6 +57,9 @@ bool hud_awaiting_own_call();
 
 // The plugin's settings.changed notice (a theme picked in the panel).
 void hud_settings_changed(const std::string &payload_json);
+
+// The theme the HUD wears, which the traffic tags wear too.
+gui::HudTheme hud_theme();
 
 // A controller's transmission on this channel finished playing in the
 // cockpit, which is what auto readback waits for.

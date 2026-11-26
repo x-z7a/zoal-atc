@@ -168,6 +168,12 @@ preview: imgui-src freetype-src inter
 		"$(PREVIEW_BUILD_DIR)/panel_preview" "$(ZOAL_ATC_INTER)" "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.ppm" $$tab $$theme 1120 740 2 || exit 1; \
 		if command -v sips >/dev/null; then sips -s format png "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.ppm" --out "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.png" >/dev/null; fi; \
 	done; done
+	@"$(PREVIEW_BUILD_DIR)/panel_preview" "$(ZOAL_ATC_INTER)" "$(PREVIEW_BUILD_DIR)/traffic-nocsl.ppm" traffic graphite 1120 740 2 nocsl && \
+		if command -v sips >/dev/null; then sips -s format png "$(PREVIEW_BUILD_DIR)/traffic-nocsl.ppm" --out "$(PREVIEW_BUILD_DIR)/traffic-nocsl.png" >/dev/null; fi
+	@for theme in $(PREVIEW_THEMES); do \
+		"$(PREVIEW_BUILD_DIR)/panel_preview" "$(ZOAL_ATC_INTER)" "$(PREVIEW_BUILD_DIR)/labels-$$theme.ppm" labels $$theme 1120 740 2 || exit 1; \
+		if command -v sips >/dev/null; then sips -s format png "$(PREVIEW_BUILD_DIR)/labels-$$theme.ppm" --out "$(PREVIEW_BUILD_DIR)/labels-$$theme.png" >/dev/null; fi; \
+	done
 	@echo "panel previews in $(PREVIEW_BUILD_DIR)"
 
 $(SDK_SENTINEL):

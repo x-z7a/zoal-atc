@@ -8,6 +8,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace zoal_atc::xplane {
 
@@ -29,6 +30,15 @@ public:
   void set_tracked(const std::string &id);
 
   [[nodiscard]] std::size_t size() const { return aircraft_.size(); }
+
+  // Where a tag goes over each aircraft XPMP2 is drawing this frame: a point a
+  // few metres above it in the local frame, and how far the camera is from it.
+  struct Anchor {
+    std::string id;
+    double x = 0.0, y = 0.0, z = 0.0;
+    double camera_distance_m = 0.0;
+  };
+  [[nodiscard]] std::vector<Anchor> anchors() const;
 
   // The 24-bit addresses XPMP2 publishes our aircraft under on TCAS.
   [[nodiscard]] std::set<std::uint32_t> mode_s_ids() const;

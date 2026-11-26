@@ -27,6 +27,10 @@ inline constexpr int kSettingsTab = 2;
 struct PanelViewState {
   int tab = 0; // kHomeTab, kTrafficTab, kSettingsTab
   gui::TrafficFilter traffic_filter = gui::TrafficFilter::all;
+  // The CSL folder being typed, and whether the picker is open over a
+  // running list (it is always shown when there are no models).
+  char csl_path[1024] = {};
+  bool csl_picking = false;
   char tune[32] = {};
   char say[512] = {};
   char token[512] = {};
@@ -56,6 +60,9 @@ struct TrafficActions {
   std::function<void(const std::string &)> follow; // "" stops
   std::function<void(double)> zoom;                // factor
   std::function<void(double)> orbit;               // degrees clockwise
+  std::function<void(const std::string &)> use_csl; // a CSL folder, by path
+  std::function<void()> browse_csl;                 // the system folder dialog
+  std::function<void()> rescan_csl;                 // look for folders to offer again
 };
 
 struct PanelFrame {

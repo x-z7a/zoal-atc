@@ -282,12 +282,61 @@ const Row kRows[] = {
     {"Traffic is not running in this build.", "El tráfico no funciona en esta versión.",
      "Le trafic ne fonctionne pas dans cette version."},
     {"Traffic has not started.", "El tráfico no se ha iniciado.", "Le trafic n'a pas démarré."},
-    {"No CSL models found, so traffic is off. Put a CSL package in Resources/CSL inside the "
-     "zoal-atc plugin folder.",
-     "No se encontraron modelos CSL, así que el tráfico está desactivado. Ponga un paquete CSL "
-     "en Resources/CSL dentro de la carpeta del plugin zoal-atc.",
-     "Aucun modèle CSL trouvé, le trafic est donc désactivé. Placez un paquet CSL dans "
-     "Resources/CSL dans le dossier du plugin zoal-atc."},
+    {"No CSL models found, so traffic is off. Choose the folder that holds your CSL models "
+     "below.",
+     "No se encontraron modelos CSL, así que el tráfico está desactivado. Elija abajo la "
+     "carpeta que contiene sus modelos CSL.",
+     "Aucun modèle CSL trouvé, le trafic est donc désactivé. Choisissez ci-dessous le dossier "
+     "qui contient vos modèles CSL."},
+    // The CSL folder picker.
+    {"No CSL models found", "No se encontraron modelos CSL", "Aucun modèle CSL trouvé"},
+    {"CSL models", "Modelos CSL", "Modèles CSL"},
+    {"Done", "Listo", "Terminé"},
+    {"In use", "En uso", "Utilisé"},
+    {" models", " modelos", " modèles"},
+    {"Found on this computer", "Encontradas en este equipo", "Trouvés sur cet ordinateur"},
+    {"None under X-Plane's plugins folder.", "Ninguna en la carpeta de plugins de X-Plane.",
+     "Aucun dans le dossier des plugins de X-Plane."},
+    {"Use", "Usar", "Utiliser"},
+    {"Another folder", "Otra carpeta", "Un autre dossier"},
+    {"Browse\xE2\x80\xA6", "Examinar\xE2\x80\xA6", "Parcourir\xE2\x80\xA6"},
+    {"Choosing\xE2\x80\xA6", "Eligiendo\xE2\x80\xA6", "Choix en cours\xE2\x80\xA6"},
+    {"Path to a CSL folder", "Ruta a una carpeta CSL", "Chemin d'un dossier CSL"},
+    {"Other pilots and the console's traffic are drawn with CSL aircraft models, and none were "
+     "found where the plugin looks. Choose the folder that holds yours: a folder with aircraft "
+     "packages in it, each with an xsb_aircraft.txt file.",
+     "Los demás pilotos y el tráfico de la consola se dibujan con modelos de aeronave CSL, y no "
+     "se encontró ninguno donde busca el plugin. Elija la carpeta que contiene los suyos: una "
+     "carpeta con paquetes de aeronaves, cada uno con un archivo xsb_aircraft.txt.",
+     "Les autres pilotes et le trafic de la console sont dessinés avec des modèles d'avions CSL, "
+     "et aucun n'a été trouvé là où le plugin cherche. Choisissez le dossier qui contient les "
+     "vôtres : un dossier de paquets d'avions, chacun avec un fichier xsb_aircraft.txt."},
+    {"Other pilots and the console's traffic are drawn with these models. A new folder is used "
+     "at once and remembered for the next flight.",
+     "Los demás pilotos y el tráfico de la consola se dibujan con estos modelos. Una carpeta "
+     "nueva se usa al instante y se recuerda para el próximo vuelo.",
+     "Les autres pilotes et le trafic de la console sont dessinés avec ces modèles. Un nouveau "
+     "dossier est utilisé aussitôt et retenu pour le prochain vol."},
+    {"Type or choose a folder first.", "Escriba o elija una carpeta primero.",
+     "Saisissez ou choisissez d'abord un dossier."},
+    {"That folder has no CSL models: there is no xsb_aircraft.txt in it or below it.",
+     "Esa carpeta no tiene modelos CSL: no hay ningún xsb_aircraft.txt en ella ni debajo.",
+     "Ce dossier ne contient aucun modèle CSL : aucun xsb_aircraft.txt dedans ni en dessous."},
+    {"Could not save it for next time: ", "No se pudo guardar para la próxima vez: ",
+     "Impossible de l'enregistrer pour la prochaine fois : "},
+    {"These models are already in use.", "Estos modelos ya están en uso.",
+     "Ces modèles sont déjà utilisés."},
+    {"Loaded. The previous folder's models stay until X-Plane restarts.",
+     "Cargado. Los modelos de la carpeta anterior se mantienen hasta reiniciar X-Plane.",
+     "Chargé. Les modèles du dossier précédent restent jusqu'au redémarrage de X-Plane."},
+    {"The folder dialog is already open.", "El diálogo de carpetas ya está abierto.",
+     "La fenêtre de choix de dossier est déjà ouverte."},
+    {"the folder dialog could not be opened", "no se pudo abrir el diálogo de carpetas",
+     "la fenêtre de choix de dossier n'a pas pu s'ouvrir"},
+    {"no folder dialog is installed (zenity or kdialog); type the path instead",
+     "no hay ningún diálogo de carpetas instalado (zenity o kdialog); escriba la ruta",
+     "aucune fenêtre de choix de dossier n'est installée (zenity ou kdialog) ; saisissez le "
+     "chemin"},
     {"Traffic could not start: ", "El tráfico no pudo iniciarse: ",
      "Le trafic n'a pas pu démarrer : "},
 };

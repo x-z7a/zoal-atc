@@ -1197,11 +1197,139 @@ float tracking_card(const Ui &ui, const gui::TrafficPanel &traffic,
   return height;
 }
 
+// The CSL folder: where the models come from, and the pilot's way to choose
+// one when none was found (or to change it). One press on a folder found on
+// this computer, the system's folder dialog, or a typed path.
+void csl_picker(const Ui &ui, PanelViewState &state, const gui::TrafficPanel &traffic,
+                ImVec2 min, ImVec2 max) {
+  const Palette &p = ui.p;
+  const gui::CslStatus &csl = traffic.csl;
+  const TrafficActions *actions = ui.frame.traffic_actions;
+  const bool can = actions != nullptr;
+  ui.draw->AddRectFilled(min, max, p.glass_card, kRadiusLg);
+  ui.draw->AddRect(min, max, p.border, kRadiusLg, 1.0f);
+
+  ImGui::SetCursorScreenPos(ImVec2(min.x + 16.0f, min.y + 12.0f));
+  ImGui::BeginChild("csl_picker", ImVec2(max.x - min.x - 28.0f, max.y - min.y - 24.0f),
+                    ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+  Ui inner{ui.face, ui.p, ImGui::GetWindowDrawList(), ui.frame};
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const float width = ImGui::GetContentRegionAvail().x - 10.0f;
+  float y = origin.y;
+  const float x = origin.x;
+
+  // ---- what this is ----
+  const std::string title = csl.missing ? tr("No CSL models found") : tr("CSL models");
+  const float title_px = inner.css(17.0f);
+  inner.draw->AddText(inner.face.semibold, title_px, ImVec2(x + 2.0f, y), p.text, title.c_str());
+  if (!csl.missing) {
+    const std::string done = tr("Done");
+    const float dw = button_width(inner, done, 13.0f, 14.0f);
+    if (button(inner, "csl_done", ImVec2(x + width - dw, y - 4.0f), ImVec2(dw, 30.0f), done,
+               Variant::outlined, true, 13.0f)) {
+      state.csl_picking = false;
+    }
+  }
+  y += 30.0f;
+  const std::string about =
+      csl.missing
+          ? tr("Other pilots and the console's traffic are drawn with CSL aircraft models, and "
+               "none were found where the plugin looks. Choose the folder that holds yours: a "
+               "folder with aircraft packages in it, each with an xsb_aircraft.txt file.")
+          : tr("Other pilots and the console's traffic are drawn with these models. A new "
+               "folder is used at once and remembered for the next flight.");
+  y += paragraph(inner, ImVec2(x + 2.0f, y), std::min(width - 4.0f, 720.0f), about, p.text_dim);
+  if (!csl.missing && !csl.folder.empty()) {
+    y += 8.0f;
+    label_text(inner, ImVec2(x + 2.0f, centred(y, 16.0f, inner.css(11.0f))), tr("In use"),
+               p.text_dim);
+    y += 18.0f;
+    const std::string models =
+        csl.folder + "  \xC2\xB7  " + gui::format_thousands(static_cast<double>(csl.models)) +
+        tr(" models");
+    inner.draw->AddText(inner.face.regular, inner.css(14.0f), ImVec2(x + 2.0f, y), p.text,
+                        fit(inner.face.regular, inner.css(14.0f), models, width - 4.0f).c_str());
+    y += 22.0f;
+  }
+
+  // ---- what was found on this computer ----
+  y += 12.0f;
+  label_text(inner, ImVec2(x + 2.0f, centred(y, 16.0f, inner.css(11.0f))),
+             tr("Found on this computer"), p.text_dim);
+  y += 20.0f;
+  if (csl.found.empty()) {
+    inner.draw->AddText(inner.face.regular, inner.css(14.0f), ImVec2(x + 2.0f, y), p.text_dim,
+                        tr("None under X-Plane's plugins folder."));
+    y += 24.0f;
+  }
+  const std::string use = tr("Use");
+  const float uw = button_width(inner, use, 13.0f, 14.0f);
+  int index = 0;
+  for (const gui::CslOffer &offer : csl.found) {
+    const ImVec2 rmin(x, y);
+    const ImVec2 rmax(x + width, y + 38.0f);
+    const bool current = !csl.missing && offer.path == csl.folder;
+    inner.draw->AddRectFilled(rmin, rmax, current ? p.accent_container : p.glass_well, 10.0f);
+    inner.draw->AddText(inner.face.semibold, inner.css(14.0f),
+                        ImVec2(x + 12.0f, centred(y, 38.0f, inner.css(14.0f))),
+                        current ? p.on_accent_container : p.text,
+                        fit(inner.face.semibold, inner.css(14.0f), offer.label,
+                            width - uw - 36.0f).c_str());
+    ImGui::PushID(index++);
+    if (button(inner, "csl_use", ImVec2(x + width - uw - 6.0f, y + 4.0f), ImVec2(uw, 30.0f),
+               current ? tr("In use") : use, Variant::tonal, can && !current, 13.0f)) {
+      const std::string path = offer.path;
+      ui.later([actions, path] { actions->use_csl(path); });
+    }
+    ImGui::PopID();
+    y += 38.0f + 6.0f;
+  }
+
+  // ---- anywhere else ----
+  y += 12.0f;
+  label_text(inner, ImVec2(x + 2.0f, centred(y, 16.0f, inner.css(11.0f))),
+             tr("Another folder"), p.text_dim);
+  y += 20.0f;
+  const std::string browse = csl.browsing ? tr("Choosing\xE2\x80\xA6") : tr("Browse\xE2\x80\xA6");
+  const float bw = button_width(inner, browse);
+  const float sw = button_width(inner, use);
+  const float field_w = std::max(160.0f, width - bw - sw - 16.0f);
+  const bool entered =
+      field(inner, "csl_path", ImVec2(x, y), ImVec2(field_w, kInputHeight), state.csl_path,
+            sizeof(state.csl_path), {tr("Path to a CSL folder"), false, false, can});
+  const float by = y + (kInputHeight - kButtonHeight) * 0.5f;
+  if (button(inner, "csl_browse", ImVec2(x + field_w + 8.0f, by), ImVec2(bw, kButtonHeight),
+             browse, Variant::outlined, can && !csl.browsing)) {
+    ui.later([actions] { actions->browse_csl(); });
+  }
+  const bool pressed = button(inner, "csl_use_typed", ImVec2(x + field_w + 8.0f + bw + 8.0f, by),
+                              ImVec2(sw, kButtonHeight), use, Variant::filled, can);
+  if ((entered || pressed) && can) {
+    const std::string path = trimmed(state.csl_path);
+    ui.later([actions, path] { actions->use_csl(path); });
+  }
+  y += kInputHeight + 8.0f;
+  if (!csl.error.empty()) {
+    y += paragraph(inner, ImVec2(x + 2.0f, y), width - 4.0f, tr(csl.error), p.danger);
+  } else if (!csl.notice.empty()) {
+    y += paragraph(inner, ImVec2(x + 2.0f, y), width - 4.0f, tr(csl.notice), p.text_dim);
+  }
+
+  ImGui::SetCursorScreenPos(origin);
+  ImGui::Dummy(ImVec2(1.0f, y - origin.y + 4.0f));
+  ImGui::EndChild();
+}
+
 void traffic_tab(const Ui &ui, PanelViewState &state, ImVec2 min, ImVec2 max) {
   const Palette &p = ui.p;
   const float width = max.x - min.x;
   const gui::TrafficPanel *traffic = ui.frame.traffic;
 
+  // No models: choosing a folder is the only thing this tab can do.
+  if (traffic != nullptr && traffic->csl.missing) {
+    csl_picker(ui, state, *traffic, min, max);
+    return;
+  }
   if (traffic == nullptr || !traffic->available) {
     const std::string why = traffic == nullptr || traffic->unavailable.empty()
                                 ? std::string(tr("Traffic is not running in this build."))
@@ -1222,8 +1350,24 @@ void traffic_tab(const Ui &ui, PanelViewState &state, ImVec2 min, ImVec2 max) {
       std::to_string(traffic->pilots) + tr(" pilots") + "  \xC2\xB7  " +
       std::to_string(traffic->ai) + " AI";
   label_text(ui, ImVec2(min.x + 4.0f, centred(y, 28.0f, ui.css(11.0f))), summary, p.text_dim);
-  traffic_filters(ui, state, max.x, y);
+  const float filters_w = traffic_filters(ui, state, max.x, y);
+  // Where the models come from, and the way to change it.
+  const std::string models = tr("CSL models");
+  const float mw = button_width(ui, models, 12.0f, 12.0f);
+  if (button(ui, "csl_change", ImVec2(max.x - filters_w - 10.0f - mw, y), ImVec2(mw, 28.0f),
+             models, state.csl_picking ? Variant::tonal : Variant::text,
+             ui.frame.traffic_actions != nullptr, 12.0f)) {
+    state.csl_picking = !state.csl_picking;
+    if (state.csl_picking && ui.frame.traffic_actions->rescan_csl) {
+      const TrafficActions *actions = ui.frame.traffic_actions;
+      ui.later([actions] { actions->rescan_csl(); });
+    }
+  }
   y += 28.0f + kGap;
+  if (state.csl_picking) {
+    csl_picker(ui, state, *traffic, ImVec2(min.x, y), max);
+    return;
+  }
 
   // ---- the tracked aircraft ----
   const gui::TrafficPanelRow *tracked = nullptr;

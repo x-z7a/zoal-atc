@@ -64,6 +64,28 @@
   `traffic::chase_pose` (core, tested) do the geometry; `gui::traffic_panel`
   the words; `traffic_layer` holds the tracked/followed ids and the camera.
 
+- **Traffic tags** replace XPMP2's bitmap labels: a full-screen ImGui overlay
+  (`ImguiWindow` overlay mode: no decoration, no input handlers, so every
+  click passes through) drawn in the HUD's glass and theme. Near aircraft
+  (< 3 km from the camera) show callsign, type, altitude, vertical speed,
+  groundspeed and distance from us; to 12 km callsign and altitude; to 30 km
+  the callsign, fading over the last fifth. The tracked one is always full.
+  `gui::traffic_label` (words, detail, fade) and `traffic::project_to_screen`
+  are core and tested; `xplane/traffic_labels` places them using XPMP2's drawn
+  position, so tag and model move together. `zoal_atc/traffic_labels_toggle`
+  (Plugins > zoal-atc > Toggle Traffic Tags) hides them. Where the overlay
+  cannot be made (X-Plane before 12.4.4), XPMP2's labels stay on.
+
+- **CSL folder**: `csl_path` in zoal_atc.cfg first, then our `Resources/CSL`
+  and the IVAO / LiveTraffic / xPilot / X-Ivap folders (`traffic::choose_csl`).
+  With none, traffic stays off and the Traffic tab becomes a picker: every
+  `CSL` folder found under `Resources/plugins` (`discover_csl_folders`), a
+  path field, and the system folder dialog (`xplane/folder_picker`, on its own
+  thread). A folder with an `xsb_aircraft.txt` in or below it starts traffic at
+  once, is written to `csl_path`, and the socket re-dials declaring
+  `traffic_v1` (`WebSocketClient::add_capability`). While running, "CSL models"
+  on the tab adds another folder; the old one's models stay until restart.
+
 Threading rule: the registry and all XPMP2 objects are touched only on the
 simulator's main thread. The network threads hand over parsed frames and take
 encoded strings, nothing else.

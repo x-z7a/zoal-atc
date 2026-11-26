@@ -42,6 +42,21 @@ public:
     colour_label();
   }
 
+  // Metres above the model's origin for its tag, by wake category as XPMP2
+  // places its own labels: the model's height without reading its .obj.
+  // Cached, since the model info is a copy; a remodel asks again.
+  float label_height() {
+    if (label_height_ < 0.0f) {
+      if (GetModel() == nullptr) {
+        return 7.0f; // no model matched yet: ask again next frame
+      }
+      const std::string wtc = GetModelInfo().doc8643WTC;
+      label_height_ = wtc.empty() ? 7.0f : (wtc[0] == 'L' ? 3.0f : (wtc[0] == 'H' ? 8.0f : 7.0f));
+    }
+    return label_height_;
+  }
+  void forget_label_height() { label_height_ = -1.0f; }
+
   void set_tracked(bool tracked) {
     tracked_ = tracked;
     colour_label();
@@ -92,6 +107,7 @@ private:
   std::string id_;
   bool pilot_ = false;
   bool tracked_ = false;
+  float label_height_ = -1.0f;
   const traffic::TrafficRegistry &registry_;
 };
 
@@ -112,6 +128,7 @@ void TrafficRenderer::apply(const traffic::TrafficRegistry::Changes &changes) {
   for (const auto &who : changes.remodelled) {
     if (auto found = aircraft_.find(who.id); found != aircraft_.end()) {
       found->second->ChangeModel(who.icao_type, who.airline, who.livery);
+      found->second->forget_label_height();
       found->second->relabel(who);
     }
   }
@@ -135,6 +152,20 @@ void TrafficRenderer::set_tracked(const std::string &id) {
   if (auto found = aircraft_.find(tracked_); found != aircraft_.end()) {
     found->second->set_tracked(true);
   }
+}
+
+std::vector<TrafficRenderer::Anchor> TrafficRenderer::anchors() const {
+  std::vector<Anchor> out;
+  out.reserve(aircraft_.size());
+  for (const auto &[id, aircraft] : aircraft_) {
+    if (!aircraft->IsRendered()) {
+      continue;
+    }
+    const XPLMDrawInfo_t &at = aircraft->drawInfo;
+    out.push_back(Anchor{id, at.x, at.y + aircraft->label_height(), at.z,
+                         aircraft->GetCameraDist()});
+  }
+  return out;
 }
 
 std::set<std::uint32_t> TrafficRenderer::mode_s_ids() const {

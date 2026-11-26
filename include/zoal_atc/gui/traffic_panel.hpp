@@ -35,10 +35,32 @@ struct TrafficPanelRow {
   bool followed = false;
 };
 
+// A CSL folder found on this computer, offered for one-press use.
+struct CslOffer {
+  std::string path;  // as the plugin will load it
+  std::string label; // below the plugins folder: "LiveTraffic/Resources/CSL"
+};
+
+// Where the models come from, and the pilot's way to choose (the tab's
+// picker). Filled by the traffic layer whether or not traffic is running.
+struct CslStatus {
+  // No models anywhere the plugin looked: the tab shows the picker instead
+  // of the list.
+  bool missing = false;
+  std::string folder;       // in use; empty when missing
+  bool configured = false;  // the pilot chose it (zoal_atc.cfg csl_path)
+  std::size_t models = 0;   // CSL models XPMP2 loaded
+  std::vector<CslOffer> found;
+  bool browsing = false;    // the system folder dialog is open
+  std::string error;        // why the last choice was refused
+  std::string notice;       // what the last choice did, e.g. needs a restart
+};
+
 struct TrafficPanel {
   // The traffic layer is running; when false, `unavailable` says why.
   bool available = false;
   std::string unavailable;
+  CslStatus csl;
   std::vector<TrafficPanelRow> rows; // after the filter, nearest first
   std::size_t total = 0;             // before the filter
   std::size_t pilots = 0;            // before the filter

@@ -229,6 +229,10 @@ void tick_hud() {
   }
 }
 
+HudTheme hud_theme() {
+  return g_hud && g_hud->session ? g_hud->session->theme() : HudTheme::graphite;
+}
+
 void hud_settings_changed(const std::string &payload_json) {
   if (g_hud) {
     g_hud->session->on_settings_changed(payload_json);

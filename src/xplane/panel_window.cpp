@@ -80,6 +80,9 @@ const ui::TrafficActions kTrafficActions{
     [](const std::string &id) { traffic_layer::follow(id); },
     [](double factor) { traffic_layer::chase_zoom(factor); },
     [](double degrees) { traffic_layer::chase_orbit(degrees); },
+    [](const std::string &path) { traffic_layer::use_csl(path); },
+    [] { traffic_layer::browse_csl(); },
+    [] { traffic_layer::rescan_csl(); },
 };
 
 void build() {
@@ -269,6 +272,15 @@ void tick_panel() {
     scale = std::max(1.0f, XPLMGetDataf(g_panel->ui_scale));
   }
   g_panel->window->set_framebuffer_scale(2.0f * scale);
+}
+
+void add_to_menu(const char *label, const char *command_name) {
+  if (!g_panel || !g_panel->menu) {
+    return;
+  }
+  if (XPLMCommandRef command = XPLMFindCommand(command_name)) {
+    XPLMAppendMenuItemWithCommand(g_panel->menu, label, command);
+  }
 }
 
 void show_panel() {

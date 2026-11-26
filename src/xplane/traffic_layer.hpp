@@ -4,6 +4,7 @@
 #include "zoal_atc/gui/traffic_panel.hpp"
 #include "zoal_atc/telemetry/telemetry_frame.hpp"
 
+#include <functional>
 #include <string>
 
 // The traffic layer: other pilots and the console's AI aircraft, drawn with
@@ -17,7 +18,19 @@ namespace zoal_atc::xplane::traffic_layer {
 // Initialises XPMP2 and loads CSL models. plugin_root is the plugin folder,
 // system_path X-Plane's. False (and a logged reason) when there is nothing to
 // draw with, in which case the plugin does not declare traffic_v1.
-bool start(const std::string &plugin_root, const std::string &system_path);
+// What the plugin does for the traffic layer that the layer cannot: keep the
+// pilot's CSL folder in zoal_atc.cfg, and re-dial declaring traffic_v1 when
+// traffic starts after the hello (a folder chosen in the panel).
+struct Hooks {
+  std::function<bool(const std::string &folder, std::string *why)> save_csl;
+  std::function<void()> started;
+};
+
+// `configured_csl` is zoal_atc.cfg's csl_path, tried first. Without models
+// anywhere, traffic stays off and the panel's Traffic tab asks for a folder;
+// choosing one starts it then (use_csl).
+bool start(const std::string &plugin_root, const std::string &system_path,
+           const std::string &configured_csl, Hooks hooks);
 void stop();
 
 // Takes and releases the simulator's AI/TCAS aircraft.
@@ -53,6 +66,14 @@ void follow(const std::string &id);
 // clockwise round the aircraft.
 void chase_zoom(double factor);
 void chase_orbit(double degrees);
+
+// The CSL folder: a typed or found path, or the system's folder dialog. A
+// folder with models is used at once (traffic starts if it was off) and kept
+// for next time; one without is refused, and the tab says why.
+void use_csl(const std::string &path);
+void browse_csl();
+// Looks for CSL folders to offer again (the picker opened over a running list).
+void rescan_csl();
 
 } // namespace zoal_atc::xplane::traffic_layer
 

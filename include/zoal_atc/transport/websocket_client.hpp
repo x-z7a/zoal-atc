@@ -98,6 +98,11 @@ public:
   // console learns it on the next connection. Saving the language already
   // set keeps the connection.
   void relanguage(std::string language);
+  // add_capability declares one more capability on the hello and re-dials, for
+  // a feature that became available after the connection was made (traffic
+  // once the pilot picks a CSL folder). One already declared keeps the
+  // connection.
+  void add_capability(std::string capability);
 
   // The token currently in use, for a panel that offers to change it.
   [[nodiscard]] std::string auth_token() const;

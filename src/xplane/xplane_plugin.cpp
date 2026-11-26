@@ -2263,9 +2263,33 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     }
 
     // Other pilots and the console's AI aircraft, drawn with XPMP2. Declared
-    // only when there are CSL models to draw them with.
+    // only when there are CSL models to draw them with; a folder chosen later
+    // in the panel declares it then, and is kept as csl_path.
+    zoal_atc::xplane::traffic_layer::Hooks traffic_hooks;
+    traffic_hooks.save_csl = [](const std::string &folder, std::string *why) {
+      if (g_config_path.empty()) {
+        *why = "no config file path is known";
+        return false;
+      }
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "csl_path", folder);
+      if (!write_config_atomically(g_config_path, updated)) {
+        *why = "could not write " + g_config_path;
+        return false;
+      }
+      log_line("csl_path set from the panel: " + folder);
+      return true;
+    };
+    traffic_hooks.started = [] {
+      if (g_websocket) {
+        g_websocket->add_capability("traffic_v1");
+      }
+    };
     if (zoal_atc::xplane::traffic_layer::start(
-            zoal_atc::gui::plugin_root_from_binary_path(binary), std::string(system_path))) {
+            zoal_atc::gui::plugin_root_from_binary_path(binary), std::string(system_path),
+            config_value(read_file(g_config_path).value_or(std::string()), "csl_path")
+                .value_or(std::string()),
+            std::move(traffic_hooks))) {
       endpoint.capabilities.push_back("traffic_v1");
     }
 

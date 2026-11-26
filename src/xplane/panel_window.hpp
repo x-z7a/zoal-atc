@@ -38,6 +38,10 @@ void stop_panel();
 // so it never has to ask the console what it missed.
 void tick_panel();
 
+// Adds a command, by name, to Plugins > zoal-atc, for parts that start after
+// the panel (the traffic tags). Nothing when the menu could not be made.
+void add_to_menu(const char *label, const char *command_name);
+
 // Brings the panel up, for the HUD's "Open panel".
 void show_panel();
 

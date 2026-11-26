@@ -1,8 +1,12 @@
 #include "traffic_layer.hpp"
 
+#include "folder_picker.hpp"
+#include "traffic_labels.hpp"
 #include "traffic_renderer.hpp"
 
+#include "zoal_atc/gui/traffic_label.hpp"
 #include "zoal_atc/traffic/clock_sync.hpp"
+#include "zoal_atc/traffic/csl_locator.hpp"
 #include "zoal_atc/traffic/traffic_frame.hpp"
 #include "zoal_atc/traffic/traffic_picture.hpp"
 #include "zoal_atc/traffic/traffic_registry.hpp"
@@ -16,6 +20,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cmath>
 #include <cstring>
 #include <deque>
@@ -39,6 +44,22 @@ struct Received {
 };
 
 bool g_started = false;
+// start() ran: the folders are known, so a CSL folder can still be chosen.
+bool g_armed = false;
+// XPluginEnable said fly, even if traffic was not running yet.
+bool g_want_enabled = false;
+bool g_xpmp_ready = false;
+
+// Where the models are, and the pilot's choosing (the panel's Traffic tab).
+fs::path g_plugin_root;
+fs::path g_plugins_dir;
+std::string g_csl_folder;
+bool g_csl_configured = false;
+std::vector<zoal_atc::traffic::FoundCsl> g_csl_found;
+std::string g_csl_error;
+std::string g_csl_notice;
+Hooks g_hooks;
+std::unique_ptr<FolderPicker> g_picker;
 bool g_enabled = false;
 std::unique_ptr<zoal_atc::traffic::TrafficRegistry> g_registry;
 std::unique_ptr<TrafficRenderer> g_renderer;
@@ -69,34 +90,55 @@ zoal_atc::traffic::ChaseOffset g_chase;
 
 constexpr double kFeetPerMetre = 3.28084;
 
+// Our own tags drew (traffic_labels); false leaves XPMP2's on.
+bool g_own_labels = false;
+
+zoal_atc::traffic::OwnPosition own_position() {
+  zoal_atc::traffic::OwnPosition own;
+  if (g_refs.latitude && g_refs.longitude && g_refs.elevation) {
+    own.lat_deg = XPLMGetDatad(g_refs.latitude);
+    own.lon_deg = XPLMGetDatad(g_refs.longitude);
+    own.alt_ft_msl = XPLMGetDatad(g_refs.elevation) * kFeetPerMetre;
+    own.valid = true;
+  }
+  return own;
+}
+
+// Every aircraft XPMP2 is drawing, with what its tag says. The registry's
+// state for the words, XPMP2's drawn position for the place, so the tag and
+// the model move as one.
+std::vector<traffic_labels::Target> label_targets() {
+  std::vector<traffic_labels::Target> out;
+  if (!g_registry || !g_renderer) {
+    return out;
+  }
+  const auto anchors = g_renderer->anchors();
+  if (anchors.empty()) {
+    return out;
+  }
+  const auto picture = zoal_atc::traffic::nearby(
+      *g_registry, zoal_atc::traffic::monotonic_seconds(), own_position());
+  const gui::LabelRange range;
+  for (const auto &anchor : anchors) {
+    const auto found =
+        std::find_if(picture.begin(), picture.end(),
+                     [&](const zoal_atc::traffic::Nearby &n) { return n.identity.id == anchor.id; });
+    if (found == picture.end()) {
+      continue;
+    }
+    const bool tracked = anchor.id == g_tracked;
+    if (!gui::label_shown(anchor.camera_distance_m, range, tracked)) {
+      continue;
+    }
+    out.push_back(traffic_labels::Target{
+        gui::traffic_label(*found, anchor.camera_distance_m, range, g_tracked, g_followed),
+        anchor.x, anchor.y, anchor.z});
+  }
+  return out;
+}
+
 void log(const std::string &line) {
   XPLMDebugString(("zoal-atc: traffic: " + line + "\n").c_str());
-}
-
-bool has_csl(const fs::path &dir) {
-  std::error_code ec;
-  if (!fs::is_directory(dir, ec)) {
-    return false;
-  }
-  for (const auto &entry : fs::recursive_directory_iterator(dir, ec)) {
-    if (entry.path().filename() == "xsb_aircraft.txt") {
-      return true;
-    }
-  }
-  return false;
-}
-
-// CSL models: our own folder first, then the packages other traffic plugins
-// already installed, so a pilot with IVAO, LiveTraffic or xPilot models does
-// not download them twice.
-std::vector<fs::path> csl_candidates(const fs::path &root, const fs::path &plugins) {
-  return {
-      root / "Resources" / "CSL",
-      plugins / "IVAO_CSL" / "CSL",
-      plugins / "LiveTraffic" / "Resources" / "CSL",
-      plugins / "xPilot" / "Resources" / "CSL",
-      plugins / "X-Ivap Resources" / "CSL",
-  };
 }
 
 // XPMP2 resources (Doc8643.txt, related.txt, Obj8DataRefs.txt, MapIcons.png):
@@ -163,39 +205,9 @@ int chase_camera(XPLMCameraPosition_t *position, int losing_control, void *) {
 
 } // namespace
 
-bool start(const std::string &plugin_root, const std::string &system_path) {
-  const fs::path root(plugin_root);
-  const fs::path plugins = fs::path(system_path) / "Resources" / "plugins";
-  fs::path csl;
-  for (const auto &candidate : csl_candidates(root, plugins)) {
-    if (has_csl(candidate)) {
-      csl = candidate;
-      break;
-    }
-  }
-  if (csl.empty()) {
-    log("no CSL models found (looked in " + (root / "Resources" / "CSL").string() +
-        " and other traffic plugins' folders); traffic is off");
-    g_unavailable = "No CSL models found, so traffic is off. Put a CSL package in "
-                    "Resources/CSL inside the zoal-atc plugin folder.";
-    return false;
-  }
-  const fs::path resources = resource_dir(root, csl);
-  if (const char *err = XPMPMultiplayerInit("zoal-atc", resources.string().c_str(), xpmp_prefs,
-                                            "A320", "ZATC");
-      err && *err) {
-    log(std::string("XPMP2 init failed: ") + err);
-    g_unavailable = std::string("Traffic could not start: ") + err;
-    return false;
-  }
-  if (const char *err = XPMPLoadCSLPackage(csl.string().c_str()); err && *err) {
-    log(std::string("CSL load reported: ") + err);
-  }
-  log("CSL models from " + csl.string() + ", " + std::to_string(XPMPGetNumberOfInstalledModels()) +
-      " models; resources " + resources.string());
+namespace {
 
-  g_registry = std::make_unique<zoal_atc::traffic::TrafficRegistry>();
-  g_renderer = std::make_unique<TrafficRenderer>(*g_registry);
+void find_refs() {
   g_refs = RenderRefs{
       find("sim/flightmodel/position/hpath"),
       find("sim/flightmodel/position/theta"),
@@ -214,24 +226,162 @@ bool start(const std::string &plugin_root, const std::string &system_path) {
       find("sim/flightmodel/position/longitude"),
       find("sim/flightmodel/position/elevation"),
   };
+}
+
+// XPMP2 up, the models from `csl` loaded, and everything that draws them.
+// False (with g_unavailable saying why) when XPMP2 will not start.
+bool bring_up(const fs::path &csl) {
+  const fs::path resources = resource_dir(g_plugin_root, csl);
+  if (!g_xpmp_ready) {
+    if (const char *err = XPMPMultiplayerInit("zoal-atc", resources.string().c_str(),
+                                              xpmp_prefs, "A320", "ZATC");
+        err && *err) {
+      log(std::string("XPMP2 init failed: ") + err);
+      g_unavailable = std::string("Traffic could not start: ") + err;
+      return false;
+    }
+    g_xpmp_ready = true;
+  }
+  if (const char *err = XPMPLoadCSLPackage(csl.string().c_str()); err && *err) {
+    log(std::string("CSL load reported: ") + err);
+  }
+  log("CSL models from " + csl.string() + ", " + std::to_string(XPMPGetNumberOfInstalledModels()) +
+      " models; resources " + resources.string());
+
+  g_registry = std::make_unique<zoal_atc::traffic::TrafficRegistry>();
+  g_renderer = std::make_unique<TrafficRenderer>(*g_registry);
+  g_renderer->set_tracked(g_tracked);
+  find_refs();
   g_unavailable.clear();
+  g_csl_folder = csl.string();
+  g_own_labels = traffic_labels::start(label_targets);
   g_started = true;
   return true;
 }
 
+std::string home_dir() {
+  for (const char *name : {"HOME", "USERPROFILE"}) {
+    if (const char *value = std::getenv(name); value != nullptr && *value != '\0') {
+      return value;
+    }
+  }
+  return {};
+}
+
+} // namespace
+
+bool start(const std::string &plugin_root, const std::string &system_path,
+           const std::string &configured_csl, Hooks hooks) {
+  g_plugin_root = fs::path(plugin_root);
+  g_plugins_dir = fs::path(system_path) / "Resources" / "plugins";
+  g_hooks = std::move(hooks);
+  g_picker = std::make_unique<FolderPicker>();
+  g_armed = true;
+
+  const auto choice = zoal_atc::traffic::choose_csl(
+      configured_csl, zoal_atc::traffic::default_csl_folders(g_plugin_root, g_plugins_dir));
+  if (!choice.skipped.empty()) {
+    log("csl_path " + choice.skipped + "; looking in the usual places");
+  }
+  if (choice.path.empty()) {
+    // Offered in the panel, so the pilot picks rather than hunts.
+    g_csl_found = zoal_atc::traffic::discover_csl_folders(g_plugins_dir);
+    log("no CSL models found (looked in " + (g_plugin_root / "Resources" / "CSL").string() +
+        " and other traffic plugins' folders); traffic is off until one is chosen in the "
+        "panel's Traffic tab (" + std::to_string(g_csl_found.size()) + " found to offer)");
+    g_unavailable = "No CSL models found, so traffic is off. Choose the folder that holds "
+                    "your CSL models below.";
+    return false;
+  }
+  g_csl_configured = choice.configured;
+  return bring_up(choice.path);
+}
+
+void use_csl(const std::string &typed) {
+  g_csl_error.clear();
+  g_csl_notice.clear();
+  if (!g_armed) {
+    return;
+  }
+  const std::string text = zoal_atc::traffic::normalise_user_path(typed, home_dir());
+  if (text.empty()) {
+    g_csl_error = "Type or choose a folder first.";
+    return;
+  }
+  const fs::path folder(text);
+  if (!zoal_atc::traffic::holds_csl(folder)) {
+    g_csl_error = "That folder has no CSL models: there is no xsb_aircraft.txt in it or below it.";
+    return;
+  }
+  std::string why;
+  if (g_hooks.save_csl && !g_hooks.save_csl(folder.string(), &why)) {
+    // Used anyway: only remembering it failed.
+    log("csl_path not saved: " + why);
+    g_csl_notice = "Could not save it for next time: " + why;
+  }
+  if (g_started) {
+    if (folder.string() == g_csl_folder) {
+      g_csl_notice = "These models are already in use.";
+      return;
+    }
+    // XPMP2 adds to what it has; the old folder's models go at the next start.
+    if (const char *err = XPMPLoadCSLPackage(folder.string().c_str()); err && *err) {
+      log(std::string("CSL load reported: ") + err);
+    }
+    log("CSL models added from " + folder.string() + ", now " +
+        std::to_string(XPMPGetNumberOfInstalledModels()));
+    g_csl_folder = folder.string();
+    g_csl_configured = true;
+    if (g_csl_notice.empty()) {
+      g_csl_notice = "Loaded. The previous folder's models stay until X-Plane restarts.";
+    }
+    return;
+  }
+  if (!bring_up(folder)) {
+    g_csl_error = g_unavailable;
+    return;
+  }
+  g_csl_configured = true;
+  if (g_want_enabled) {
+    enable();
+  }
+  // The console sends traffic only to an aircraft that asked for it on the
+  // hello, which this one did not: tell it now.
+  if (g_hooks.started) {
+    g_hooks.started();
+  }
+}
+
+void browse_csl() {
+  g_csl_error.clear();
+  if (g_picker && !g_picker->open("Choose the folder that holds your CSL models")) {
+    g_csl_error = "The folder dialog is already open.";
+  }
+}
+
 void stop() {
+  g_armed = false;
+  g_picker.reset();
   if (!g_started) {
+    if (g_xpmp_ready) {
+      XPMPMultiplayerCleanup();
+      g_xpmp_ready = false;
+    }
     return;
   }
   disable();
   release_camera();
+  traffic_labels::stop();
+  g_own_labels = false;
   g_renderer.reset();
   g_registry.reset();
   XPMPMultiplayerCleanup();
+  g_xpmp_ready = false;
   g_started = false;
 }
 
 void enable() {
+  g_want_enabled = true;
   if (!g_started || g_enabled) {
     return;
   }
@@ -240,15 +390,19 @@ void enable() {
   if (const char *err = XPMPMultiplayerEnable(); err && *err) {
     log(std::string("could not take the AI/TCAS aircraft: ") + err);
   }
-  XPMPEnableAircraftLabels(true);
+  // Our tags replace XPMP2's when the overlay could be made.
+  XPMPEnableAircraftLabels(!g_own_labels);
+  traffic_labels::set_enabled(true);
   g_enabled = true;
 }
 
 void disable() {
+  g_want_enabled = false;
   if (!g_enabled) {
     return;
   }
   release_camera();
+  traffic_labels::set_enabled(false);
   if (g_renderer) {
     g_renderer->remove_all();
   }
@@ -277,6 +431,16 @@ bool offer_frame(const std::string &payload) {
 void disconnected() { g_disconnected.store(true); }
 
 void tick() {
+  // The folder dialog's answer, whether or not traffic is running yet.
+  if (g_picker) {
+    if (auto picked = g_picker->take()) {
+      if (!picked->error.empty()) {
+        g_csl_error = picked->error;
+      } else if (!picked->path.empty()) {
+        use_csl(picked->path);
+      }
+    }
+  }
   if (!g_started || !g_registry || !g_renderer) {
     return;
   }
@@ -294,6 +458,7 @@ void tick() {
   for (const auto &received : inbox) {
     g_renderer->apply(g_registry->apply(received.frame, received.at));
   }
+  traffic_labels::tick();
   if (g_follow_pending) {
     g_follow_pending = false;
     if (!g_followed.empty()) {
@@ -353,21 +518,40 @@ void decorate(telemetry::TelemetrySnapshot &s) {
   }
 }
 
+namespace {
+
+gui::CslStatus csl_status() {
+  gui::CslStatus status;
+  status.missing = g_armed && !g_started;
+  status.folder = g_csl_folder;
+  status.configured = g_csl_configured;
+  status.models = g_started ? static_cast<std::size_t>(XPMPGetNumberOfInstalledModels()) : 0;
+  for (const auto &found : g_csl_found) {
+    status.found.push_back(gui::CslOffer{found.path.string(), found.label});
+  }
+  status.browsing = g_picker && g_picker->busy();
+  status.error = g_csl_error;
+  status.notice = g_csl_notice;
+  return status;
+}
+
+} // namespace
+
+void rescan_csl() {
+  if (g_armed) {
+    g_csl_found = zoal_atc::traffic::discover_csl_folders(g_plugins_dir);
+  }
+}
+
 gui::TrafficPanel panel(gui::TrafficFilter filter) {
   if (!g_started || !g_registry) {
     gui::TrafficPanel off;
     off.unavailable = g_unavailable;
+    off.csl = csl_status();
     return off;
   }
-  zoal_atc::traffic::OwnPosition own;
-  if (g_refs.latitude && g_refs.longitude && g_refs.elevation) {
-    own.lat_deg = XPLMGetDatad(g_refs.latitude);
-    own.lon_deg = XPLMGetDatad(g_refs.longitude);
-    own.alt_ft_msl = XPLMGetDatad(g_refs.elevation) * kFeetPerMetre;
-    own.valid = true;
-  }
-  const auto picture =
-      zoal_atc::traffic::nearby(*g_registry, zoal_atc::traffic::monotonic_seconds(), own);
+  const auto picture = zoal_atc::traffic::nearby(
+      *g_registry, zoal_atc::traffic::monotonic_seconds(), own_position());
   // The camera lets go on its own (a view key, a track that left); the tab
   // shows that, not the last press.
   if (!g_followed.empty() && !g_follow_pending && !XPLMIsCameraBeingControlled(nullptr)) {
@@ -375,6 +559,7 @@ gui::TrafficPanel panel(gui::TrafficFilter filter) {
   }
   auto out = gui::traffic_panel(picture, filter, g_tracked, g_followed);
   out.chase_distance_m = g_chase.distance_m;
+  out.csl = csl_status();
   return out;
 }
 
