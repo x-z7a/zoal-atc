@@ -13,4 +13,11 @@ node_modules/
 *.xpl
 
 gui/zoal-atc/dist
-.qwen-offload/
+# Local qwen offload specs and logs.
+/.qwen-offload/
+
+# Shared with ~/git/zoal-atc as symlinks in this checkout.
+/.cache
+/sdk
+/vendor
+*.swp

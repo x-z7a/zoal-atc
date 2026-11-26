@@ -52,6 +52,10 @@ add_library(zoal_atc_core STATIC
     src/transport/speech_text.cpp
     src/transport/websocket_client.cpp
     src/weather/metar.cpp
+    src/traffic/clock_sync.cpp
+    src/traffic/track_smoother.cpp
+    src/traffic/traffic_frame.cpp
+    src/traffic/traffic_registry.cpp
 )
 
 target_include_directories(zoal_atc_core
@@ -163,7 +167,13 @@ if(ZOAL_ATC_BUILD_PLUGIN)
         src/xplane/imgui_window.cpp
         src/xplane/panel_window.cpp
         src/xplane/xplane_plugin.cpp
+        src/xplane/traffic_layer.cpp
+        src/xplane/traffic_renderer.cpp
     )
+
+    # Other pilots and the console's AI aircraft are drawn with XPMP2.
+    include(cmake/XPMP2.cmake)
+    target_link_libraries(zoal_atc PRIVATE xpmp2)
 
     target_link_libraries(zoal_atc PRIVATE zoal_atc_ui)
 
@@ -367,4 +377,12 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_i18n_tests tests/i18n_test.cpp)
     zoal_atc_add_test(zoal_atc_logbook_tests tests/logbook_test.cpp)
     zoal_atc_add_test(zoal_atc_display_numbers_tests tests/display_numbers_test.cpp)
+    zoal_atc_add_test(zoal_atc_traffic_frame_tests tests/traffic_frame_wire_test.cpp)
+    zoal_atc_add_test(zoal_atc_track_smoother_tests tests/track_smoother_test.cpp)
+    zoal_atc_add_test(zoal_atc_track_smoother_accuracy_tests tests/track_smoother_accuracy_test.cpp)
+    zoal_atc_add_test(zoal_atc_traffic_registry_tests tests/traffic_registry_test.cpp)
+
+    # Headless traffic client: runs the traffic core against a console.
+    add_executable(traffic_probe tools/traffic_probe.cpp)
+    target_link_libraries(traffic_probe PRIVATE zoal_atc_core)
 endif()

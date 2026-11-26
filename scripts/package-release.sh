@@ -40,6 +40,16 @@ for runtime in sherpa-onnx-c-api.dll onnxruntime.dll onnxruntime_providers_share
   fi
 done
 
+# XPMP2's resources (aircraft type table, model matching, map icons) for the
+# traffic layer, from the XPMP2 checkout the plugin build fetched. CSL models
+# are not shipped: the plugin uses an installed package (IVAO, LiveTraffic,
+# xPilot) or Resources/CSL.
+xpmp2_resources="${plugin_build_dir}/_deps/xpmp2_src-src/Resources"
+if [ -d "${xpmp2_resources}" ]; then
+  cmake -E make_directory "${release_dir}/Resources/xpmp2"
+  cmake -E copy_directory "${xpmp2_resources}" "${release_dir}/Resources/xpmp2"
+fi
+
 models_dir="${ZOAL_ATC_MODELS:-${repo_root}/.cache/models}"
 "${repo_root}/scripts/ensure-models.sh"
 cmake -E make_directory "${release_dir}/models"

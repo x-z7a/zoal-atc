@@ -19,6 +19,7 @@
 #include "zoal_atc/weather/metar.hpp"
 #include "hud_window.hpp"
 #include "panel_window.hpp"
+#include "traffic_layer.hpp"
 
 #include <XPLMDataAccess.h>
 #include <XPLMNavigation.h>
@@ -1200,6 +1201,7 @@ void reply_receiver_loop() {
       // Settle whatever the panel was waiting on rather than leave it spinning
       // on a link that is gone.
       g_gui_bridge.set_connected(false, monotonic_ms());
+      zoal_atc::xplane::traffic_layer::disconnected();
       std::this_thread::sleep_for(std::chrono::seconds(1));
       continue;
     }
@@ -1216,6 +1218,9 @@ void reply_receiver_loop() {
     // GUI frames are queued, never delivered from here: the panel and the HUD
     // are drawn on the main thread and this is not it.
     if (g_gui_bridge.on_socket_frame(payload, monotonic_ms())) {
+      continue;
+    }
+    if (zoal_atc::xplane::traffic_layer::offer_frame(payload)) {
       continue;
     }
     if (auto context = zoal_atc::stt::parse_stt_context(payload)) {
@@ -1794,6 +1799,7 @@ TelemetrySnapshot sample_telemetry() {
   s.traffic_status = traffic.status;
   s.traffic_truncated = traffic.truncated;
   s.traffic_census = traffic.census;
+  zoal_atc::xplane::traffic_layer::decorate(s);
   return s;
 }
 
@@ -2152,6 +2158,7 @@ float flight_loop_callback(float, float, int, void *) {
   }
   process_gui_bridge();
   process_atc_replies();
+  zoal_atc::xplane::traffic_layer::tick();
 
   const double now_secs = read_f(g_datarefs.total_running_time_sec);
   check_nearest_airport(now_secs);
@@ -2255,6 +2262,13 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
                "; the console cannot hear this aircraft. Reinstall the plugin.");
     }
 
+    // Other pilots and the console's AI aircraft, drawn with XPMP2. Declared
+    // only when there are CSL models to draw them with.
+    if (zoal_atc::xplane::traffic_layer::start(
+            zoal_atc::gui::plugin_root_from_binary_path(binary), std::string(system_path))) {
+      endpoint.capabilities.push_back("traffic_v1");
+    }
+
     const std::string voices = zoal_atc::gui::join_path(models, kTtsModelName);
     if (zoal_atc::tts::KokoroSynthesizer::installed(voices)) {
       // The catalogue is made here, before the hello, because the hello is
@@ -2350,6 +2364,7 @@ PLUGIN_API void XPluginStop() {
   g_own_calls.clear();
   g_gui_bridge.hold_controller_log(false);
   stop_reply_receiver();
+  zoal_atc::xplane::traffic_layer::stop(); // after the receiver: nothing offers frames now
   g_synthesis.reset(); // joins the synthesis thread
   g_transport_sink.reset(); // joins the transcription thread first
   g_transcriber.reset();
@@ -2361,9 +2376,12 @@ PLUGIN_API void XPluginStop() {
   log_line("plugin stopped");
 }
 
-PLUGIN_API int XPluginEnable() { return 1; }
+PLUGIN_API int XPluginEnable() {
+  zoal_atc::xplane::traffic_layer::enable();
+  return 1;
+}
 
-PLUGIN_API void XPluginDisable() {}
+PLUGIN_API void XPluginDisable() { zoal_atc::xplane::traffic_layer::disable(); }
 
 PLUGIN_API void XPluginReceiveMessage(XPLMPluginID in_from, int message,
                                       void *param) {
