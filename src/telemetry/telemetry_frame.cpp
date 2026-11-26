@@ -64,38 +64,11 @@ std::string build_telemetry_frame(const TelemetrySnapshot &s,
     out << ",\"selected_heading_deg\":" << json_number(s.selected_heading_deg);
   }
 
-  // The traffic block is always present, including its status, because an
-  // absent block and an empty sky are different claims and only the plugin can
-  // tell them apart (docs/phase21/02-the-feed.md).
-  out << ",\"traffic_status\":\"" << traffic_status_name(s.traffic_status)
-      << "\""
-      << ",\"traffic_truncated\":" << (s.traffic_truncated ? "true" : "false")
-      // The census: what the sim had, against what this frame carries. A
-      // console that can only see the survivors cannot tell a bound doing its
-      // job from a feed that has stopped working.
-      << ",\"traffic_reported\":" << s.traffic_census.reported
-      << ",\"traffic_seen\":" << s.traffic_census.seen
-      << ",\"traffic_dropped_range\":" << s.traffic_census.dropped_range
-      << ",\"traffic_dropped_vertical\":" << s.traffic_census.dropped_vertical
-      << ",\"traffic_dropped_cap\":" << s.traffic_census.dropped_cap
-      << ",\"traffic\":[";
-  for (std::size_t i = 0; i < s.traffic.size(); ++i) {
-    const TrafficTarget &t = s.traffic[i];
-    if (i > 0) {
-      out << ',';
-    }
-    out << "{\"id\":" << t.id << ",\"callsign\":\"" << json_escape(t.callsign)
-        << "\",\"icao_type\":\"" << json_escape(t.icao_type) << "\""
-        << ",\"lat_deg\":" << json_number(t.lat_deg)
-        << ",\"lon_deg\":" << json_number(t.lon_deg)
-        << ",\"alt_ft_msl\":" << json_number(t.alt_ft_msl)
-        << ",\"groundspeed_kts\":" << json_number(t.groundspeed_kts)
-        << ",\"vertical_speed_fpm\":" << json_number(t.vertical_speed_fpm)
-        << ",\"track_deg\":" << json_number(t.track_deg)
-        << ",\"heading_deg\":" << json_number(t.heading_deg)
-        << ",\"on_ground\":" << (t.on_ground ? "true" : "false") << '}';
-  }
-  out << ']';
+  // This aircraft reports no traffic: everything near it is another pilot or
+  // an aircraft the console flies (ownship_identity.hpp). The block stays,
+  // empty and marked unavailable, because a console that predates this reads
+  // its status, and an absent block and an empty sky are different claims.
+  out << ",\"traffic_status\":\"unavailable\",\"traffic_truncated\":false,\"traffic\":[]";
 
   out << ",\"paused\":" << (s.paused ? "true" : "false")
       << ",\"now_secs\":" << json_number(s.now_secs);

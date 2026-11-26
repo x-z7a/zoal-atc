@@ -1,7 +1,7 @@
 #ifndef ZOAL_ATC_TELEMETRY_TELEMETRY_FRAME_HPP
 #define ZOAL_ATC_TELEMETRY_TELEMETRY_FRAME_HPP
 
-#include "zoal_atc/telemetry/traffic.hpp"
+#include "zoal_atc/telemetry/ownship_identity.hpp"
 
 #include <cstdint>
 #include <string>
@@ -86,15 +86,6 @@ struct TelemetrySnapshot {
   double baro_setting_inhg = 0;
   bool has_selected_heading = false;
   double selected_heading_deg = 0;
-
-  // Traffic (phase21). The bounded surveillance picture; `traffic_status` is
-  // what lets the console tell an empty sky from a missing feed, so it is sent
-  // on every frame even when the list is empty.
-  std::vector<TrafficTarget> traffic;
-  TrafficStatus traffic_status = TrafficStatus::unavailable;
-  bool traffic_truncated = false;
-  // What the sim had, against what this frame carries.
-  TrafficCensus traffic_census;
 
   // What other pilots need to draw this aircraft (traffic_v1, see
   // docs/traffic-protocol.md). Sent only when has_render is set, so a console

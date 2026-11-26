@@ -1317,35 +1317,11 @@ struct TelemetryDatarefs {
   XPLMDataRef paused = nullptr;
   XPLMDataRef total_running_time_sec = nullptr;
 
-  // TCAS traffic (phase21). tcas_num_acf stays null when neither spelling of
-  // the count dataref resolves; traffic_resolved() is what turns that into an
-  // explicit "no picture" rather than zero aircraft.
-  XPLMDataRef tcas_num_acf = nullptr;
+  // Slot 0 of the TCAS arrays: this aircraft's own Mode S id, callsign and
+  // type (ownship_identity.hpp). No other slot is read.
   XPLMDataRef tcas_modeS_id = nullptr;
-  XPLMDataRef tcas_lat = nullptr;
-  XPLMDataRef tcas_lon = nullptr;
-  XPLMDataRef tcas_ele = nullptr;
-  XPLMDataRef tcas_vertical_speed = nullptr;
-  XPLMDataRef tcas_hpath = nullptr;
-  XPLMDataRef tcas_psi = nullptr;
-  XPLMDataRef tcas_v_msc = nullptr;
-  XPLMDataRef tcas_weight_on_wheels = nullptr;
-  // Local OpenGL position of each target, which is what the terrain probe
-  // takes. Optional: without them on-ground falls back to the TCAS flag.
-  XPLMDataRef tcas_x = nullptr;
-  XPLMDataRef tcas_y = nullptr;
-  XPLMDataRef tcas_z = nullptr;
   XPLMDataRef tcas_flight_id = nullptr;
   XPLMDataRef tcas_icao_type = nullptr;
-
-  // traffic_resolved reports whether the feed can be read at all. The position
-  // arrays plus the count are the minimum: without them there is no picture,
-  // and reporting zero aircraft for a dataref that does not exist is the exact
-  // failure phase21 exists to prevent (docs/phase21/02-the-feed.md).
-  bool traffic_resolved() const {
-    return tcas_num_acf != nullptr && tcas_lat != nullptr &&
-           tcas_lon != nullptr && tcas_ele != nullptr;
-  }
 
   void resolve() {
     latitude = XPLMFindDataRef("sim/flightmodel/position/latitude");
@@ -1398,38 +1374,9 @@ struct TelemetryDatarefs {
     total_running_time_sec =
         XPLMFindDataRef("sim/time/total_running_time_sec");
 
-    // The count dataref is documented by X-Plane with a typo — "tacos", not
-    // "tcas" — and which spelling the sim actually registers varies. Try the
-    // correct one first, then the documented misspelling. If neither resolves,
-    // traffic_resolved() is false and the console is told `unavailable`; an
-    // unresolved dataref must never read as an empty sky.
-    tcas_num_acf = XPLMFindDataRef("sim/cockpit2/tcas/indicators/tcas_num_acf");
-    if (tcas_num_acf == nullptr) {
-      tcas_num_acf =
-          XPLMFindDataRef("sim/cockpit2/tacos/indicators/tcas_num_acf");
-      if (tcas_num_acf != nullptr) {
-        log_line("traffic: count dataref resolved via the `tacos` spelling");
-      }
-    }
     tcas_modeS_id = XPLMFindDataRef("sim/cockpit2/tcas/targets/modeS_id");
-    tcas_lat = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/lat");
-    tcas_lon = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/lon");
-    tcas_ele = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/ele");
-    tcas_vertical_speed =
-        XPLMFindDataRef("sim/cockpit2/tcas/targets/position/vertical_speed");
-    tcas_hpath = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/hpath");
-    tcas_psi = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/psi");
-    tcas_v_msc = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/V_msc");
-    tcas_weight_on_wheels = XPLMFindDataRef(
-        "sim/cockpit2/tcas/targets/position/weight_on_wheels");
-    tcas_x = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/x");
-    tcas_y = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/y");
-    tcas_z = XPLMFindDataRef("sim/cockpit2/tcas/targets/position/z");
     tcas_flight_id = XPLMFindDataRef("sim/cockpit2/tcas/targets/flight_id");
     tcas_icao_type = XPLMFindDataRef("sim/cockpit2/tcas/targets/icao_type");
-    if (!traffic_resolved()) {
-      log_line("traffic: TCAS datarefs unavailable — reporting no picture");
-    }
   }
 };
 
@@ -1594,65 +1541,10 @@ void lowest_cloud_layer(int &type_out, double &base_ft_out) {
   }
 }
 
-// --- Traffic sampling (phase21) ---------------------------------------------
+// --- Slot 0 of the TCAS arrays: who this aircraft is ----------------------
 
 // Bulk array reads: one XPLM call per dataref per sample, never a lookup per
-// target. A null dataref yields an empty vector, which extract_targets treats
-// as "field absent" and degrades on.
-XPLMProbeRef g_terrain_probe = nullptr;
-
-// Height of each populated TCAS target above the terrain under it, in metres.
-// X-Plane's TCAS weight_on_wheels is not reliable for every kind of traffic —
-// at Montreal a 787 read on the ground at 2,900 ft and 390 kt — and height
-// above the terrain is the measurement on-ground means. NaN where it cannot be
-// measured, which leaves the decision to the flag.
-std::vector<float> read_array_f(XPLMDataRef ref, int count) {
-  if (ref == nullptr) {
-    return {};
-  }
-  std::vector<float> out(static_cast<std::size_t>(count), 0.f);
-  const int got = XPLMGetDatavf(ref, out.data(), 0, count);
-  out.resize(static_cast<std::size_t>(got < 0 ? 0 : got));
-  return out;
-}
-
-std::vector<float> read_heights_agl(const std::vector<float> &lat,
-                                    const std::vector<float> &lon, int count) {
-  const float unknown = std::numeric_limits<float>::quiet_NaN();
-  if (g_datarefs.tcas_x == nullptr || g_datarefs.tcas_y == nullptr ||
-      g_datarefs.tcas_z == nullptr) {
-    return {};
-  }
-  const std::vector<float> xs = read_array_f(g_datarefs.tcas_x, count);
-  const std::vector<float> ys = read_array_f(g_datarefs.tcas_y, count);
-  const std::vector<float> zs = read_array_f(g_datarefs.tcas_z, count);
-  if (g_terrain_probe == nullptr) {
-    g_terrain_probe = XPLMCreateProbe(xplm_ProbeY);
-  }
-  std::vector<float> heights(static_cast<std::size_t>(count), unknown);
-  for (int i = 1; i < count; ++i) {
-    const auto slot = static_cast<std::size_t>(i);
-    if (slot >= xs.size() || slot >= ys.size() || slot >= zs.size()) {
-      break;
-    }
-    // Only populated slots: an empty one sits at the origin, and probing it
-    // costs a terrain query for nothing.
-    const bool populated = (slot < lat.size() && lat[slot] != 0.f) ||
-                           (slot < lon.size() && lon[slot] != 0.f);
-    if (!populated) {
-      continue;
-    }
-    XPLMProbeInfo_t info{};
-    info.structSize = sizeof(info);
-    if (XPLMProbeTerrainXYZ(g_terrain_probe, xs[slot], ys[slot], zs[slot],
-                            &info) != xplm_ProbeHitTerrain) {
-      continue;
-    }
-    heights[slot] = ys[slot] - info.locationY;
-  }
-  return heights;
-}
-
+// target. A null dataref yields an empty vector, read as "field absent".
 std::vector<std::int32_t> read_array_i(XPLMDataRef ref, int count) {
   if (ref == nullptr) {
     return {};
@@ -1677,54 +1569,6 @@ std::vector<char> read_array_b(XPLMDataRef ref, int count) {
 // the 5 Hz surface profile it is decimated to ~2 Hz (docs/data-sources.md's
 // separate traffic column) and the previous extract is reused in between.
 //
-// Main-thread only: sample_telemetry runs on the flight loop, so these need no
-// lock. Ownship and traffic still ride the same frame, which keeps the two
-// mutually consistent — closure rate is derived from both.
-constexpr double kTrafficMinIntervalSecs = 0.5;
-zoal_atc::telemetry::TrafficExtract g_last_traffic;
-double g_last_traffic_secs = 0.0;
-bool g_has_traffic_sample = false;
-
-zoal_atc::telemetry::TrafficExtract sample_traffic(const TelemetrySnapshot &own,
-                                                   double now_secs) {
-  namespace tel = zoal_atc::telemetry;
-  if (g_has_traffic_sample &&
-      now_secs - g_last_traffic_secs < kTrafficMinIntervalSecs &&
-      now_secs >= g_last_traffic_secs) {
-    return g_last_traffic;
-  }
-
-  tel::TrafficArrays arrays;
-  const int n = tel::kTcasSlots;
-  arrays.modeS_id = read_array_i(g_datarefs.tcas_modeS_id, n);
-  arrays.lat = read_array_f(g_datarefs.tcas_lat, n);
-  arrays.lon = read_array_f(g_datarefs.tcas_lon, n);
-  arrays.ele_m = read_array_f(g_datarefs.tcas_ele, n);
-  arrays.vertical_speed_fpm = read_array_f(g_datarefs.tcas_vertical_speed, n);
-  arrays.hpath_deg = read_array_f(g_datarefs.tcas_hpath, n);
-  arrays.psi_deg = read_array_f(g_datarefs.tcas_psi, n);
-  arrays.v_msc = read_array_f(g_datarefs.tcas_v_msc, n);
-  arrays.weight_on_wheels = read_array_i(g_datarefs.tcas_weight_on_wheels, n);
-  arrays.height_agl_m = read_heights_agl(arrays.lat, arrays.lon, n);
-  arrays.flight_id =
-      read_array_b(g_datarefs.tcas_flight_id, n * tel::kTcasStringSlotWidth);
-  arrays.icao_type =
-      read_array_b(g_datarefs.tcas_icao_type, n * tel::kTcasStringSlotWidth);
-
-  tel::OwnPosition own_pos;
-  own_pos.lat_deg = own.latitude_deg;
-  own_pos.lon_deg = own.longitude_deg;
-  own_pos.alt_ft_msl = own.altitude_ft_msl;
-
-  const int num_acf = read_i(g_datarefs.tcas_num_acf);
-  g_last_traffic = tel::extract_targets(arrays, num_acf, own_pos,
-                                        tel::TrafficBounds{},
-                                        g_datarefs.traffic_resolved());
-  g_last_traffic_secs = now_secs;
-  g_has_traffic_sample = true;
-  return g_last_traffic;
-}
-
 TelemetrySnapshot sample_telemetry() {
   namespace tel = zoal_atc::telemetry;
   TelemetrySnapshot s;
@@ -1786,19 +1630,19 @@ TelemetrySnapshot sample_telemetry() {
   s.paused = read_i(g_datarefs.paused) != 0;
   s.now_secs = read_f(g_datarefs.total_running_time_sec);
 
-  const tel::TrafficExtract traffic = sample_traffic(s, s.now_secs);
+  const std::vector<std::int32_t> mode_s = read_array_i(g_datarefs.tcas_modeS_id, 1);
+  const tel::AircraftIdentity ownship = tel::ownship_identity(
+      mode_s.empty() ? 0 : mode_s[0],
+      read_array_b(g_datarefs.tcas_flight_id, tel::kTcasStringSlotWidth),
+      read_array_b(g_datarefs.tcas_icao_type, tel::kTcasStringSlotWidth));
   // The last callsign slot 0 held, while it holds none (held_callsign).
   static std::string last_callsign;
-  s.callsign = tel::held_callsign(traffic.ownship.callsign, last_callsign);
+  s.callsign = tel::held_callsign(ownship.callsign, last_callsign);
   if (g_logbook) {
     g_logbook->set_callsign(s.callsign);
   }
-  s.icao_type = traffic.ownship.icao_type;
-  s.mode_s_id = traffic.ownship.mode_s_id;
-  s.traffic = traffic.targets;
-  s.traffic_status = traffic.status;
-  s.traffic_truncated = traffic.truncated;
-  s.traffic_census = traffic.census;
+  s.icao_type = ownship.icao_type;
+  s.mode_s_id = ownship.mode_s_id;
   zoal_atc::xplane::traffic_layer::decorate(s);
   return s;
 }
@@ -2361,10 +2205,6 @@ PLUGIN_API void XPluginStop() {
   zoal_atc::xplane::stop_hud();
   zoal_atc::xplane::stop_panel();
 
-  if (g_terrain_probe) {
-    XPLMDestroyProbe(g_terrain_probe);
-    g_terrain_probe = nullptr;
-  }
 
   if (g_flight_loop) {
     XPLMDestroyFlightLoop(g_flight_loop);

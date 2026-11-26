@@ -44,7 +44,7 @@ add_library(zoal_atc_core STATIC
     src/gui/i18n.cpp
     src/gui/logbook.cpp
     src/telemetry/telemetry_frame.cpp
-    src/telemetry/traffic.cpp
+    src/telemetry/ownship_identity.cpp
     src/transport/async_websocket_ptt_sink.cpp
     src/transport/base64.cpp
     src/transport/endpoint_config.cpp
@@ -367,7 +367,7 @@ if(ZOAL_ATC_BUILD_TESTS)
 
     zoal_atc_add_test(zoal_atc_tests tests/push_to_talk_controller_test.cpp)
     zoal_atc_add_test(zoal_atc_telemetry_tests tests/telemetry_frame_test.cpp)
-    zoal_atc_add_test(zoal_atc_traffic_tests tests/traffic_test.cpp)
+    zoal_atc_add_test(zoal_atc_ownship_identity_tests tests/ownship_identity_test.cpp)
     zoal_atc_add_test(zoal_atc_metar_tests tests/metar_test.cpp)
     zoal_atc_add_test(zoal_atc_speech_text_tests tests/speech_text_test.cpp)
     zoal_atc_add_test(zoal_atc_endpoint_config_tests tests/endpoint_config_test.cpp)
