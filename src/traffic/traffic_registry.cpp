@@ -16,7 +16,8 @@ TrafficRegistry::Changes TrafficRegistry::apply(const TrafficFrame &frame,
     }
     auto found = tracks_.find(who.id);
     if (found == tracks_.end()) {
-      Track track{who, TrackSmoother(config_.smoother), local_time_s};
+      Track track{who, TrackSmoother(config_.smoother), local_time_s,
+                  target.render_delay_s};
       track.smoother.add(target.sample);
       tracks_.emplace(who.id, std::move(track));
       changes.added.push_back(who);
@@ -29,6 +30,9 @@ TrafficRegistry::Changes TrafficRegistry::apply(const TrafficFrame &frame,
       changes.relabelled.push_back(who);
     }
     track.identity = who;
+    if (target.render_delay_s) {
+      track.render_delay_s = target.render_delay_s;
+    }
     track.smoother.add(target.sample);
     track.last_heard_local_s = local_time_s;
   }
@@ -43,14 +47,13 @@ TrafficRegistry::Changes TrafficRegistry::apply(const TrafficFrame &frame,
 
 TrafficRegistry::Changes TrafficRegistry::expire(double local_time_s) {
   Changes changes;
-  const double render = render_time(local_time_s);
   for (auto it = tracks_.begin(); it != tracks_.end();) {
     if (local_time_s - it->second.last_heard_local_s > config_.stale_after_s) {
       changes.removed.push_back(it->first);
       it = tracks_.erase(it);
       continue;
     }
-    it->second.smoother.prune_before(render);
+    it->second.smoother.prune_before(render_time(it->second, local_time_s));
     ++it;
   }
   return changes;
@@ -60,13 +63,20 @@ double TrafficRegistry::render_time(double local_time_s) const {
   return clock_.server_time(local_time_s) - config_.interpolation_delay_s;
 }
 
+double TrafficRegistry::render_time(const Track &track,
+                                    double local_time_s) const {
+  return clock_.server_time(local_time_s) -
+         track.render_delay_s.value_or(config_.interpolation_delay_s);
+}
+
 std::optional<Sample> TrafficRegistry::state(const std::string &id,
                                              double local_time_s) const {
   auto found = tracks_.find(id);
   if (found == tracks_.end() || !clock_.synced()) {
     return std::nullopt;
   }
-  return found->second.smoother.evaluate(render_time(local_time_s));
+  return found->second.smoother.evaluate(
+      render_time(found->second, local_time_s));
 }
 
 void TrafficRegistry::for_each(

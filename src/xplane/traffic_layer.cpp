@@ -500,22 +500,6 @@ void decorate(telemetry::TelemetrySnapshot &s) {
     const auto slash = livery.find_last_of("/\\");
     s.livery = slash == std::string::npos ? livery : livery.substr(slash + 1);
   }
-
-  // Echo suppression: what we inject shows up on our own TCAS. Reporting it
-  // would tell the console its own AI aircraft (and other pilots) are
-  // unknown non-participants.
-  if (g_renderer && g_renderer->size() > 0) {
-    const auto injected = g_renderer->mode_s_ids();
-    auto &targets = s.traffic;
-    const auto before = targets.size();
-    targets.erase(std::remove_if(targets.begin(), targets.end(),
-                                 [&](const telemetry::TrafficTarget &t) {
-                                   return t.id != 0 &&
-                                          injected.count(static_cast<std::uint32_t>(t.id)) > 0;
-                                 }),
-                  targets.end());
-    s.traffic_census.seen -= static_cast<int>(before - targets.size());
-  }
 }
 
 namespace {
