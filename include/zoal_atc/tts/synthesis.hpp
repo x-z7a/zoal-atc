@@ -64,10 +64,25 @@ int receiving_com(std::uint64_t channel_hz, std::uint64_t com1_hz,
 // A short trailing fragment is kept with the sentence before it.
 std::vector<std::string> sentences(const std::string &text);
 
+// RadioShape is the band a radio passes and how hard it drives the speech
+// through its compression.
+struct RadioShape {
+  double low_hz;
+  double high_hz;
+  double drive;
+};
+
+// kReceiver is a controller heard on a VHF receiver: 300 to 3,000 Hz.
+inline constexpr RadioShape kReceiver{300.0, 3000.0, 2.5};
+// kCockpitTransmitter is another aircraft heard on it: a boom microphone in a
+// loud cockpit, keyed through the aircraft's own transmitter, which is
+// narrower and driven harder than a ground station's.
+inline constexpr RadioShape kCockpitTransmitter{450.0, 2400.0, 4.0};
+
 // radio shapes speech into what comes out of a VHF receiver: the band a radio
-// passes, 300 to 3,000 Hz, and a little compression so the quiet syllables
-// are not lost under the engine. Applied in place.
-void radio(Audio &audio);
+// passes, and a little compression so the quiet syllables are not lost under
+// the engine. Applied in place.
+void radio(Audio &audio, const RadioShape &shape = kReceiver);
 
 // Reading is one stretch of a sentence and the language it is read in.
 struct Reading {
@@ -132,10 +147,11 @@ public:
   SynthesisQueue &operator=(const SynthesisQueue &) = delete;
 
   // submit queues text to be said in the console's voice, read as language
-  // (empty is English). Urgent speech is synthesised ahead of anything
-  // waiting.
+  // (empty is English), through a radio of that shape. Urgent speech is
+  // synthesised ahead of anything waiting.
   std::shared_ptr<Speech> submit(const std::string &text, std::uint64_t voice,
-                                 bool urgent, const std::string &language = "");
+                                 bool urgent, const std::string &language = "",
+                                 const RadioShape &shape = kReceiver);
 
   // shared returns sentence audio that outlives the Speech, for a player that
   // must keep a buffer alive until the mixer lets go of it.
@@ -148,6 +164,7 @@ private:
     int speaker = 0;
     bool urgent = false;
     std::string language;
+    RadioShape shape = kReceiver;
     std::shared_ptr<Speech> speech;
   };
 
