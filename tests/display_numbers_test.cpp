@@ -81,6 +81,38 @@ int main() {
   expect("thousand feet", "thousand feet");
   expect("mil gracias", "mil gracias");
 
+  // Tens and teens, alone, hyphenated, and inside a group ("two fifty-two").
+  expect("Air Canada two fifty-two, cleared to Toronto Lester B Pearson Intl "
+         "airport, CYOW four departure as filed, climb and maintain one two "
+         "thousand, expect flight level three zero zero, one zero minutes after "
+         "departure, departure frequency one two eight point one seven five, "
+         "squawk one five one two.",
+         "Air Canada 252, cleared to Toronto Lester B Pearson Intl airport, CYOW4 "
+         "departure as filed, climb and maintain 12000, expect flight level 300, "
+         "10 minutes after departure, departure frequency 128.175, squawk 1512.");
+  expect("Air Canada two fifty-two", "Air Canada 252");
+  expect("Delta Fifty-Two", "Delta 52");
+  expect("ten minutes", "10 minutes");
+  expect("eleven thousand", "11000");
+  expect("twenty-five hundred", "2500");
+  expect("one twenty one point five", "121.5");
+  expect("one twenty-five point three", "125.3");
+  expect("two, fifty", "two, 50");
+  expect("fifty-fifty", "fifty-fifty");
+  expect("one twenty zero", "1200");
+
+  // A SID or STAR: the digit is written onto an all-capitals name.
+  expect("CYOW four departure", "CYOW4 departure");
+  expect("CYOW Four departure", "CYOW4 departure");
+  expect("descend via the BOXUM five arrival", "descend via the BOXUM5 arrival");
+  expect("IMEBE three arrival, runway two three", "IMEBE3 arrival, runway 23");
+  expect("Boxum five arrival", "Boxum 5 arrival");
+  expect("llegada BOXUM cinco, pista dos tres", "llegada BOXUM5, pista 23");
+  expect("salida CYOW cuatro", "salida CYOW4");
+  expect("arriv\xc3\xa9" "e BOXUM cinq", "arriv\xc3\xa9" "e BOXUM5");
+  expect("after departure two", "after departure two");
+  expect("CYOW four, departure", "CYOW four, departure");
+
   // Everything else is copied byte for byte.
   expect("", "");
   expect("  roger   wilco  ", "  roger   wilco  ");
