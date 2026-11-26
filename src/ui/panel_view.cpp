@@ -1,5 +1,6 @@
 #include "panel_view.hpp"
 
+#include "zoal_atc/gui/display_numbers.hpp"
 #include "zoal_atc/gui/i18n.hpp"
 #include "zoal_atc/tts/voice_catalogue.hpp"
 
@@ -662,7 +663,7 @@ Bubble measure_bubble(const Ui &ui, const HudEntry &entry,
                                              : tr("to ") + entry.addressed_to);
   }
   const float px = ui.css(kBubblePx);
-  b.lines = wrap_lines(ui.face.regular, px, entry.text,
+  b.lines = wrap_lines(ui.face.regular, px, gui::display_numbers(entry.text),
                        max_width - kBubblePadX * 2.0f);
   float words = 0.0f;
   for (const std::string &line : b.lines) {
