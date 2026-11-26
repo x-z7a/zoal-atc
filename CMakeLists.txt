@@ -56,6 +56,8 @@ add_library(zoal_atc_core STATIC
     src/traffic/track_smoother.cpp
     src/traffic/traffic_frame.cpp
     src/traffic/traffic_registry.cpp
+    src/traffic/traffic_picture.cpp
+    src/gui/traffic_panel.cpp
 )
 
 target_include_directories(zoal_atc_core
@@ -381,6 +383,8 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_track_smoother_tests tests/track_smoother_test.cpp)
     zoal_atc_add_test(zoal_atc_track_smoother_accuracy_tests tests/track_smoother_accuracy_test.cpp)
     zoal_atc_add_test(zoal_atc_traffic_registry_tests tests/traffic_registry_test.cpp)
+    zoal_atc_add_test(zoal_atc_traffic_picture_tests tests/traffic_picture_test.cpp)
+    zoal_atc_add_test(zoal_atc_traffic_panel_tests tests/traffic_panel_test.cpp)
 
     # Headless traffic client: runs the traffic core against a console.
     add_executable(traffic_probe tools/traffic_probe.cpp)

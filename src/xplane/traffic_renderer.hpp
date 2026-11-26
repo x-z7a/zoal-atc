@@ -24,6 +24,10 @@ public:
   void apply(const traffic::TrafficRegistry::Changes &changes);
   void remove_all();
 
+  // The aircraft the panel tracks, labelled in its own colour; "" for none.
+  // Kept across removal, so a track that comes back is still marked.
+  void set_tracked(const std::string &id);
+
   [[nodiscard]] std::size_t size() const { return aircraft_.size(); }
 
   // The 24-bit addresses XPMP2 publishes our aircraft under on TCAS.
@@ -32,6 +36,7 @@ public:
 private:
   const traffic::TrafficRegistry &registry_;
   std::map<std::string, std::unique_ptr<ConsoleAircraft>> aircraft_;
+  std::string tracked_;
 };
 
 } // namespace zoal_atc::xplane

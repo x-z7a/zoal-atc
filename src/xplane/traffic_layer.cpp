@@ -4,15 +4,19 @@
 
 #include "zoal_atc/traffic/clock_sync.hpp"
 #include "zoal_atc/traffic/traffic_frame.hpp"
+#include "zoal_atc/traffic/traffic_picture.hpp"
 #include "zoal_atc/traffic/traffic_registry.hpp"
 #include "zoal_atc/transport/bounded_queue.hpp"
 
+#include "XPLMCamera.h"
 #include "XPLMDataAccess.h"
+#include "XPLMGraphics.h"
 #include "XPLMUtilities.h"
 #include "XPMPMultiplayer.h"
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -47,8 +51,23 @@ std::atomic<bool> g_disconnected{false};
 struct RenderRefs {
   XPLMDataRef hpath, theta, phi, gear, flaps, speedbrake, throttle;
   XPLMDataRef nav, beacon, strobe, taxi, landing, livery;
+  XPLMDataRef latitude, longitude, elevation;
 };
 RenderRefs g_refs{};
+
+// Why there is nothing to draw, for the panel; empty once started.
+std::string g_unavailable = "Traffic has not started.";
+
+// The panel's choices. Held here, not in the panel, because the renderer
+// colours the tracked label and the camera callback chases the followed one.
+std::string g_tracked;
+std::string g_followed;
+// Follow was pressed: the view is switched first and the camera taken on the
+// next tick, so the view change does not take it straight back.
+bool g_follow_pending = false;
+zoal_atc::traffic::ChaseOffset g_chase;
+
+constexpr double kFeetPerMetre = 3.28084;
 
 void log(const std::string &line) {
   XPLMDebugString(("zoal-atc: traffic: " + line + "\n").c_str());
@@ -108,6 +127,40 @@ XPLMDataRef find(const char *name) { return XPLMFindDataRef(name); }
 float getf(XPLMDataRef ref) { return ref ? XPLMGetDataf(ref) : 0.0f; }
 int geti(XPLMDataRef ref) { return ref ? XPLMGetDatai(ref) : 0; }
 
+void release_camera() {
+  g_follow_pending = false;
+  if (!g_followed.empty() && XPLMIsCameraBeingControlled(nullptr)) {
+    XPLMDontControlCamera();
+  }
+  g_followed.clear();
+}
+
+// X-Plane asks where the camera is, every frame while we hold it. The state is
+// the one XPMP2 draws, so the camera and the model move as one.
+int chase_camera(XPLMCameraPosition_t *position, int losing_control, void *) {
+  if (losing_control || position == nullptr || !g_registry || g_followed.empty()) {
+    g_followed.clear();
+    return 0;
+  }
+  const auto state = g_registry->state(g_followed, zoal_atc::traffic::monotonic_seconds());
+  if (!state) {
+    g_followed.clear();
+    return 0;
+  }
+  double x = 0, y = 0, z = 0;
+  XPLMWorldToLocal(state->lat_deg, state->lon_deg, state->alt_ft_msl / kFeetPerMetre, &x, &y,
+                   &z);
+  const auto pose = zoal_atc::traffic::chase_pose(x, y, z, state->heading_deg, g_chase);
+  position->x = static_cast<float>(pose.x);
+  position->y = static_cast<float>(pose.y);
+  position->z = static_cast<float>(pose.z);
+  position->heading = static_cast<float>(pose.heading_deg);
+  position->pitch = static_cast<float>(pose.pitch_deg);
+  position->roll = 0.0f;
+  position->zoom = 1.0f;
+  return 1;
+}
+
 } // namespace
 
 bool start(const std::string &plugin_root, const std::string &system_path) {
@@ -123,6 +176,8 @@ bool start(const std::string &plugin_root, const std::string &system_path) {
   if (csl.empty()) {
     log("no CSL models found (looked in " + (root / "Resources" / "CSL").string() +
         " and other traffic plugins' folders); traffic is off");
+    g_unavailable = "No CSL models found, so traffic is off. Put a CSL package in "
+                    "Resources/CSL inside the zoal-atc plugin folder.";
     return false;
   }
   const fs::path resources = resource_dir(root, csl);
@@ -130,6 +185,7 @@ bool start(const std::string &plugin_root, const std::string &system_path) {
                                             "A320", "ZATC");
       err && *err) {
     log(std::string("XPMP2 init failed: ") + err);
+    g_unavailable = std::string("Traffic could not start: ") + err;
     return false;
   }
   if (const char *err = XPMPLoadCSLPackage(csl.string().c_str()); err && *err) {
@@ -154,7 +210,11 @@ bool start(const std::string &plugin_root, const std::string &system_path) {
       find("sim/cockpit/electrical/taxi_light_on"),
       find("sim/cockpit/electrical/landing_lights_on"),
       find("sim/aircraft/view/acf_livery_path"),
+      find("sim/flightmodel/position/latitude"),
+      find("sim/flightmodel/position/longitude"),
+      find("sim/flightmodel/position/elevation"),
   };
+  g_unavailable.clear();
   g_started = true;
   return true;
 }
@@ -164,6 +224,7 @@ void stop() {
     return;
   }
   disable();
+  release_camera();
   g_renderer.reset();
   g_registry.reset();
   XPMPMultiplayerCleanup();
@@ -187,6 +248,7 @@ void disable() {
   if (!g_enabled) {
     return;
   }
+  release_camera();
   if (g_renderer) {
     g_renderer->remove_all();
   }
@@ -231,6 +293,12 @@ void tick() {
   }
   for (const auto &received : inbox) {
     g_renderer->apply(g_registry->apply(received.frame, received.at));
+  }
+  if (g_follow_pending) {
+    g_follow_pending = false;
+    if (!g_followed.empty()) {
+      XPLMControlCamera(xplm_ControlCameraUntilViewChanges, chase_camera, nullptr);
+    }
   }
   const double now = zoal_atc::traffic::monotonic_seconds();
   if (now - g_last_expire >= kExpireIntervalS) {
@@ -283,6 +351,66 @@ void decorate(telemetry::TelemetrySnapshot &s) {
                   targets.end());
     s.traffic_census.seen -= static_cast<int>(before - targets.size());
   }
+}
+
+gui::TrafficPanel panel(gui::TrafficFilter filter) {
+  if (!g_started || !g_registry) {
+    gui::TrafficPanel off;
+    off.unavailable = g_unavailable;
+    return off;
+  }
+  zoal_atc::traffic::OwnPosition own;
+  if (g_refs.latitude && g_refs.longitude && g_refs.elevation) {
+    own.lat_deg = XPLMGetDatad(g_refs.latitude);
+    own.lon_deg = XPLMGetDatad(g_refs.longitude);
+    own.alt_ft_msl = XPLMGetDatad(g_refs.elevation) * kFeetPerMetre;
+    own.valid = true;
+  }
+  const auto picture =
+      zoal_atc::traffic::nearby(*g_registry, zoal_atc::traffic::monotonic_seconds(), own);
+  // The camera lets go on its own (a view key, a track that left); the tab
+  // shows that, not the last press.
+  if (!g_followed.empty() && !g_follow_pending && !XPLMIsCameraBeingControlled(nullptr)) {
+    g_followed.clear();
+  }
+  auto out = gui::traffic_panel(picture, filter, g_tracked, g_followed);
+  out.chase_distance_m = g_chase.distance_m;
+  return out;
+}
+
+void track(const std::string &id) {
+  g_tracked = id;
+  if (g_renderer) {
+    g_renderer->set_tracked(id);
+  }
+}
+
+void follow(const std::string &id) {
+  if (id.empty() || !g_started) {
+    release_camera();
+    return;
+  }
+  const bool holding = !g_followed.empty() && XPLMIsCameraBeingControlled(nullptr);
+  g_followed = id;
+  if (holding) {
+    return; // the callback reads g_followed: it simply chases the new one
+  }
+  g_chase.orbit_deg = 0.0;
+  // An outside view first; the camera is taken on the next tick.
+  if (XPLMCommandRef chase = XPLMFindCommand("sim/view/chase")) {
+    XPLMCommandOnce(chase);
+  }
+  g_follow_pending = true;
+}
+
+void chase_zoom(double factor) {
+  g_chase.distance_m =
+      std::clamp(g_chase.distance_m * factor, zoal_atc::traffic::kChaseMinDistanceM,
+                 zoal_atc::traffic::kChaseMaxDistanceM);
+}
+
+void chase_orbit(double degrees) {
+  g_chase.orbit_deg = std::fmod(g_chase.orbit_deg + degrees + 360.0, 360.0);
 }
 
 } // namespace zoal_atc::xplane::traffic_layer

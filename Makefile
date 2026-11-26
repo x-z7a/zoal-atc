@@ -164,7 +164,7 @@ PREVIEW_THEMES := graphite daylight night
 preview: imgui-src freetype-src inter
 	cmake -S . -B "$(PREVIEW_BUILD_DIR)" -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PREVIEW=ON -DZOAL_ATC_BUILD_TESTS=OFF -DZOAL_ATC_IMGUI_SOURCE="$(ZOAL_ATC_IMGUI_SOURCE)" -DZOAL_ATC_FREETYPE_SOURCE="$(ZOAL_ATC_FREETYPE_SOURCE)"
 	cmake --build "$(PREVIEW_BUILD_DIR)" --target panel_preview --parallel
-	@for theme in $(PREVIEW_THEMES); do for tab in home settings; do \
+	@for theme in $(PREVIEW_THEMES); do for tab in home traffic settings; do \
 		"$(PREVIEW_BUILD_DIR)/panel_preview" "$(ZOAL_ATC_INTER)" "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.ppm" $$tab $$theme 1120 740 2 || exit 1; \
 		if command -v sips >/dev/null; then sips -s format png "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.ppm" --out "$(PREVIEW_BUILD_DIR)/$$tab-$$theme.png" >/dev/null; fi; \
 	done; done

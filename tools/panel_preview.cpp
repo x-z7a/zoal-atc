@@ -416,7 +416,9 @@ int main(int argc, char **argv) {
   ui::setup_panel_style();
 
   ui::PanelViewState state;
-  state.tab = tab == "settings" ? 1 : 0;
+  state.tab = tab == "settings"  ? ui::kSettingsTab
+              : tab == "traffic" ? ui::kTrafficTab
+                                 : ui::kHomeTab;
 
   const std::int64_t wall = 1'794'052'800'000;
   bridge.set_connected(true, 0);
@@ -471,6 +473,45 @@ int main(int argc, char **argv) {
 
   std::vector<std::function<void()>> later;
   ui::PanelFrame frame{"0.1.0", 0, wall, &later};
+
+  // The Traffic tab: a few of the console's aircraft round CYQT, one tracked
+  // and followed ("traffic" mode "empty" shows none).
+  auto nearby = [](const char *id, traffic::TrafficKind kind, const char *callsign,
+                   const char *type, const char *airline, double nm, double brg,
+                   double alt, double rel, double gs, double vs, bool ground) {
+    traffic::Nearby n;
+    n.identity.id = id;
+    n.identity.kind = kind;
+    n.identity.callsign = callsign;
+    n.identity.icao_type = type;
+    n.identity.airline = airline;
+    n.has_own = true;
+    n.distance_nm = nm;
+    n.bearing_deg = brg;
+    n.relative_alt_ft = rel;
+    n.sample.alt_ft_msl = alt;
+    n.sample.groundspeed_kts = gs;
+    n.sample.vertical_speed_fpm = vs;
+    n.sample.on_ground = ground;
+    return n;
+  };
+  std::vector<traffic::Nearby> picture;
+  if (mode != "empty") {
+    using traffic::TrafficKind;
+    picture = {
+        nearby("participant:b", TrafficKind::Participant, "CGXYZ", "C172", "", 0.4, 190, 653, 0, 8, 0, true),
+        nearby("participant:a", TrafficKind::Participant, "BLS382", "BE99", "BLS", 2.1, 254, 2600, 450, 140, -700, false),
+        nearby("ai:JZA7721", TrafficKind::Ai, "JZA7721", "DH8D", "JZA", 6.8, 71, 9000, 6850, 245, 1500, false),
+        nearby("ai:ACA451", TrafficKind::Ai, "ACA451", "A320", "ACA", 14.3, 112, 24000, 21850, 410, 0, false),
+        nearby("ai:WJA612", TrafficKind::Ai, "WJA612", "B38M", "WJA", 22.9, 300, 35000, 32850, 452, -1800, false),
+    };
+  }
+  gui::TrafficPanel traffic = gui::traffic_panel(picture, state.traffic_filter,
+                                                 "ai:JZA7721", "ai:JZA7721");
+  traffic.chase_distance_m = 60.0;
+  const ui::TrafficActions actions{};
+  frame.traffic = &traffic;
+  frame.traffic_actions = &actions;
   Image image;
   for (int i = 0; i < 4; ++i) {
     session.pump(0, wall);

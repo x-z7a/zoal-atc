@@ -529,11 +529,12 @@ constexpr float kTabsHeight = 36.0f;
 
 void tabs(const Ui &ui, PanelViewState &state, ImVec2 min) {
   const Palette &p = ui.p;
-  const char *labels[] = {tr("Home"), tr("Settings")};
+  const char *labels[] = {tr("Home"), tr("Traffic"), tr("Settings")};
+  constexpr int kTabs = 3;
   const float px = ui.css(13.0f);
-  float width = 3.0f * 2.0f + 2.0f;
-  float widths[2];
-  for (int i = 0; i < 2; ++i) {
+  float width = 3.0f * 2.0f + 2.0f * (kTabs - 1);
+  float widths[kTabs];
+  for (int i = 0; i < kTabs; ++i) {
     widths[i] = measure(ui.face.semibold, px, labels[i]).x + 32.0f;
     width += widths[i];
   }
@@ -541,7 +542,7 @@ void tabs(const Ui &ui, PanelViewState &state, ImVec2 min) {
   ui.draw->AddRectFilled(min, max, p.glass_well, kTabsHeight * 0.5f);
   ui.draw->AddRect(min, max, p.border, kTabsHeight * 0.5f, 1.0f);
   float x = min.x + 4.0f;
-  for (int i = 0; i < 2; ++i) {
+  for (int i = 0; i < kTabs; ++i) {
     const ImVec2 bmin(x, min.y + 4.0f);
     const ImVec2 bsize(widths[i], kTabsHeight - 8.0f);
     const ImVec2 bmax(bmin.x + bsize.x, bmin.y + bsize.y);
@@ -999,6 +1000,353 @@ void home(const Ui &ui, PanelSession &session, PanelViewState &state,
       state.say[0] = '\0';
     }
   }
+}
+
+// --- Traffic ------------------------------------------------------------------------------
+//
+// The aircraft this plugin draws for the console, nearest first: tap one to
+// track it (its label turns cyan in the sim and it is pinned in the card
+// above the list), and follow it to chase it with the outside camera.
+
+constexpr float kTrafficRow = 32.0f;
+constexpr float kTrafficHead = 22.0f;
+
+void run_track(const Ui &ui, const std::string &id) {
+  const TrafficActions *actions = ui.frame.traffic_actions;
+  if (actions != nullptr && actions->track) {
+    ui.later([actions, id] { actions->track(id); });
+  }
+}
+
+void run_follow(const Ui &ui, const std::string &id) {
+  const TrafficActions *actions = ui.frame.traffic_actions;
+  if (actions != nullptr && actions->follow) {
+    ui.later([actions, id] { actions->follow(id); });
+  }
+}
+
+// A segmented chooser, the tabs' look at a smaller size. Returns the width.
+float traffic_filters(const Ui &ui, PanelViewState &state, float right, float y) {
+  const Palette &p = ui.p;
+  struct Choice {
+    gui::TrafficFilter filter;
+    const char *label;
+  };
+  const Choice choices[] = {{gui::TrafficFilter::all, tr("All")},
+                            {gui::TrafficFilter::pilots, tr("Pilots")},
+                            {gui::TrafficFilter::ai, tr("AI")}};
+  const float px = ui.css(12.0f);
+  const float height = 28.0f;
+  float width = 6.0f;
+  float widths[3];
+  for (int i = 0; i < 3; ++i) {
+    widths[i] = measure(ui.face.semibold, px, choices[i].label).x + 24.0f;
+    width += widths[i] + (i > 0 ? 2.0f : 0.0f);
+  }
+  const ImVec2 min(right - width, y);
+  const ImVec2 max(right, y + height);
+  ui.draw->AddRectFilled(min, max, p.glass_well, height * 0.5f);
+  ui.draw->AddRect(min, max, p.border, height * 0.5f, 1.0f);
+  float x = min.x + 3.0f;
+  for (int i = 0; i < 3; ++i) {
+    const ImVec2 bmin(x, y + 3.0f);
+    const ImVec2 bsize(widths[i], height - 6.0f);
+    const ImVec2 bmax(bmin.x + bsize.x, bmin.y + bsize.y);
+    ImGui::SetCursorScreenPos(bmin);
+    ImGui::PushID(i);
+    if (ImGui::InvisibleButton("traffic_filter", bsize)) {
+      state.traffic_filter = choices[i].filter;
+    }
+    const bool hovered = ImGui::IsItemHovered();
+    ImGui::PopID();
+    const bool selected = state.traffic_filter == choices[i].filter;
+    ImU32 fg = p.text_dim;
+    if (selected) {
+      ui.draw->AddRectFilled(bmin, bmax, p.accent_container, bsize.y * 0.5f);
+      fg = p.on_accent_container;
+    } else if (hovered) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+      ui.draw->AddRectFilled(bmin, bmax, faded(p.accent, 0.08f), bsize.y * 0.5f);
+      fg = p.text;
+    }
+    const float tw = measure(ui.face.semibold, px, choices[i].label).x;
+    ui.draw->AddText(ui.face.semibold, px,
+                     ImVec2(bmin.x + (bsize.x - tw) * 0.5f, centred(bmin.y, bsize.y, px)),
+                     fg, choices[i].label);
+    x += widths[i] + 2.0f;
+  }
+  return width;
+}
+
+ImU32 trend_colour(const Palette &p, int trend) {
+  return trend > 0 ? p.active : (trend < 0 ? p.warn : p.text_dim);
+}
+
+// A person or the console's AI: the dot before every callsign.
+ImU32 kind_colour(const Palette &p, bool pilot) { return pilot ? p.active : p.accent; }
+
+// The tracked aircraft, live, with the camera's controls.
+float tracking_card(const Ui &ui, const gui::TrafficPanel &traffic,
+                    const gui::TrafficPanelRow &row, ImVec2 min, float width) {
+  const Palette &p = ui.p;
+  const float height = 104.0f;
+  const ImVec2 max(min.x + width, min.y + height);
+  ui.draw->AddRectFilled(min, max, p.glass_card, kRadiusLg);
+  ui.draw->AddRect(min, max, row.followed ? p.accent : p.border_strong, kRadiusLg,
+                   row.followed ? 2.0f : 1.0f);
+
+  const float x = min.x + 14.0f;
+  float y = min.y + 10.0f;
+  const std::string eyebrow = row.followed ? tr("Following") : tr("Tracking");
+  label_text(ui, ImVec2(x, centred(y, 16.0f, ui.css(11.0f))), eyebrow,
+             row.followed ? p.accent : p.text_dim);
+  const std::string kind = row.pilot ? tr("Pilot") : tr("AI");
+  const float ew = label_width(ui, eyebrow);
+  ui.draw->AddCircleFilled(ImVec2(x + ew + 12.0f, y + 8.0f), 3.5f, kind_colour(p, row.pilot));
+  label_text(ui, ImVec2(x + ew + 20.0f, centred(y, 16.0f, ui.css(11.0f))), kind,
+             kind_colour(p, row.pilot));
+  y += 18.0f;
+
+  const float name_px = ui.css(22.0f);
+  ui.draw->AddText(ui.face.bold, name_px, ImVec2(x, centred(y, 28.0f, name_px)), p.text,
+                   row.callsign.c_str());
+  const float name_w = measure(ui.face.bold, name_px, row.callsign).x;
+  const float type_px = ui.css(14.0f);
+  ui.draw->AddText(ui.face.regular, type_px,
+                   ImVec2(x + name_w + 10.0f, centred(y, 28.0f, type_px)), p.text_dim,
+                   row.type.c_str());
+  y += 32.0f;
+
+  // The readouts, label over value, as the Home tiles have them.
+  struct Cell {
+    const char *label;
+    std::string value;
+    ImU32 colour;
+  };
+  const Cell cells[] = {
+      {tr("Distance"), row.distance, p.text},
+      {tr("Bearing"), row.bearing, p.text},
+      {tr("Altitude"), row.altitude, p.text},
+      {tr("Relative"), row.relative.empty() ? std::string(gui::kUnknown) : row.relative, p.text},
+      {tr("Speed"), row.speed, p.text},
+      {tr("Vertical"), row.vertical.empty() ? std::string(gui::kUnknown) : row.vertical,
+       trend_colour(p, row.trend)},
+  };
+  // Buttons on the right; the readouts get what is left.
+  const std::string follow_label = row.followed ? tr("Stop following") : tr("Follow");
+  const float fw = button_width(ui, follow_label, 13.0f, 14.0f);
+  const float uw = button_width(ui, tr("Untrack"), 13.0f, 14.0f);
+  const float bh = 30.0f;
+  const float right = max.x - 12.0f;
+  if (button(ui, "traffic_follow", ImVec2(right - fw, min.y + 12.0f), ImVec2(fw, bh),
+             follow_label, row.followed ? Variant::outlined : Variant::filled,
+             ui.frame.traffic_actions != nullptr, 13.0f)) {
+    run_follow(ui, row.followed ? std::string() : row.id);
+  }
+  if (button(ui, "traffic_untrack", ImVec2(right - fw - 8.0f - uw, min.y + 12.0f),
+             ImVec2(uw, bh), tr("Untrack"), Variant::text,
+             ui.frame.traffic_actions != nullptr, 13.0f)) {
+    run_track(ui, "");
+    if (row.followed) {
+      run_follow(ui, "");
+    }
+  }
+  float cells_right = right;
+  if (row.followed) {
+    // The camera: nearer, farther, and round the aircraft.
+    const char *labels[] = {"\xE2\x88\x92", "+", "\xE2\x97\x80", "\xE2\x96\xB6"};
+    const char *ids[] = {"chase_closer", "chase_farther", "orbit_left", "orbit_right"};
+    const float sw = bh;
+    float bx = right - 4.0f * sw - 3.0f * 6.0f;
+    cells_right = bx - 12.0f;
+    const float by = max.y - 12.0f - bh;
+    const std::string chase =
+        std::to_string(static_cast<long long>(std::lround(traffic.chase_distance_m))) + " m";
+    const float cw = measure(ui.face.semibold, ui.css(12.0f), chase).x;
+    ui.draw->AddText(ui.face.semibold, ui.css(12.0f),
+                     ImVec2(bx - 8.0f - cw, centred(by, bh, ui.css(12.0f))), p.text_dim,
+                     chase.c_str());
+    cells_right -= cw + 8.0f;
+    for (int i = 0; i < 4; ++i) {
+      if (button(ui, ids[i], ImVec2(bx, by), ImVec2(sw, bh), labels[i], Variant::outlined,
+                 true, 13.0f)) {
+        const TrafficActions *actions = ui.frame.traffic_actions;
+        if (actions != nullptr) {
+          if (i < 2 && actions->zoom) {
+            const double factor = i == 0 ? 1.0 / 1.25 : 1.25;
+            ui.later([actions, factor] { actions->zoom(factor); });
+          } else if (i >= 2 && actions->orbit) {
+            const double degrees = i == 2 ? -30.0 : 30.0;
+            ui.later([actions, degrees] { actions->orbit(degrees); });
+          }
+        }
+      }
+      bx += sw + 6.0f;
+    }
+  }
+  const float cell_w = (cells_right - x) / 6.0f;
+  for (int i = 0; i < 6; ++i) {
+    const float cx = x + static_cast<float>(i) * cell_w;
+    label_text(ui, ImVec2(cx, centred(y, 14.0f, ui.css(10.0f))), cells[i].label, p.text_dim,
+               10.0f);
+    const float vpx = ui.css(15.0f);
+    ui.draw->AddText(ui.face.semibold, vpx, ImVec2(cx, centred(y + 15.0f, 20.0f, vpx)),
+                     cells[i].colour,
+                     fit(ui.face.semibold, vpx, cells[i].value, cell_w - 8.0f).c_str());
+  }
+  return height;
+}
+
+void traffic_tab(const Ui &ui, PanelViewState &state, ImVec2 min, ImVec2 max) {
+  const Palette &p = ui.p;
+  const float width = max.x - min.x;
+  const gui::TrafficPanel *traffic = ui.frame.traffic;
+
+  if (traffic == nullptr || !traffic->available) {
+    const std::string why = traffic == nullptr || traffic->unavailable.empty()
+                                ? std::string(tr("Traffic is not running in this build."))
+                                : tr(traffic->unavailable);
+    const float y = min.y + 24.0f;
+    const float px = ui.css(16.0f);
+    ui.draw->AddText(ui.face.semibold, px, ImVec2(min.x + 4.0f, y), p.text,
+                     tr("Traffic is off"));
+    paragraph(ui, ImVec2(min.x + 4.0f, y + 28.0f), std::min(width - 8.0f, 680.0f), why,
+              p.text_dim);
+    return;
+  }
+
+  // ---- the summary and the filter ----
+  float y = min.y;
+  const std::string summary =
+      std::to_string(traffic->total) + tr(" aircraft") + "  \xC2\xB7  " +
+      std::to_string(traffic->pilots) + tr(" pilots") + "  \xC2\xB7  " +
+      std::to_string(traffic->ai) + " AI";
+  label_text(ui, ImVec2(min.x + 4.0f, centred(y, 28.0f, ui.css(11.0f))), summary, p.text_dim);
+  traffic_filters(ui, state, max.x, y);
+  y += 28.0f + kGap;
+
+  // ---- the tracked aircraft ----
+  const gui::TrafficPanelRow *tracked = nullptr;
+  for (const auto &row : traffic->rows) {
+    if (row.tracked) {
+      tracked = &row;
+    }
+  }
+  if (tracked != nullptr) {
+    y += tracking_card(ui, *traffic, *tracked, ImVec2(min.x, y), width) + kGap;
+  }
+
+  // ---- the list ----
+  const ImVec2 lmin(min.x, y);
+  const ImVec2 lmax(max.x, max.y);
+  ui.draw->AddRectFilled(lmin, lmax, p.glass_card, kRadiusLg);
+  ui.draw->AddRect(lmin, lmax, p.border, kRadiusLg, 1.0f);
+  const float ix = lmin.x + 12.0f;
+  const float iw = lmax.x - lmin.x - 24.0f;
+
+  // Columns as fractions of the row: the callsign gets the most.
+  struct Column {
+    const char *label;
+    float at;
+  };
+  const Column columns[] = {{tr("Callsign"), 0.0f},  {tr("Type"), 0.19f},
+                            {tr("Dist"), 0.36f},     {tr("Brg"), 0.46f},
+                            {tr("Alt"), 0.55f},      {tr("Rel"), 0.67f},
+                            {tr("GS"), 0.77f},       {tr("VS"), 0.87f}};
+  float hy = lmin.y + 8.0f;
+  for (const Column &c : columns) {
+    label_text(ui, ImVec2(ix + 18.0f * (c.at == 0.0f ? 1.0f : 0.0f) + c.at * iw,
+                          centred(hy, kTrafficHead, ui.css(10.0f))),
+               c.label, p.text_dim, 10.0f);
+  }
+  hy += kTrafficHead;
+  ui.draw->AddLine(ImVec2(ix, hy), ImVec2(ix + iw, hy), p.border, 1.0f);
+  hy += 2.0f;
+
+  if (traffic->rows.empty()) {
+    const std::string title =
+        traffic->total == 0 ? tr("No traffic nearby") : tr("Nothing matches this filter");
+    const float px = ui.css(15.0f);
+    const float tw = measure(ui.face.semibold, px, title).x;
+    const float cy = hy + std::max(20.0f, (lmax.y - hy) * 0.35f);
+    ui.draw->AddText(ui.face.semibold, px, ImVec2(ix + (iw - tw) * 0.5f, cy), p.text, title.c_str());
+    const std::string hint = tr("Aircraft the console sends appear here, nearest first.");
+    const float hw = measure(ui.face.regular, ui.css(13.0f), hint).x;
+    ui.draw->AddText(ui.face.regular, ui.css(13.0f),
+                     ImVec2(ix + (iw - hw) * 0.5f, cy + 24.0f), p.text_dim, hint.c_str());
+    return;
+  }
+
+  ImGui::SetCursorScreenPos(ImVec2(ix, hy));
+  ImGui::BeginChild("traffic_rows", ImVec2(iw, std::max(20.0f, lmax.y - 8.0f - hy)),
+                    ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground);
+  ImDrawList *draw = ImGui::GetWindowDrawList();
+  const ImVec2 origin = ImGui::GetCursorScreenPos();
+  const float rw = ImGui::GetContentRegionAvail().x;
+  const float px = ui.css(14.0f);
+  float ry = origin.y;
+  for (const gui::TrafficPanelRow &row : traffic->rows) {
+    const ImVec2 rmin(origin.x, ry);
+    const ImVec2 rmax(origin.x + rw, ry + kTrafficRow);
+    ImGui::SetCursorScreenPos(rmin);
+    ImGui::PushID(row.id.c_str());
+    const bool pressed = ImGui::InvisibleButton("row", ImVec2(rw, kTrafficRow));
+    const bool hovered = ImGui::IsItemHovered();
+    const bool twice = hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+    ImGui::PopID();
+    if (hovered) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+    // A tap tracks (again: untracks); a double tap follows.
+    if (twice) {
+      run_track(ui, row.id);
+      run_follow(ui, row.id);
+    } else if (pressed) {
+      run_track(ui, row.tracked ? std::string() : row.id);
+    }
+    if (row.tracked) {
+      draw->AddRectFilled(rmin, rmax, p.accent_container, 8.0f);
+    } else if (hovered) {
+      draw->AddRectFilled(rmin, rmax, faded(p.accent, 0.08f), 8.0f);
+    }
+    if (row.followed) {
+      draw->AddRect(rmin, rmax, p.accent, 8.0f, 1.5f);
+    }
+    const ImU32 fg = row.tracked ? p.on_accent_container : p.text;
+    const ImU32 dim = row.tracked ? faded(p.on_accent_container, 0.75f) : p.text_dim;
+    const float ty = centred(ry, kTrafficRow, px);
+    draw->AddCircleFilled(ImVec2(origin.x + 8.0f, ry + kTrafficRow * 0.5f), 3.5f,
+                          kind_colour(p, row.pilot));
+    struct Value {
+      const std::string *text;
+      float at;
+      float next;
+      ImU32 colour;
+      ImFont *font;
+    };
+    const Value values[] = {
+        {&row.callsign, 0.0f, 0.19f, fg, ui.face.semibold},
+        {&row.type, 0.19f, 0.36f, dim, ui.face.regular},
+        {&row.distance, 0.36f, 0.46f, fg, ui.face.regular},
+        {&row.bearing, 0.46f, 0.55f, fg, ui.face.regular},
+        {&row.altitude, 0.55f, 0.67f, fg, ui.face.regular},
+        {&row.relative, 0.67f, 0.77f, dim, ui.face.regular},
+        {&row.speed, 0.77f, 0.87f, fg, ui.face.regular},
+        {&row.vertical, 0.87f, 1.0f, row.tracked ? fg : trend_colour(p, row.trend),
+         ui.face.regular},
+    };
+    for (const Value &v : values) {
+      const float lead = v.at == 0.0f ? 18.0f : 0.0f;
+      const float vx = origin.x + lead + v.at * rw;
+      const float room = (v.next - v.at) * rw - lead - 8.0f;
+      draw->AddText(v.font, px, ImVec2(vx, ty), v.colour,
+                    fit(v.font, px, *v.text, room).c_str());
+    }
+    ry += kTrafficRow + 2.0f;
+  }
+  ImGui::SetCursorScreenPos(origin);
+  ImGui::Dummy(ImVec2(1.0f, ry - origin.y));
+  ImGui::EndChild();
 }
 
 // --- Settings -------------------------------------------------------------------------
@@ -1583,8 +1931,10 @@ PanelViewResult draw_panel(PanelSession &session, PanelViewState &state,
 
   const ImVec2 content_min(kPadX, y);
   const ImVec2 content_max(display.x - kPadX, display.y - kPadBottom);
-  if (state.tab == 0) {
+  if (state.tab == kHomeTab) {
     home(ui, session, state, content_min, content_max);
+  } else if (state.tab == kTrafficTab) {
+    traffic_tab(ui, state, content_min, content_max);
   } else {
     settings(ui, session, state, content_min, content_max);
   }

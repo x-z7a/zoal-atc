@@ -38,9 +38,13 @@ public:
     copy_text(acInfoTexts.icaoAcType, sizeof(acInfoTexts.icaoAcType), who.icao_type);
     copy_text(acInfoTexts.icaoAirline, sizeof(acInfoTexts.icaoAirline), who.airline);
     copy_text(acInfoTexts.flightNum, sizeof(acInfoTexts.flightNum), who.callsign);
-    if (who.kind == traffic::TrafficKind::Participant) {
-      colLabel[0] = 0.4f; colLabel[1] = 1.0f; colLabel[2] = 0.4f; // green: a person
-    }
+    pilot_ = who.kind == traffic::TrafficKind::Participant;
+    colour_label();
+  }
+
+  void set_tracked(bool tracked) {
+    tracked_ = tracked;
+    colour_label();
   }
 
   void UpdatePosition(float, int) override {
@@ -73,7 +77,21 @@ public:
   }
 
 private:
+  // Cyan while the pilot tracks it from the panel's Traffic tab, green for a
+  // person, XPMP2's yellow for the console's AI.
+  void colour_label() {
+    if (tracked_) {
+      colLabel[0] = 0.3f; colLabel[1] = 0.85f; colLabel[2] = 1.0f;
+    } else if (pilot_) {
+      colLabel[0] = 0.4f; colLabel[1] = 1.0f; colLabel[2] = 0.4f;
+    } else {
+      colLabel[0] = 1.0f; colLabel[1] = 1.0f; colLabel[2] = 0.0f;
+    }
+  }
+
   std::string id_;
+  bool pilot_ = false;
+  bool tracked_ = false;
   const traffic::TrafficRegistry &registry_;
 };
 
@@ -87,7 +105,9 @@ void TrafficRenderer::apply(const traffic::TrafficRegistry::Changes &changes) {
     aircraft_.erase(id);
   }
   for (const auto &who : changes.added) {
-    aircraft_[who.id] = std::make_unique<ConsoleAircraft>(who, registry_);
+    auto aircraft = std::make_unique<ConsoleAircraft>(who, registry_);
+    aircraft->set_tracked(who.id == tracked_);
+    aircraft_[who.id] = std::move(aircraft);
   }
   for (const auto &who : changes.remodelled) {
     if (auto found = aircraft_.find(who.id); found != aircraft_.end()) {
@@ -103,6 +123,19 @@ void TrafficRenderer::apply(const traffic::TrafficRegistry::Changes &changes) {
 }
 
 void TrafficRenderer::remove_all() { aircraft_.clear(); }
+
+void TrafficRenderer::set_tracked(const std::string &id) {
+  if (id == tracked_) {
+    return;
+  }
+  if (auto found = aircraft_.find(tracked_); found != aircraft_.end()) {
+    found->second->set_tracked(false);
+  }
+  tracked_ = id;
+  if (auto found = aircraft_.find(tracked_); found != aircraft_.end()) {
+    found->second->set_tracked(true);
+  }
+}
 
 std::set<std::uint32_t> TrafficRenderer::mode_s_ids() const {
   std::set<std::uint32_t> ids;

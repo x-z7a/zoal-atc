@@ -1,6 +1,7 @@
 #ifndef ZOAL_ATC_XPLANE_TRAFFIC_LAYER_HPP
 #define ZOAL_ATC_XPLANE_TRAFFIC_LAYER_HPP
 
+#include "zoal_atc/gui/traffic_panel.hpp"
 #include "zoal_atc/telemetry/telemetry_frame.hpp"
 
 #include <string>
@@ -35,6 +36,23 @@ void tick();
 // Telemetry: add the render fields, and drop TCAS returns that are our own
 // injected aircraft so the console does not see them as strangers.
 void decorate(telemetry::TelemetrySnapshot &snapshot);
+
+// --- the panel's Traffic tab (main thread) -----------------------------------
+
+// What the tab shows this frame: every drawn aircraft relative to own-ship,
+// nearest first, `filter` applied.
+gui::TrafficPanel panel(gui::TrafficFilter filter);
+
+// Marks one aircraft (its label turns cyan); "" clears.
+void track(const std::string &id);
+
+// Chases one aircraft with the external camera; "" gives the camera back.
+// The pilot changing view gives it back too.
+void follow(const std::string &id);
+// The chase camera: `factor` times as far (clamped), and swung `degrees`
+// clockwise round the aircraft.
+void chase_zoom(double factor);
+void chase_orbit(double degrees);
 
 } // namespace zoal_atc::xplane::traffic_layer
 

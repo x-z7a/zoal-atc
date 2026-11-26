@@ -55,6 +55,15 @@
   writer thread that sends telemetry at 2 Hz. It is the only network code.
   After the merge it goes away, because zoal-atc's connection already exists.
 
+- **Traffic tab** (panel): every drawn aircraft, nearest first, with distance,
+  bearing, altitude, relative altitude, groundspeed and vertical speed, and a
+  All / Pilots / AI filter. A tap *tracks* one (pinned in a live card above
+  the list, its in-sim label turns cyan); *Follow* (or a double tap) chases it
+  with the outside camera (`XPLMControlCamera`, released by any view change),
+  with nearer/farther and orbit buttons. `traffic::nearby` and
+  `traffic::chase_pose` (core, tested) do the geometry; `gui::traffic_panel`
+  the words; `traffic_layer` holds the tracked/followed ids and the camera.
+
 Threading rule: the registry and all XPMP2 objects are touched only on the
 simulator's main thread. The network threads hand over parsed frames and take
 encoded strings, nothing else.
