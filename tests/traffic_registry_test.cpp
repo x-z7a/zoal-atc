@@ -88,6 +88,41 @@ void draws_behind_the_console_clock() {
   require(s->lat_deg > 37.0 && s->lat_deg < 37.001, "did not draw between reports");
 }
 
+// An AI target arrives ahead of the console clock and says it is drawn at the
+// present (render_delay_ms 0); a pilot's says nothing and is drawn at the
+// registry's delay. Each is drawn at its own.
+void each_target_is_drawn_at_its_own_delay() {
+  TrafficRegistry::Config config;
+  config.interpolation_delay_s = 1.5;
+  TrafficRegistry registry(config);
+  auto ai0 = target("ai", 100);
+  auto ai1 = target("ai", 102);
+  ai0.render_delay_s = 0.0;
+  ai1.render_delay_s = 0.0;
+  ai1.sample.lat_deg = 37.002;
+  auto p0 = target("pilot", 99);
+  auto p1 = target("pilot", 100);
+  p1.sample.lat_deg = 37.002;
+  // Server time 100: the AI's samples run to 102, the pilot's to 100. Both
+  // are drawn at the middle of a pair, where the smoother's curve meets the
+  // straight line.
+  registry.apply(frame_at(100, {ai0, ai1, p0, p1}), 10);
+  auto ai = registry.state("ai", 11.0); // console 101
+  require(ai.has_value(), "no AI state");
+  near(ai->lat_deg, 37.001, 1e-6, "AI not drawn at the present");
+  auto pilot = registry.state("pilot", 11.0); // console 101 - 1.5 = 99.5
+  require(pilot.has_value(), "no pilot state");
+  near(pilot->lat_deg, 37.001, 1e-6, "pilot not drawn at the registry's delay");
+
+  // A later frame that does not say keeps the delay the track was given.
+  auto ai2 = target("ai", 103);
+  ai2.sample.lat_deg = 37.003;
+  registry.apply(frame_at(101, {ai2}), 11);
+  auto later = registry.state("ai", 12.5); // console 102.5
+  require(later.has_value(), "no AI state later");
+  near(later->lat_deg, 37.0025, 1e-4, "AI's delay forgotten");
+}
+
 } // namespace
 
 int main() {
@@ -96,6 +131,7 @@ int main() {
   silence_expires_a_track();
   own_aircraft_is_never_drawn();
   draws_behind_the_console_clock();
+  each_target_is_drawn_at_its_own_delay();
   std::cout << "traffic_registry_test: ok\n";
   return 0;
 }

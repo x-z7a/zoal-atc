@@ -2,6 +2,7 @@
 #define ZOAL_ATC_TRAFFIC_TARGET_HPP
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -70,6 +71,10 @@ struct Sample {
 struct Target {
   Identity identity;
   Sample sample;
+  // How far behind the console clock to draw it, when the console says
+  // (render_delay_ms): 0 for an AI aircraft, whose samples arrive ahead of
+  // time. Unset, the registry's own interpolation delay.
+  std::optional<double> render_delay_s;
 };
 
 // The console's `traffic` frame: everything near this aircraft, and what is

@@ -51,7 +51,8 @@ public:
   Changes apply(const TrafficFrame &frame, double local_time_s);
   Changes expire(double local_time_s);
 
-  // Draw time on the console clock for local time `local_time_s`.
+  // Draw time on the console clock for local time `local_time_s`, for a
+  // track that named no delay of its own.
   [[nodiscard]] double render_time(double local_time_s) const;
 
   [[nodiscard]] std::optional<Sample> state(const std::string &id,
@@ -70,7 +71,12 @@ private:
     Identity identity;
     TrackSmoother smoother;
     double last_heard_local_s = 0.0;
+    // The delay the console named for it, kept until it names another.
+    std::optional<double> render_delay_s;
   };
+
+  [[nodiscard]] double render_time(const Track &track,
+                                   double local_time_s) const;
 
   Config config_;
   ClockSync clock_;

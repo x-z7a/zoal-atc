@@ -84,6 +84,10 @@ std::optional<Target> parse_target(const std::string &element) {
   s.thrust = number_or(element, "thrust", 0.0);
   s.lights = static_cast<std::uint32_t>(
       json::json_uint_field(element, "lights").value_or(0));
+  if (auto delay = json::json_number_field(element, "render_delay_ms");
+      delay && *delay >= 0.0 && *delay <= 10000.0) {
+    target.render_delay_s = *delay / 1000.0;
+  }
   return target;
 }
 
@@ -150,6 +154,11 @@ std::string encode_traffic_frame(const TrafficFrame &frame) {
     out += ",\"speedbrake\":" + json_number(s.speedbrake);
     out += ",\"thrust\":" + json_number(s.thrust);
     out += ",\"lights\":" + std::to_string(s.lights);
+    if (frame.targets[i].render_delay_s) {
+      out += ",\"render_delay_ms\":" +
+             std::to_string(static_cast<long long>(
+                 std::llround(*frame.targets[i].render_delay_s * 1000.0)));
+    }
     // Free text last, as on every frame this console sends.
     out += ",\"icao_type\":\"" + json_escape(who.icao_type) + "\"";
     out += ",\"airline\":\"" + json_escape(who.airline) + "\"";

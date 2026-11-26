@@ -24,6 +24,7 @@ TrafficFrame sample_frame() {
   ai.sample.groundspeed_kts = 210;
   ai.sample.lights = kLightNav | kLightBeacon | kLightLanding;
   ai.sample.flaps = 0.5;
+  ai.render_delay_s = 0.0;
   Target pilot;
   pilot.identity = {"participant:abc", TrafficKind::Participant, "N172SP", "C172", "", "", 0};
   pilot.sample.t_s = 1764000000.050;
@@ -31,6 +32,7 @@ TrafficFrame sample_frame() {
   pilot.sample.lon_deg = -122.2;
   pilot.sample.alt_ft_msl = 12;
   pilot.sample.on_ground = true;
+  pilot.render_delay_s = 1.5;
   frame.targets = {ai, pilot};
   frame.removed = {"ai:SWA9"};
   return frame;
@@ -52,6 +54,10 @@ void round_trips() {
   require(parsed->targets[1].sample.on_ground, "on_ground lost");
   require(parsed->targets[1].identity.kind == TrafficKind::Participant, "participant kind lost");
   require(parsed->removed.size() == 1 && parsed->removed[0] == "ai:SWA9", "removed lost");
+  require(ai.render_delay_s.has_value(), "render delay lost");
+  near(*ai.render_delay_s, 0.0, 1e-9, "AI render delay wrong");
+  require(parsed->targets[1].render_delay_s.has_value(), "pilot render delay lost");
+  near(*parsed->targets[1].render_delay_s, 1.5, 1e-9, "pilot render delay wrong");
 }
 
 void other_frames_are_not_traffic() {
@@ -82,6 +88,8 @@ void defaults_are_sensible() {
   near(s.track_deg, 90, 1e-9, "track did not default to heading");
   near(s.gear, 1.0, 1e-9, "gear did not default down on the ground");
   require(parsed->targets[0].identity.kind == TrafficKind::Unknown, "missing kind not unknown");
+  require(!parsed->targets[0].render_delay_s.has_value(),
+          "a console that predates render_delay_ms named a delay");
 }
 
 } // namespace
