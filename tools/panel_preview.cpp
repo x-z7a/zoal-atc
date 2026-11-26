@@ -20,6 +20,7 @@
 #include "../src/ui/hud_view.hpp"
 #include "../src/ui/kit.hpp"
 #include "../src/ui/panel_view.hpp"
+#include "../src/ui/traffic_labels_view.hpp"
 #include "zoal_atc/gui/gui_bridge.hpp"
 #include "zoal_atc/gui/hud_session.hpp"
 #include "zoal_atc/gui/panel_session.hpp"
@@ -357,6 +358,74 @@ int render_hud(const std::string &fonts, const std::string &out, const std::stri
   return 0;
 }
 
+// The traffic tags over the sky: one at each distance band, a pilot on the
+// ground, and a tracked and a followed one.
+int render_labels(const std::string &fonts, const std::string &out, const std::string &theme,
+                  int width, int height, float scale) {
+  ImGui::CreateContext();
+  ImGuiIO &io = ImGui::GetIO();
+  io.IniFilename = nullptr;
+  io.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+  io.Fonts->TexDesiredFormat = ImTextureFormat_RGBA32;
+  io.DisplaySize = ImVec2(static_cast<float>(width), static_cast<float>(height));
+  io.DisplayFramebufferScale = ImVec2(scale, scale);
+  const ui::Typeface face = ui::load_typeface(
+      fonts, fonts, [](const std::string &line) { std::cerr << line << "\n"; });
+
+  auto tag = [](const char *id, traffic::TrafficKind kind, const char *callsign,
+                const char *type, const char *airline, double nm, double alt, double gs,
+                double vs, bool ground, double camera_m, const char *tracked,
+                const char *followed) {
+    traffic::Nearby n;
+    n.identity.id = id;
+    n.identity.kind = kind;
+    n.identity.callsign = callsign;
+    n.identity.icao_type = type;
+    n.identity.airline = airline;
+    n.has_own = true;
+    n.distance_nm = nm;
+    n.sample.alt_ft_msl = alt;
+    n.sample.groundspeed_kts = gs;
+    n.sample.vertical_speed_fpm = vs;
+    n.sample.on_ground = ground;
+    return gui::traffic_label(n, camera_m, gui::LabelRange{}, tracked, followed);
+  };
+  using traffic::TrafficKind;
+  const float w = static_cast<float>(width);
+  const float h = static_cast<float>(height);
+  std::vector<ui::PlacedLabel> labels = {
+      {tag("ai:ACA451", TrafficKind::Ai, "ACA451", "A320", "ACA", 1.2, 3400, 180, -750, false, 1800, "", ""),
+       ImVec2(w * 0.22f, h * 0.55f), 0.90},
+      {tag("participant:a", TrafficKind::Participant, "BLS382", "BE99", "BLS", 0.4, 653, 12, 0, true, 700, "", ""),
+       ImVec2(w * 0.50f, h * 0.80f), 0.80},
+      {tag("ai:JZA7721", TrafficKind::Ai, "JZA7721", "DH8D", "JZA", 4.1, 6500, 230, 1500, false, 7500, "ai:JZA7721", "ai:JZA7721"),
+       ImVec2(w * 0.74f, h * 0.42f), 0.95},
+      {tag("ai:WJA612", TrafficKind::Ai, "WJA612", "B38M", "WJA", 6.2, 11000, 290, 0, false, 9000, "", ""),
+       ImVec2(w * 0.40f, h * 0.30f), 0.97},
+      {tag("ai:POE233", TrafficKind::Ai, "POE233", "DH8D", "POE", 13.5, 15000, 300, 0, false, 25000, "", ""),
+       ImVec2(w * 0.62f, h * 0.20f), 0.99},
+      {tag("ai:ACA88", TrafficKind::Ai, "ACA88", "B77W", "ACA", 15.0, 37000, 480, 0, false, 28500, "", ""),
+       ImVec2(w * 0.12f, h * 0.18f), 0.995},
+  };
+  for (int i = 0; i < 4; ++i) {
+    io.DeltaTime = 1.0f / 60.0f;
+    ImGui::NewFrame();
+    ui::draw_traffic_labels(labels, gui::hud_theme_from_name(theme), face);
+    ImGui::Render();
+    update_textures(ImGui::GetDrawData());
+  }
+  Image image;
+  image.resize(static_cast<int>(w * scale), static_cast<int>(h * scale));
+  paint_sky(image);
+  render(ImGui::GetDrawData(), image, scale);
+  ImGui::DestroyContext();
+  if (!write_ppm(image, out)) {
+    std::cerr << "could not write " << out << "\n";
+    return 1;
+  }
+  return 0;
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -374,6 +443,9 @@ int main(int argc, char **argv) {
   const int width = argc > 6 ? std::atoi(argv[5]) : 1200;
   const int height = argc > 6 ? std::atoi(argv[6]) : 800;
   const float scale = argc > 7 ? static_cast<float>(std::atof(argv[7])) : 1.0f;
+  if (tab == "labels") {
+    return render_labels(fonts, out, theme, width, height, scale);
+  }
   if (tab == "hud") {
     if (argc < 9) {
       std::cerr << "usage: panel_preview <fonts-dir> <out.ppm> hud <theme> <width> <height> <scale> <scene.json>\n";
@@ -416,7 +488,9 @@ int main(int argc, char **argv) {
   ui::setup_panel_style();
 
   ui::PanelViewState state;
-  state.tab = tab == "settings" ? 1 : 0;
+  state.tab = tab == "settings"  ? ui::kSettingsTab
+              : tab == "traffic" ? ui::kTrafficTab
+                                 : ui::kHomeTab;
 
   const std::int64_t wall = 1'794'052'800'000;
   bridge.set_connected(true, 0);
@@ -471,6 +545,60 @@ int main(int argc, char **argv) {
 
   std::vector<std::function<void()>> later;
   ui::PanelFrame frame{"0.1.0", 0, wall, &later};
+
+  // The Traffic tab: a few of the console's aircraft round CYQT, one tracked
+  // and followed ("traffic" mode "empty" shows none).
+  auto nearby = [](const char *id, traffic::TrafficKind kind, const char *callsign,
+                   const char *type, const char *airline, double nm, double brg,
+                   double alt, double rel, double gs, double vs, bool ground) {
+    traffic::Nearby n;
+    n.identity.id = id;
+    n.identity.kind = kind;
+    n.identity.callsign = callsign;
+    n.identity.icao_type = type;
+    n.identity.airline = airline;
+    n.has_own = true;
+    n.distance_nm = nm;
+    n.bearing_deg = brg;
+    n.relative_alt_ft = rel;
+    n.sample.alt_ft_msl = alt;
+    n.sample.groundspeed_kts = gs;
+    n.sample.vertical_speed_fpm = vs;
+    n.sample.on_ground = ground;
+    return n;
+  };
+  std::vector<traffic::Nearby> picture;
+  if (mode != "empty") {
+    using traffic::TrafficKind;
+    picture = {
+        nearby("participant:b", TrafficKind::Participant, "CGXYZ", "C172", "", 0.4, 190, 653, 0, 8, 0, true),
+        nearby("participant:a", TrafficKind::Participant, "BLS382", "BE99", "BLS", 2.1, 254, 2600, 450, 140, -700, false),
+        nearby("ai:JZA7721", TrafficKind::Ai, "JZA7721", "DH8D", "JZA", 6.8, 71, 9000, 6850, 245, 1500, false),
+        nearby("ai:ACA451", TrafficKind::Ai, "ACA451", "A320", "ACA", 14.3, 112, 24000, 21850, 410, 0, false),
+        nearby("ai:WJA612", TrafficKind::Ai, "WJA612", "B38M", "WJA", 22.9, 300, 35000, 32850, 452, -1800, false),
+    };
+  }
+  gui::TrafficPanel traffic = gui::traffic_panel(picture, state.traffic_filter,
+                                                 "ai:JZA7721", "ai:JZA7721");
+  traffic.chase_distance_m = 60.0;
+  traffic.csl.folder = "/X-Plane 12/Resources/plugins/LiveTraffic/Resources/CSL";
+  traffic.csl.models = 1874;
+  if (mode == "nocsl") {
+    // No models anywhere: the tab is the folder picker.
+    traffic = gui::TrafficPanel{};
+    traffic.unavailable = "No CSL models found, so traffic is off.";
+    traffic.csl.missing = true;
+    traffic.csl.found = {
+        {"/X-Plane 12/Resources/plugins/Swift/data/csl", "Swift/data/csl"},
+        {"/X-Plane 12/Resources/plugins/XSquawkBox/Resources/CSL", "XSquawkBox/Resources/CSL"},
+    };
+    traffic.csl.error =
+        "That folder has no CSL models: there is no xsb_aircraft.txt in it or below it.";
+    std::snprintf(state.csl_path, sizeof(state.csl_path), "%s", "~/Downloads/Bluebell");
+  }
+  const ui::TrafficActions actions{};
+  frame.traffic = &traffic;
+  frame.traffic_actions = &actions;
   Image image;
   for (int i = 0; i < 4; ++i) {
     session.pump(0, wall);

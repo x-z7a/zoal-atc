@@ -100,6 +100,18 @@ std::string build_telemetry_frame(const TelemetrySnapshot &s,
   out << ",\"paused\":" << (s.paused ? "true" : "false")
       << ",\"now_secs\":" << json_number(s.now_secs);
 
+  if (s.has_render) {
+    out << ",\"track_deg\":" << json_number(s.track_deg)
+        << ",\"pitch_deg\":" << json_number(s.pitch_deg)
+        << ",\"roll_deg\":" << json_number(s.roll_deg)
+        << ",\"gear\":" << json_number(s.gear)
+        << ",\"flaps\":" << json_number(s.flaps)
+        << ",\"speedbrake\":" << json_number(s.speedbrake)
+        << ",\"thrust\":" << json_number(s.thrust)
+        << ",\"lights\":" << s.lights
+        << ",\"livery\":\"" << json_escape(s.livery) << "\"";
+  }
+
   out << "}}";
   return out.str();
 }

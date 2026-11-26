@@ -1,0 +1,21 @@
+{
+  "defaults": {
+    "temperature": 0.2,
+    "num_ctx": 32768,
+    "timeout_sec": 900
+  },
+  "hosts": [
+    {
+      "name": "hpe",
+      "url": "http://HPE-C3V4J0KWRQ.local:11434",
+      "model": "qwen3-coder:30b",
+      "slots": 1
+    },
+    {
+      "name": "local",
+      "url": "http://localhost:11434",
+      "model": "qwen3-coder:30b",
+      "slots": 1
+    }
+  ]
+}

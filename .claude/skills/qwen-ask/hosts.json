@@ -1,0 +1,16 @@
+{
+  "hosts": [
+    {
+      "name": "hpe",
+      "backend": "ollama",
+      "url": "http://HPE-C3V4J0KWRQ.local:11434",
+      "model": "qwen3-coder:30b"
+    },
+    {
+      "name": "local",
+      "backend": "ollama",
+      "url": "http://127.0.0.1:11434",
+      "model": "qwen3-coder:30b"
+    }
+  ]
+}

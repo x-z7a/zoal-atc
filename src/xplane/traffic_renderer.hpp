@@ -1,0 +1,54 @@
+#ifndef ZOAL_ATC_XPLANE_TRAFFIC_RENDERER_HPP
+#define ZOAL_ATC_XPLANE_TRAFFIC_RENDERER_HPP
+
+#include "zoal_atc/traffic/traffic_registry.hpp"
+
+#include <map>
+#include <cstdint>
+#include <memory>
+#include <set>
+#include <string>
+#include <vector>
+
+namespace zoal_atc::xplane {
+
+class ConsoleAircraft;
+
+// TrafficRenderer keeps one XPMP2 aircraft per registry track. It applies the
+// registry's add/remodel/relabel/remove changes; XPMP2 then calls each
+// aircraft's UpdatePosition every frame, which asks the registry where to be.
+class TrafficRenderer {
+public:
+  explicit TrafficRenderer(const traffic::TrafficRegistry &registry);
+  ~TrafficRenderer();
+
+  void apply(const traffic::TrafficRegistry::Changes &changes);
+  void remove_all();
+
+  // The aircraft the panel tracks, labelled in its own colour; "" for none.
+  // Kept across removal, so a track that comes back is still marked.
+  void set_tracked(const std::string &id);
+
+  [[nodiscard]] std::size_t size() const { return aircraft_.size(); }
+
+  // Where a tag goes over each aircraft XPMP2 is drawing this frame: a point a
+  // few metres above it in the local frame, and how far the camera is from it.
+  struct Anchor {
+    std::string id;
+    double x = 0.0, y = 0.0, z = 0.0;
+    double camera_distance_m = 0.0;
+  };
+  [[nodiscard]] std::vector<Anchor> anchors() const;
+
+  // The 24-bit addresses XPMP2 publishes our aircraft under on TCAS.
+  [[nodiscard]] std::set<std::uint32_t> mode_s_ids() const;
+
+private:
+  const traffic::TrafficRegistry &registry_;
+  std::map<std::string, std::unique_ptr<ConsoleAircraft>> aircraft_;
+  std::string tracked_;
+};
+
+} // namespace zoal_atc::xplane
+
+#endif // ZOAL_ATC_XPLANE_TRAFFIC_RENDERER_HPP

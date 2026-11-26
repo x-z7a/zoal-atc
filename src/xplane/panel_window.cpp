@@ -2,6 +2,7 @@
 
 #include "hud_window.hpp"
 #include "imgui_window.hpp"
+#include "traffic_layer.hpp"
 #include "zoal_atc/gui/panel_paths.hpp"
 #include "zoal_atc/gui/panel_session.hpp"
 #include "../ui/kit.hpp"
@@ -72,9 +73,28 @@ std::int64_t wall_now() {
       .count();
 }
 
+// The Traffic tab's presses, into the traffic layer (run from the flight
+// loop, after the frame, like every press).
+const ui::TrafficActions kTrafficActions{
+    [](const std::string &id) { traffic_layer::track(id); },
+    [](const std::string &id) { traffic_layer::follow(id); },
+    [](double factor) { traffic_layer::chase_zoom(factor); },
+    [](double degrees) { traffic_layer::chase_orbit(degrees); },
+    [](const std::string &path) { traffic_layer::use_csl(path); },
+    [] { traffic_layer::browse_csl(); },
+    [] { traffic_layer::rescan_csl(); },
+};
+
 void build() {
   ui::PanelFrame frame{g_panel->version, steady_now(), wall_now(),
                        &g_panel->later};
+  // Only the tab that shows it pays for the picture.
+  gui::TrafficPanel traffic;
+  if (g_panel->state.tab == ui::kTrafficTab) {
+    traffic = traffic_layer::panel(g_panel->state.traffic_filter);
+  }
+  frame.traffic = &traffic;
+  frame.traffic_actions = &kTrafficActions;
   g_panel->last = ui::draw_panel(*g_panel->session, g_panel->state,
                                  g_panel->face, frame);
 }
@@ -252,6 +272,15 @@ void tick_panel() {
     scale = std::max(1.0f, XPLMGetDataf(g_panel->ui_scale));
   }
   g_panel->window->set_framebuffer_scale(2.0f * scale);
+}
+
+void add_to_menu(const char *label, const char *command_name) {
+  if (!g_panel || !g_panel->menu) {
+    return;
+  }
+  if (XPLMCommandRef command = XPLMFindCommand(command_name)) {
+    XPLMAppendMenuItemWithCommand(g_panel->menu, label, command);
+  }
 }
 
 void show_panel() {

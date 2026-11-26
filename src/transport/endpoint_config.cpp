@@ -390,7 +390,15 @@ std::string default_config_template() {
       "# console gets an OFP at all - there is no UI on your side to type\n"
       "# it into. Leave it unset to fly without one.\n"
       "#\n"
-      "# simbrief_id = your-simbrief-id\n";
+      "# simbrief_id = your-simbrief-id\n"
+      "\n"
+      "# The folder of CSL aircraft models other pilots and the console's\n"
+      "# traffic are drawn with. Leave it unset to use the plugin's own\n"
+      "# Resources/CSL or the models IVAO, LiveTraffic, xPilot or X-Ivap\n"
+      "# installed. Choosing a folder on the panel's Traffic tab writes this\n"
+      "# line. A path may not contain '#'.\n"
+      "#\n"
+      "# csl_path = /path/to/CSL\n";
 }
 
 std::string host_header(const WebSocketEndpoint &endpoint) {

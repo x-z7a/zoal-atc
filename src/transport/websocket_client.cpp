@@ -376,6 +376,17 @@ void WebSocketClient::relanguage(std::string language) {
   close_locked();
 }
 
+void WebSocketClient::add_capability(std::string capability) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  auto &declared = endpoint_.capabilities;
+  if (std::find(declared.begin(), declared.end(), capability) != declared.end()) {
+    return;
+  }
+  declared.push_back(std::move(capability));
+  reconnect_gate_.reset();
+  close_locked();
+}
+
 std::string reply_language(const std::string &code) {
   std::string primary;
   for (const char c : code) {

@@ -37,6 +37,11 @@ public:
     bool resizable = false;
     int min_width = 0;
     int min_height = 0;
+    // Drawn over the flight and never in its way: no decoration and no mouse,
+    // keyboard or cursor handlers, so every click and scroll passes through
+    // to the sim (XPLMDisplay.h, xplm_WindowDecorationNone). For things drawn
+    // over the world, like the traffic tags; it may cover the whole screen.
+    bool overlay = false;
   };
 
   // Created hidden, at the given global boxel rectangle (y up).

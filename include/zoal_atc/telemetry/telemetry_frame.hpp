@@ -96,6 +96,20 @@ struct TelemetrySnapshot {
   // What the sim had, against what this frame carries.
   TrafficCensus traffic_census;
 
+  // What other pilots need to draw this aircraft (traffic_v1, see
+  // docs/traffic-protocol.md). Sent only when has_render is set, so a console
+  // that predates them sees the frame it always did.
+  bool has_render = false;
+  double track_deg = 0;
+  double pitch_deg = 0;
+  double roll_deg = 0;
+  double gear = 0;       // 0 up .. 1 down
+  double flaps = 0;      // 0 .. 1
+  double speedbrake = 0; // 0 .. 1
+  double thrust = 0;     // 0 .. 1
+  std::uint32_t lights = 0; // nav=1 beacon=2 strobe=4 taxi=8 landing=16
+  std::string livery;
+
   // Simulator state / clock
   bool paused = false;
   double now_secs = 0;

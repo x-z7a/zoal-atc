@@ -3,6 +3,7 @@
 
 #include "kit.hpp"
 #include "zoal_atc/gui/panel_session.hpp"
+#include "zoal_atc/gui/traffic_panel.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -17,10 +18,19 @@
 // same frame can be rendered off-screen (tools/panel_preview.cpp).
 namespace zoal_atc::ui {
 
+inline constexpr int kHomeTab = 0;
+inline constexpr int kTrafficTab = 1;
+inline constexpr int kSettingsTab = 2;
+
 // What the view keeps between frames that the session has no business
 // holding: which tab is up, what is half-typed, where the log is scrolled.
 struct PanelViewState {
-  int tab = 0; // 0 Home, 1 Settings
+  int tab = 0; // kHomeTab, kTrafficTab, kSettingsTab
+  gui::TrafficFilter traffic_filter = gui::TrafficFilter::all;
+  // The CSL folder being typed, and whether the picker is open over a
+  // running list (it is always shown when there are no models).
+  char csl_path[1024] = {};
+  bool csl_picking = false;
   char tune[32] = {};
   char say[512] = {};
   char token[512] = {};
@@ -44,6 +54,17 @@ struct PanelViewState {
   bool moving = false;
 };
 
+// What the Traffic tab's presses do, run after the frame like any press.
+struct TrafficActions {
+  std::function<void(const std::string &)> track;  // "" clears
+  std::function<void(const std::string &)> follow; // "" stops
+  std::function<void(double)> zoom;                // factor
+  std::function<void(double)> orbit;               // degrees clockwise
+  std::function<void(const std::string &)> use_csl; // a CSL folder, by path
+  std::function<void()> browse_csl;                 // the system folder dialog
+  std::function<void()> rescan_csl;                 // look for folders to offer again
+};
+
 struct PanelFrame {
   std::string version;
   std::uint64_t steady_ms = 0;
@@ -52,7 +73,13 @@ struct PanelFrame {
   // dataref, rewrite the config file or re-dial the socket, none of which
   // belongs in a draw callback.
   std::vector<std::function<void()>> *later = nullptr;
+  // The Traffic tab's picture, filled with state.traffic_filter, and what its
+  // buttons do. Null where there is no traffic layer (the preview without
+  // one): the tab says so.
+  const gui::TrafficPanel *traffic = nullptr;
+  const TrafficActions *traffic_actions = nullptr;
 };
+
 
 struct PanelViewResult {
   bool close = false;
