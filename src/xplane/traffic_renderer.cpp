@@ -1,9 +1,11 @@
 #include "traffic_renderer.hpp"
 
 #include "zoal_atc/traffic/clock_sync.hpp"
+#include "zoal_atc/traffic/ground_fit.hpp"
 
 #include "XPMPAircraft.h"
 #include "XPMPMultiplayer.h"
+#include "XPLMScenery.h"
 
 #include <cstring>
 
@@ -62,7 +64,7 @@ public:
     colour_label();
   }
 
-  void UpdatePosition(float, int) override {
+  void UpdatePosition(float elapsed, int) override {
     auto s = registry_.state(id_, traffic::monotonic_seconds());
     if (!s) {
       SetVisible(false);
@@ -71,8 +73,10 @@ public:
     if (!IsVisible()) {
       SetVisible(true);
     }
-    bClampToGround = s->on_ground;
+    // Our own ground fit, not XPMP2's clamp, which only ever lifts.
+    bClampToGround = false;
     SetLocation(s->lat_deg, s->lon_deg, s->alt_ft_msl, s->on_ground);
+    fit_to_ground(s->on_ground, elapsed);
     SetHeading(static_cast<float>(s->heading_deg));
     SetPitch(static_cast<float>(s->pitch_deg));
     SetRoll(static_cast<float>(s->roll_deg));
@@ -91,7 +95,37 @@ public:
     SetTireRotRpm(static_cast<float>(s->on_ground ? s->groundspeed_kts * 30.0 : 0.0));
   }
 
+  ~ConsoleAircraft() override {
+    if (probe_ != nullptr) {
+      XPLMDestroyProbe(probe_);
+    }
+  }
+
 private:
+  // Wheels on X-Plane's terrain rather than the console's field elevation
+  // (traffic::GroundFit). Far above the ground the terrain is probed only now
+  // and then: a cruising aircraft has nothing to fit.
+  void fit_to_ground(bool on_ground, float elapsed) {
+    const bool near_ground = on_ground || clearance_m_ < 1500.0 || fit_.offset() != 0.0;
+    if (!near_ground && ++skipped_ < 30) {
+      return;
+    }
+    skipped_ = 0;
+    if (probe_ == nullptr) {
+      probe_ = XPLMCreateProbe(xplm_ProbeY);
+    }
+    XPLMProbeInfo_t info{};
+    info.structSize = sizeof(info);
+    if (probe_ == nullptr ||
+        XPLMProbeTerrainXYZ(probe_, drawInfo.x, drawInfo.y, drawInfo.z, &info) !=
+            xplm_ProbeHitTerrain) {
+      return;
+    }
+    const double terrain = static_cast<double>(info.locationY) + GetVertOfs();
+    clearance_m_ = drawInfo.y - terrain;
+    drawInfo.y = static_cast<float>(fit_.update(drawInfo.y, terrain, on_ground, elapsed));
+  }
+
   // Cyan while the pilot tracks it from the panel's Traffic tab, green for a
   // person, XPMP2's yellow for the console's AI.
   void colour_label() {
@@ -108,6 +142,10 @@ private:
   bool pilot_ = false;
   bool tracked_ = false;
   float label_height_ = -1.0f;
+  traffic::GroundFit fit_;
+  XPLMProbeRef probe_ = nullptr;
+  double clearance_m_ = 0.0; // 0 until probed: probe from the start
+  int skipped_ = 0;
   const traffic::TrafficRegistry &registry_;
 };
 

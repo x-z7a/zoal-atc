@@ -50,6 +50,35 @@ Velocity velocity_of(const Sample &s) {
   return {speed * std::sin(track), speed * std::cos(track)};
 }
 
+// The vertical tangents at both ends of a segment, in feet per second,
+// limited so the altitude curve cannot overshoot or wiggle between the two
+// reports (Fritsch-Carlson). A reported vertical speed that agrees with the
+// climb between the reports passes untouched; one that does not -- a feed
+// that flips between 1,500 fpm and level each second, a pilot's VSI lagging
+// a level-off -- would otherwise bow the curve up and down at every report.
+void monotone_tangents(double rise_ft, double dt_s, double *v0, double *v1) {
+  const double chord = rise_ft / dt_s;
+  if (std::abs(rise_ft) < 0.5) {
+    *v0 = 0.0; // level: any tangent would bump it
+    *v1 = 0.0;
+    return;
+  }
+  if (*v0 * chord < 0.0) {
+    *v0 = 0.0;
+  }
+  if (*v1 * chord < 0.0) {
+    *v1 = 0.0;
+  }
+  const double alpha = *v0 / chord;
+  const double beta = *v1 / chord;
+  const double sum = alpha * alpha + beta * beta;
+  if (sum > 9.0) {
+    const double tau = 3.0 / std::sqrt(sum);
+    *v0 = tau * alpha * chord;
+    *v1 = tau * beta * chord;
+  }
+}
+
 } // namespace
 
 double blend_angle_deg(double from, double to, double fraction) {
@@ -77,9 +106,15 @@ Sample interpolate(const Sample &a, const Sample &b, double t_s) {
   const double y = hermite(0.0, va.north_mps, by, vb.north_mps, dt, f);
   out.lat_deg = a.lat_deg + y / kMetresPerDegLat;
   out.lon_deg = a.lon_deg + (m_lon != 0.0 ? x / m_lon : 0.0);
-  out.alt_ft_msl =
-      hermite(a.alt_ft_msl, a.vertical_speed_fpm * kFpmToFtps, b.alt_ft_msl,
-              b.vertical_speed_fpm * kFpmToFtps, dt, f);
+  if (a.on_ground && b.on_ground) {
+    // Rolling: the ground is whatever the two reports say, in a straight line.
+    out.alt_ft_msl = lerp(a.alt_ft_msl, b.alt_ft_msl, f);
+  } else {
+    double v0 = a.vertical_speed_fpm * kFpmToFtps;
+    double v1 = b.vertical_speed_fpm * kFpmToFtps;
+    monotone_tangents(b.alt_ft_msl - a.alt_ft_msl, dt, &v0, &v1);
+    out.alt_ft_msl = hermite(a.alt_ft_msl, v0, b.alt_ft_msl, v1, dt, f);
+  }
 
   out.heading_deg = blend_angle_deg(a.heading_deg, b.heading_deg, f);
   out.track_deg = blend_angle_deg(a.track_deg, b.track_deg, f);

@@ -86,6 +86,16 @@
   `traffic_v1` (`WebSocketClient::add_capability`). While running, "CSL models"
   on the tab adds another folder; the old one's models stay until restart.
 
+- **Ground fit** (`traffic::GroundFit`): the console's ground is a navdata
+  field elevation, X-Plane's is the mesh, and XPMP2's clamp only lifts. Each
+  aircraft probes the terrain and, on the ground, sits on it exactly; the
+  correction eases in at 3 m/s at touchdown and fades over the first 60 m
+  after liftoff. Never drawn below the terrain.
+- **Monotone altitude**: the smoother limits its vertical tangents
+  (Fritsch-Carlson), so a reported vertical speed that disagrees with the
+  climb between two reports cannot bow the curve; on the ground altitude is
+  linear. Consistent reports draw exactly as before.
+
 Threading rule: the registry and all XPMP2 objects are touched only on the
 simulator's main thread. The network threads hand over parsed frames and take
 encoded strings, nothing else.
