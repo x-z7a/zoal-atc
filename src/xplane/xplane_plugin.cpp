@@ -173,6 +173,9 @@ struct ATCReplyMessage {
   // language is the language text is in, an ISO 639-1 code; empty from a
   // console that does not name one, which is English.
   std::string language;
+  // pilot is another aircraft's call, overheard (speaker "pilot"): said
+  // through a cockpit transmitter rather than a ground station's.
+  bool pilot = false;
   std::uint64_t queued_at_ms = 0;
   bool own_call = false;
   // speech is the reply being synthesised in that voice, started the moment
@@ -828,6 +831,7 @@ std::optional<ATCReplyMessage> parse_atc_reply(const std::string &payload) {
   reply.frequency_hz = json_uint_field(payload, "frequency_hz").value_or(0);
   reply.language = zoal_atc::transport::reply_language(
       json_string_field(payload, "language").value_or("en"));
+  reply.pilot = json_string_field(payload, "speaker").value_or("") == "pilot";
   return reply;
 }
 
@@ -843,8 +847,9 @@ void queue_atc_reply(ATCReplyMessage reply) {
     const std::string said = reply.language == "en"
                                  ? zoal_atc::transport::radio_text(reply.text)
                                  : reply.text;
-    reply.speech = g_synthesis->submit(said, reply.voice, urgent_speech(reply),
-                                       reply.language);
+    reply.speech = g_synthesis->submit(
+        said, reply.voice, urgent_speech(reply), reply.language,
+        reply.pilot ? zoal_atc::tts::kCockpitTransmitter : zoal_atc::tts::kReceiver);
   }
   std::lock_guard<std::mutex> lock(g_reply_mutex);
   if (reply.generation != 0 && reply.voice != 0 && reply.frequency_hz != 0) {

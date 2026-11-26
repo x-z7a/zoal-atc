@@ -240,17 +240,17 @@ std::vector<Reading> readings(const std::string &sentence, const std::string &la
   return out;
 }
 
-void radio(Audio &audio) {
+void radio(Audio &audio, const RadioShape &shape) {
   if (audio.pcm.empty() || audio.sample_rate_hz <= 0) {
     return;
   }
   const double rate = static_cast<double>(audio.sample_rate_hz);
   // Two sections each side: a 24 dB/octave skirt, which is what makes it sound
   // like a receiver rather than a telephone.
-  Biquad high1 = Biquad::pass(true, 300.0, rate);
-  Biquad high2 = Biquad::pass(true, 300.0, rate);
-  Biquad low1 = Biquad::pass(false, 3000.0, rate);
-  Biquad low2 = Biquad::pass(false, 3000.0, rate);
+  Biquad high1 = Biquad::pass(true, shape.low_hz, rate);
+  Biquad high2 = Biquad::pass(true, shape.low_hz, rate);
+  Biquad low1 = Biquad::pass(false, shape.high_hz, rate);
+  Biquad low2 = Biquad::pass(false, shape.high_hz, rate);
 
   std::vector<double> shaped(audio.pcm.size());
   double peak = 0;
@@ -258,7 +258,7 @@ void radio(Audio &audio) {
     double x = static_cast<double>(audio.pcm[i]) / 32768.0;
     x = low2(low1(high2(high1(x))));
     // Soft compression: quiet syllables come up, peaks are rounded off.
-    x = std::tanh(2.5 * x);
+    x = std::tanh(shape.drive * x);
     shaped[i] = x;
     peak = std::max(peak, std::fabs(x));
   }
@@ -335,12 +335,17 @@ SynthesisQueue::~SynthesisQueue() {
 
 std::shared_ptr<Speech> SynthesisQueue::submit(const std::string &text,
                                                std::uint64_t voice, bool urgent,
-                                               const std::string &language) {
+                                               const std::string &language,
+                                               const RadioShape &shape) {
   auto speech = std::make_shared<Speech>();
-  Job job{text,
-          speaker_for(voice, synthesizer_ ? synthesizer_->speakers() : 0,
-                      default_speaker_),
-          urgent, language, speech};
+  Job job;
+  job.text = text;
+  job.speaker = speaker_for(voice, synthesizer_ ? synthesizer_->speakers() : 0,
+                            default_speaker_);
+  job.urgent = urgent;
+  job.language = language;
+  job.shape = shape;
+  job.speech = speech;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (jobs_.size() >= kMaxWaiting) {
@@ -387,7 +392,7 @@ void SynthesisQueue::run() {
         failed = true;
         break;
       }
-      radio(audio);
+      radio(audio, job.shape);
       job.speech->add(std::move(audio));
     }
     job.speech->finish(failed);

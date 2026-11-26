@@ -196,6 +196,31 @@ int main() {
     require(peak > 20000 && peak < 32767, "speech is brought up and not clipped");
   }
 
+  // Another aircraft's transmitter is narrower than the tower's: a pilot's
+  // call keeps the middle of the voice and loses more at both edges, so a
+  // listener tells a pilot from a controller before the first word ends.
+  {
+    const int rate = 24000;
+    auto edges = [&](const tts::RadioShape &shape) {
+      auto low = tone(330, rate, rate);
+      auto mid = tone(1000, rate, rate);
+      auto high = tone(2900, rate, rate);
+      tts::Audio mixed{std::vector<std::int16_t>(low.size()), rate};
+      for (std::size_t i = 0; i < low.size(); ++i) {
+        mixed.pcm[i] = static_cast<std::int16_t>((low[i] + mid[i] + high[i]) / 3);
+      }
+      tts::radio(mixed, shape);
+      const double voice = energy(mixed.pcm, 1000, rate);
+      return (energy(mixed.pcm, 330, rate) + energy(mixed.pcm, 2900, rate)) / voice;
+    };
+    const double tower = edges(tts::kReceiver);
+    const double cockpit = edges(tts::kCockpitTransmitter);
+    require(cockpit < tower / 2, "a pilot's call is not narrower than the tower's");
+    tts::Audio silence{std::vector<std::int16_t>(100, 0), rate};
+    tts::radio(silence, tts::kCockpitTransmitter);
+    require(silence.pcm[50] == 0, "silence stays silent");
+  }
+
   // Sentences become audio in the station's voice, and the first is ready to
   // play before the transmission is finished being synthesised.
   {
