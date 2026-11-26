@@ -33,6 +33,7 @@ add_library(zoal_atc_core STATIC
     src/gui/panel_session.cpp
     src/gui/panel_theme.cpp
     src/gui/font_metrics.cpp
+    src/gui/display_numbers.cpp
     src/gui/gui_frames.cpp
     src/gui/panel_paths.cpp
     src/ptt/noop_audio_recorder.cpp
@@ -365,4 +366,5 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_voice_catalogue_tests tests/voice_catalogue_test.cpp)
     zoal_atc_add_test(zoal_atc_i18n_tests tests/i18n_test.cpp)
     zoal_atc_add_test(zoal_atc_logbook_tests tests/logbook_test.cpp)
+    zoal_atc_add_test(zoal_atc_display_numbers_tests tests/display_numbers_test.cpp)
 endif()

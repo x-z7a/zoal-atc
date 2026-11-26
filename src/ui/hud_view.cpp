@@ -1,6 +1,7 @@
 #include "hud_view.hpp"
 
 #include "kit.hpp"
+#include "zoal_atc/gui/display_numbers.hpp"
 #include "zoal_atc/gui/i18n.hpp"
 #include "zoal_atc/gui/hud_layout.hpp"
 
@@ -792,7 +793,7 @@ void build(HudSession &session, std::int64_t wall) {
             : "";
 
     const std::vector<std::string> lines =
-        wrap_lines(regular, css(kBubblePx), entry.text, wrap);
+        wrap_lines(regular, css(kBubblePx), gui::display_numbers(entry.text), wrap);
     float words_w = 0.0f;
     for (const std::string &part : lines) {
       words_w = std::max(words_w, measure(regular, css(kBubblePx), part).x);
