@@ -152,6 +152,9 @@ void start_hud(gui::GuiBridge &bridge,
   if (g_hud->cockpit.controller_speech_pending) {
     g_hud->session->set_controller_speech_pending(g_hud->cockpit.controller_speech_pending);
   }
+  if (g_hud->cockpit.may_key_up) {
+    g_hud->session->set_may_key_up(g_hud->cockpit.may_key_up);
+  }
   g_hud->session->attach(steady_now());
 
   g_hud->command =
@@ -249,9 +252,9 @@ void hud_reply_spoken(const std::string &text) {
   }
 }
 
-void hud_frequency_busy(bool busy) {
+void hud_transmitting(bool on) {
   if (g_hud) {
-    g_hud->session->set_frequency_busy(busy);
+    g_hud->session->set_transmitting(on);
   }
 }
 

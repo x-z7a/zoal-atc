@@ -39,6 +39,8 @@ struct HudCockpit {
   std::function<void(const std::string &, std::uint64_t, const std::string &)> speak_own_call;
   // Whether a controller's transmission on a channel is queued or playing.
   std::function<bool(std::uint64_t)> controller_speech_pending;
+  // Whether the pilot may key up now on the radio they transmit on.
+  std::function<bool()> may_key_up;
 };
 
 // Creates the window and its command, attaches to `bridge` and shows the HUD.
@@ -69,9 +71,8 @@ void hud_reply_heard(std::uint64_t frequency_hz);
 // its words now rather than before its voice.
 void hud_reply_spoken(const std::string &text);
 
-// The push-to-talk button was refused, or taken, on a channel this cockpit is
-// still saying something on (x-z7a/atc#1138).
-void hud_frequency_busy(bool busy);
+// The microphone opened or closed: the HUD's TX annunciator.
+void hud_transmitting(bool on);
 
 } // namespace zoal_atc::xplane
 

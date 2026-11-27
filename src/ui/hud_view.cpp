@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -299,7 +300,7 @@ float strip_tail(ImDrawList *draw, HudSession &session, const Palette &p, float 
       }
       const std::string id = "option" + std::to_string(index++);
       if (call_pill(draw, p, id.c_str(), ImVec2(ox, oy), w, option.label, Icon::menu, false,
-                    !session.call_in_flight(option.key), all)) {
+                    !session.call_in_flight(option.key) && session.may_key_up(), all)) {
         g.state->pressed_call = option.key;
       }
       ox += w + kCallGap;
@@ -344,8 +345,9 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
   float calls_w = 0.0f;
   if (menu != nullptr) {
     for (const gui::HudCallItem &item : menu->items) {
+      // Shut while another voice is on the channel (x-z7a/atc#1143).
       CallButton button{item.key, item.label, item.readback,
-                        session.call_in_flight(item.key)};
+                        session.call_in_flight(item.key) || !session.may_key_up()};
       button.choice = !item.options.empty();
       button.open = button.choice && session.open_choice() != nullptr &&
                     session.open_choice()->key == item.key;
@@ -527,7 +529,7 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
 constexpr float kTypeHeight = 28.0f;
 
 float typing_line(ImDrawList *draw, const Palette &p, float right, float y, float bar_width,
-                  float *widest) {
+                  float *widest, bool clear) {
   const float most = gui::HudPlacement{}.width - kPad * 2.0f;
   const float width =
       std::clamp(std::max(g.state->strip_width, bar_width), 240.0f, most);
@@ -551,7 +553,10 @@ float typing_line(ImDrawList *draw, const Palette &p, float right, float y, floa
   ImGui::SetNextItemWidth(width - 28.0f);
   if (ImGui::InputTextWithHint("##hud_typed", tr("Type a call, Enter to send"),
                                g.state->typed, sizeof(g.state->typed),
-                               ImGuiInputTextFlags_EnterReturnsTrue)) {
+                               ImGuiInputTextFlags_EnterReturnsTrue) &&
+      clear) {
+    // Over a voice the line is kept, to be sent once RX goes out
+    // (x-z7a/atc#1143).
     g.state->pressed_text = g.state->typed;
     g.state->typed[0] = '\0';
   }
@@ -600,6 +605,11 @@ void build(HudSession &session, std::int64_t wall) {
   // pilot reads to know whose calls the buttons make.
   float bar_width = 11.0f + kLed + 8.0f + kHandle + 3.0f;
   bar_width += tracked_width(bold, css(kTitlePx), title, kTitleTracking) + 8.0f;
+  // The radio's annunciators, as a COM radio shows them (x-z7a/atc#1143):
+  // RX while a voice is on the channel the pilot transmits on, TX while the
+  // microphone is open. Dim when out.
+  const float annunciator = tracked_width(bold, css(kWarnPx), "RX", kWarnTracking);
+  bar_width += (annunciator + 6.0f) * 2.0f + 2.0f;
   if (!open && !reachable) {
     bar_width += tracked_width(bold, css(kWarnPx), warn, kWarnTracking) + 8.0f;
   }
@@ -617,6 +627,14 @@ void build(HudSession &session, std::int64_t wall) {
   tracked_text(draw, bold, css(kTitlePx), ImVec2(x, mid - css(kTitlePx) * 0.5f),
                rgba(p.text), title, p, kTitleTracking);
   x += tracked_width(bold, css(kTitlePx), title, kTitleTracking) + 8.0f;
+  for (const auto &[label, lit, ink] :
+       {std::tuple<const char *, bool, unsigned>{"RX", session.receiving(), p.active},
+        std::tuple<const char *, bool, unsigned>{"TX", session.transmitting(), p.danger}}) {
+    tracked_text(draw, bold, css(kWarnPx), ImVec2(x, mid - css(kWarnPx) * 0.5f),
+                 lit ? rgba(ink) : rgba(p.text_dim, 0.45f), label, p, kWarnTracking);
+    x += annunciator + 6.0f;
+  }
+  x += 2.0f;
   if (!open) {
     if (!reachable) {
       tracked_text(draw, bold, css(kWarnPx), ImVec2(x, mid - css(kWarnPx) * 0.5f),
@@ -735,7 +753,7 @@ void build(HudSession &session, std::int64_t wall) {
 
   // ---- a line to type a call in, as wide as the strip under it ----
   if (session.shows_typing()) {
-    y = typing_line(draw, p, right, y, row_width, &widest);
+    y = typing_line(draw, p, right, y, row_width, &widest, session.may_key_up());
   }
 
   // ---- the calls a pilot can make by pressing a button ----

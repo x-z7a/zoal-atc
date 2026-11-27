@@ -363,6 +363,10 @@ void PanelSession::tune(const std::string &text, std::uint64_t steady_ms) {
 }
 
 void PanelSession::transmit(const std::string &text, std::uint64_t steady_ms) {
+  if (!may_key_up()) {
+    // Send is shut while the channel is busy, and the line is kept.
+    return;
+  }
   send("submit_text", R"({"text":)" + quoted(text) + "}",
        Pending{Request::transmit, &home_}, steady_ms);
 }

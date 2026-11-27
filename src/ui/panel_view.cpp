@@ -991,9 +991,12 @@ void home(const Ui &ui, PanelSession &session, PanelViewState &state,
   bool send = field(ui, "say", ImVec2(x, by), ImVec2(say_w, kInputHeight),
                     state.say, sizeof(state.say),
                     {tr("Type a transmission\xE2\x80\xA6")});
+  // Shut while the cockpit is still saying something on the channel: a typed
+  // call is keying up, and the line waits in the box (x-z7a/atc#1143).
+  const bool clear = session.may_key_up();
   send |= button(ui, "send", ImVec2(x + say_w + 6.0f, by + bdy),
-                 ImVec2(send_w, kButtonHeight), tr("Send"), Variant::filled, !busy);
-  if (send && !busy) {
+                 ImVec2(send_w, kButtonHeight), tr("Send"), Variant::filled, !busy && clear);
+  if (send && !busy && clear) {
     const std::string value = trimmed(state.say);
     if (!value.empty()) {
       ui.later([&session, value, steady] { session.transmit(value, steady); });

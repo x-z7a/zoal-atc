@@ -26,6 +26,8 @@ struct PanelConfig {
   gui::GuiBridge *bridge = nullptr;
   // The plugin's monotonic clock, the one the bridge runs on.
   std::function<std::uint64_t()> steady_ms;
+  // Whether the pilot may key up now: a line typed here is a call.
+  std::function<bool()> may_key_up;
 };
 
 // Creates the window (hidden), its command and the plugin menu, and attaches
