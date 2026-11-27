@@ -1975,9 +1975,33 @@ std::vector<std::uint64_t> on_the_air() {
   return channels;
 }
 
-// A press refused because the frequency was busy, so its release is not a
-// release of anything.
-bool g_ptt_refused = false;
+// pilot_may_key_up is whether the radio the pilot transmits on is clear in
+// this cockpit (tts::may_key_up).
+bool pilot_may_key_up() {
+  const int com = selected_com() == 2 ? 2 : 1;
+  return zoal_atc::tts::may_key_up(tuned_com_hz(com), on_the_air());
+}
+
+// The push-to-talk button as the pilot holds it: up, held over a voice with
+// the microphone still closed, or transmitting.
+enum class PttState { up, held, open };
+PttState g_ptt_state = PttState::up;
+
+void open_microphone() {
+  g_ptt_state = PttState::open;
+  zoal_atc::xplane::hud_transmitting(true);
+  log_line("PTT command begin");
+  g_ptt->command_begin(now_ms());
+}
+
+// tick_ptt opens the microphone of a button held over a voice the moment the
+// channel clears, as a pilot keys up the instant the voice stops.
+void tick_ptt() {
+  if (g_ptt && g_ptt_state == PttState::held && pilot_may_key_up()) {
+    log_line("PTT held over a voice: the channel is clear");
+    open_microphone();
+  }
+}
 
 int ptt_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
   if (!g_ptt) {
@@ -1985,24 +2009,21 @@ int ptt_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
   }
 
   if (phase == xplm_CommandBegin) {
-    const int com = selected_com() == 2 ? 2 : 1;
-    if (!zoal_atc::tts::may_key_up(tuned_com_hz(com), on_the_air())) {
+    if (!pilot_may_key_up()) {
       // Nobody keys up over a voice in their headset (x-z7a/atc#1138): the
-      // microphone stays closed, and the HUD says why.
-      log_line("PTT refused: the frequency is busy in this cockpit");
-      g_ptt_refused = true;
-      zoal_atc::xplane::hud_frequency_busy(true);
+      // microphone stays closed while the HUD's RX is lit, and opens if the
+      // button is still held when it goes out (x-z7a/atc#1143).
+      log_line("PTT held: the frequency is busy in this cockpit");
+      g_ptt_state = PttState::held;
       return 0;
     }
-    g_ptt_refused = false;
-    zoal_atc::xplane::hud_frequency_busy(false);
-    log_line("PTT command begin");
-    g_ptt->command_begin(now_ms());
+    open_microphone();
   } else if (phase == xplm_CommandEnd) {
-    if (g_ptt_refused) {
-      g_ptt_refused = false;
+    const PttState was = std::exchange(g_ptt_state, PttState::up);
+    if (was != PttState::open) {
       return 0;
     }
+    zoal_atc::xplane::hud_transmitting(false);
     log_line("PTT command end");
     g_ptt->command_end(now_ms());
   }
@@ -2105,6 +2126,7 @@ void process_gui_bridge() {
 
 float flight_loop_callback(float, float, int, void *) {
   if (g_ptt) {
+    tick_ptt();
     g_ptt->tick(now_ms());
   }
   process_gui_bridge();
@@ -2160,10 +2182,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   cockpit.speak_own_call = speak_own_call;
   cockpit.controller_speech_pending = controller_speech_pending;
   // A pressed or typed call is keying up (x-z7a/atc#1143).
-  const auto may_key_up = [] {
-    const int com = selected_com() == 2 ? 2 : 1;
-    return zoal_atc::tts::may_key_up(tuned_com_hz(com), on_the_air());
-  };
+  const auto may_key_up = [] { return pilot_may_key_up(); };
   cockpit.may_key_up = may_key_up;
   panel_config.may_key_up = may_key_up;
   // Only where there are voices to wait for.

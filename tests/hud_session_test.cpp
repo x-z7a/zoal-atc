@@ -565,12 +565,11 @@ void nobody_presses_over_a_voice() {
   rig.hud.submit_text("request taxi", 1);
   expect_true(rig.last_request("pilot_call") == 0, "no press over a voice");
   expect_true(rig.last_request("submit_text") == 0, "no typed call over one either");
-  expect_str(rig.hud.call_error(), "frequency busy: wait for the transmission to end", "and why");
+  expect_true(rig.hud.call_error().empty(), "and nothing said: RX is lit");
 
   busy = false;
   rig.hud.press_call("taxi_departure", 2, kWall);
   expect_true(rig.last_request("pilot_call") != 0, "pressed once it is clear");
-  expect_true(rig.hud.call_error().empty(), "the notice gone");
 }
 
 void auto_readback_waits_for_the_channel() {
@@ -795,14 +794,19 @@ void other_aircraft_on_the_hud_is_a_setting() {
   expect_true(rig.hud.feed().lines().size() == 2, "the pilot's own line, and no new overheard one");
 }
 
-// A refused push-to-talk says why on the HUD, and the next one taken clears
-// only that notice (x-z7a/atc#1138).
-void a_busy_frequency_is_said_and_cleared() {
+// The radio's annunciators (x-z7a/atc#1143): RX while a voice is on the
+// channel, TX while the microphone is open. There is no "busy" message.
+void the_radio_shows_rx_and_tx() {
   Rig rig;
-  rig.hud.set_frequency_busy(true);
-  expect_str(rig.hud.call_error(), "frequency busy: wait for the transmission to end", "said");
-  rig.hud.set_frequency_busy(false);
-  expect_true(rig.hud.call_error().empty(), "cleared once the pilot keys up");
+  bool busy = true;
+  rig.hud.set_may_key_up([&busy] { return !busy; });
+  expect_true(rig.hud.receiving() && !rig.hud.transmitting(), "a voice on the channel: RX");
+  busy = false;
+  rig.hud.set_transmitting(true);
+  expect_true(!rig.hud.receiving() && rig.hud.transmitting(), "keyed up: TX");
+  rig.hud.set_transmitting(false);
+  expect_true(!rig.hud.receiving() && !rig.hud.transmitting(), "both out");
+  expect_true(rig.hud.call_error().empty(), "and nothing said about it");
 }
 
 void the_typing_line_is_a_setting() {
@@ -851,7 +855,7 @@ int main() {
   the_transcript_is_a_setting();
   nobody_presses_over_a_voice();
   auto_readback_waits_for_the_channel();
-  a_busy_frequency_is_said_and_cleared();
+  the_radio_shows_rx_and_tx();
   other_aircraft_on_the_hud_is_a_setting();
 
   if (g_failures != 0) {

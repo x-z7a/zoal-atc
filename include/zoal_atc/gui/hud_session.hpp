@@ -97,10 +97,15 @@ public:
   // What the last press could not do; empty when it went.
   const std::string &call_error() const { return call_error_; }
   void dismiss_call_error() { call_error_.clear(); }
-  // The push-to-talk button was pressed while the cockpit was still saying
-  // something on the channel (x-z7a/atc#1138): busy, the HUD says so; clear,
-  // that notice goes, and nothing else the pilot was told.
-  void set_frequency_busy(bool busy);
+  // The radio's annunciators, as a COM radio shows them (x-z7a/atc#1143). RX
+  // is lit while the cockpit is saying something on the channel the pilot
+  // transmits on, which is when a call is not made; TX only while the
+  // microphone is open. A push-to-talk pressed over a voice shows RX lit and
+  // TX dark, and TX lights the moment the channel clears if it is still held.
+  // There is no "busy" message, because a real radio gives none.
+  void set_transmitting(bool on) { transmitting_ = on; }
+  bool transmitting() const { return transmitting_; }
+  bool receiving() const { return !may_key_up(); }
   // A key pressed and not yet answered, so a button is not sent twice.
   bool call_in_flight(const std::string &key) const {
     return in_flight_.count(key) > 0;
@@ -220,6 +225,7 @@ private:
   std::function<void(const std::string &, std::uint64_t, const std::string &)> speak_own_;
   std::function<bool(std::uint64_t)> controller_speech_pending_;
   std::function<bool()> may_key_up_;
+  bool transmitting_ = false;
 };
 
 // The console's comm_log payload (a CommLogEntry) as a HUD line; nullopt when

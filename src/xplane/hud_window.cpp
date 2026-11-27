@@ -252,9 +252,9 @@ void hud_reply_spoken(const std::string &text) {
   }
 }
 
-void hud_frequency_busy(bool busy) {
+void hud_transmitting(bool on) {
   if (g_hud) {
-    g_hud->session->set_frequency_busy(busy);
+    g_hud->session->set_transmitting(on);
   }
 }
 

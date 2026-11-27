@@ -185,6 +185,7 @@ public:
   // line typed here is a call, refused with the reason while the cockpit is
   // still saying something on the channel. Unset, the pilot always may.
   void set_may_key_up(std::function<bool()> may) { may_key_up_ = std::move(may); }
+  bool may_key_up() const { return !may_key_up_ || may_key_up_(); }
   // Home's one-press import: the plugin's own SimBrief ID is used.
   void import_plan(std::uint64_t steady_ms);
   // Two presses, because this one throws a clearance away: the first arms,

@@ -471,7 +471,8 @@ void a_typed_line_waits_for_the_channel() {
   rig.sent();
   rig.panel.transmit("request taxi", 0);
   expect_true(Rig::id_of(rig.sent(), "submit_text") == 0, "not sent over a voice");
-  expect_str(rig.panel.home().error, "frequency busy: wait for the transmission to end", "and why");
+  expect_true(!rig.panel.may_key_up(), "Send is shut");
+  expect_true(rig.panel.home().error.empty(), "and nothing said about it");
   busy = false;
   rig.panel.transmit("request taxi", 0);
   expect_true(Rig::id_of(rig.sent(), "submit_text") != 0, "sent once it is clear");
