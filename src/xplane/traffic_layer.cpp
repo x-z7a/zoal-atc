@@ -15,6 +15,8 @@
 #include "XPLMCamera.h"
 #include "XPLMDataAccess.h"
 #include "XPLMGraphics.h"
+#include "XPLMPlanes.h"
+#include "XPLMPlugin.h"
 #include "XPLMUtilities.h"
 #include "XPMPMultiplayer.h"
 
@@ -380,6 +382,50 @@ void stop() {
   g_started = false;
 }
 
+namespace {
+
+// tcas_holder is the plugin holding the AI/TCAS aircraft when it is not this
+// one, by the name it registered, or "" while this plugin has them.
+std::string tcas_holder() {
+  if (!g_enabled || XPMPHasControlOfAIAircraft()) {
+    return "";
+  }
+  int total = 0, active = 0;
+  XPLMPluginID controller = XPLM_NO_PLUGIN_ID;
+  XPLMCountAircraft(&total, &active, &controller);
+  if (controller == XPLM_NO_PLUGIN_ID || controller == XPLMGetMyID()) {
+    return "another plugin";
+  }
+  char name[256] = {};
+  XPLMGetPluginInfo(controller, name, nullptr, nullptr, nullptr);
+  return name[0] != '\0' ? std::string(name) : std::string("another plugin");
+}
+
+// take_tcas asks for the AI/TCAS aircraft. Held by another plugin, X-Plane
+// calls planes_available when it lets go, and they are asked for again
+// then: a multiplayer or traffic plugin set the global TCAS override first
+// and the console's traffic never reached TCAS (#1093).
+void take_tcas();
+
+void planes_available(void *) {
+  if (!g_enabled || XPMPHasControlOfAIAircraft()) {
+    return;
+  }
+  log("the AI/TCAS aircraft are free; taking them");
+  take_tcas();
+}
+
+void take_tcas() {
+  if (const char *err = XPMPMultiplayerEnable(planes_available, nullptr); err && *err) {
+    log(std::string("could not take the AI/TCAS aircraft, so console traffic is not on TCAS "
+                    "until that plugin lets go: ") + err);
+    return;
+  }
+  log("took the AI/TCAS aircraft: console traffic is on TCAS");
+}
+
+} // namespace
+
 void enable() {
   g_want_enabled = true;
   if (!g_started || g_enabled) {
@@ -387,9 +433,7 @@ void enable() {
   }
   // Taking the AI/TCAS aircraft is what replaces X-Plane's own AI traffic
   // with the console's: theirs are not drawn while we hold them.
-  if (const char *err = XPMPMultiplayerEnable(); err && *err) {
-    log(std::string("could not take the AI/TCAS aircraft: ") + err);
-  }
+  take_tcas();
   // Our tags replace XPMP2's when the overlay could be made.
   XPMPEnableAircraftLabels(!g_own_labels);
   traffic_labels::set_enabled(true);
@@ -544,6 +588,7 @@ gui::TrafficPanel panel(gui::TrafficFilter filter) {
   auto out = gui::traffic_panel(picture, filter, g_tracked, g_followed);
   out.chase_distance_m = g_chase.distance_m;
   out.csl = csl_status();
+  out.tcas_holder = tcas_holder();
   return out;
 }
 

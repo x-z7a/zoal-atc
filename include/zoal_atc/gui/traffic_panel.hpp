@@ -74,6 +74,10 @@ struct TrafficPanel {
   std::string tracked;               // track id, or empty
   std::string followed;              // track id, or empty
   double chase_distance_m = 0.0;     // the follow camera's, while following
+  // The plugin holding the simulator's AI/TCAS aircraft when it is not this
+  // one: the traffic is drawn but not on TCAS until that plugin lets go.
+  // Empty while this plugin has them.
+  std::string tcas_holder;
 };
 
 // "12.4 nm" under 100 nm (one decimal), "143 nm" from 100 (rounded).
