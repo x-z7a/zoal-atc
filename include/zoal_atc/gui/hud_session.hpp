@@ -93,6 +93,11 @@ public:
   // What the last press could not do; empty when it went.
   const std::string &call_error() const { return call_error_; }
   void dismiss_call_error() { call_error_.clear(); }
+  // Something about the cockpit the pilot should know and would not see
+  // otherwise, such as TCAS held by another plugin; shown until dismissed.
+  const std::string &notice() const { return notice_; }
+  void show_notice(const std::string &text) { notice_ = text; }
+  void dismiss_notice() { notice_.clear(); }
   // A key pressed and not yet answered, so a button is not sent twice.
   bool call_in_flight(const std::string &key) const {
     return in_flight_.count(key) > 0;
@@ -190,6 +195,7 @@ private:
   // When a transmission last finished playing, by channel.
   std::unordered_map<std::uint64_t, std::int64_t> heard_at_;
   std::string call_error_;
+  std::string notice_;
   std::string open_choice_;
   bool holds_until_spoken_ = false;
   struct HeldLine {

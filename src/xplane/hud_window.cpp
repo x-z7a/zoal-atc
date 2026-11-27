@@ -49,6 +49,8 @@ struct Hud {
 };
 
 std::unique_ptr<Hud> g_hud;
+// A notice given before the HUD was up, shown when it is.
+std::string g_pending_notice;
 
 
 void hud_log(const std::string &message) {
@@ -153,6 +155,9 @@ void start_hud(gui::GuiBridge &bridge,
     g_hud->session->set_controller_speech_pending(g_hud->cockpit.controller_speech_pending);
   }
   g_hud->session->attach(steady_now());
+  if (!g_pending_notice.empty()) {
+    g_hud->session->show_notice(std::exchange(g_pending_notice, std::string()));
+  }
 
   g_hud->command =
       XPLMCreateCommand(kHudCommandName, "zoal-atc: Toggle the radio HUD");
@@ -215,6 +220,9 @@ void tick_hud() {
   if (std::exchange(g_hud->view.pressed_dismiss_call, false)) {
     session.dismiss_call_error();
   }
+  if (std::exchange(g_hud->view.pressed_dismiss_notice, false)) {
+    session.dismiss_notice();
+  }
   session.pump(steady, wall);
   // Text is rasterized for the screen's real density: X-Plane reports its UI
   // scale but not the display's (a Retina screen draws two pixels a boxel and
@@ -246,6 +254,14 @@ bool hud_awaiting_own_call() {
 void hud_reply_spoken(const std::string &text) {
   if (g_hud) {
     g_hud->session->reply_spoken(text, wall_now());
+  }
+}
+
+void hud_notice(const std::string &text) {
+  if (g_hud) {
+    g_hud->session->show_notice(text);
+  } else {
+    g_pending_notice = text;
   }
 }
 

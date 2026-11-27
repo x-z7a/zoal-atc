@@ -151,6 +151,20 @@ void says_the_console_is_reachable_once_subscribed() {
   expect_true(!rig.hud.reachable(), "a dropped socket is unreachable");
 }
 
+// A notice stays until the pilot dismisses it, and is not a call's error.
+void keeps_a_notice_until_dismissed() {
+  Rig rig;
+  rig.bring_up();
+  expect_str(rig.hud.notice(), "", "no notice at first");
+  rig.hud.show_notice("Traffic is not on TCAS: it is held by VirtualAirTraffic");
+  rig.hud.pump(0, kWall);
+  expect_str(rig.hud.notice(), "Traffic is not on TCAS: it is held by VirtualAirTraffic",
+             "shown across a pump");
+  expect_str(rig.hud.call_error(), "", "and not as a call error");
+  rig.hud.dismiss_notice();
+  expect_str(rig.hud.notice(), "", "gone once dismissed");
+}
+
 void shows_what_atc_just_said() {
   Rig rig;
   rig.bring_up();
@@ -739,6 +753,7 @@ void the_typing_line_is_a_setting() {
 int main() {
   says_the_console_is_reachable_once_subscribed();
   shows_what_atc_just_said();
+  keeps_a_notice_until_dismissed();
   picks_up_the_cached_line_on_attach();
   reads_the_callsign_from_the_flight_snapshot();
   wears_the_theme_the_plugin_names();

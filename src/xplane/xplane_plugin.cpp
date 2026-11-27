@@ -2129,6 +2129,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
       log_line("csl_path set from the panel: " + folder);
       return true;
     };
+    traffic_hooks.notice = [](const std::string &text) { zoal_atc::xplane::hud_notice(text); };
     traffic_hooks.started = [] {
       if (g_websocket) {
         g_websocket->add_capability("traffic_v1");

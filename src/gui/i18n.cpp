@@ -293,6 +293,8 @@ const Row kRows[] = {
     {". Disable that plugin to see this traffic there.",
      ". Desactive ese plugin para ver este tráfico en él.",
      ". Désactivez ce plugin pour y voir ce trafic."},
+    {"Traffic is not on TCAS: it is held by ", "El tráfico no aparece en el TCAS: lo controla ",
+     "Le trafic est absent du TCAS : il est contrôlé par "},
     // The CSL folder picker.
     {"No CSL models found", "No se encontraron modelos CSL", "Aucun modèle CSL trouvé"},
     {"CSL models", "Modelos CSL", "Modèles CSL"},

@@ -4,6 +4,7 @@
 #include "traffic_labels.hpp"
 #include "traffic_renderer.hpp"
 
+#include "zoal_atc/gui/i18n.hpp"
 #include "zoal_atc/gui/traffic_label.hpp"
 #include "zoal_atc/traffic/clock_sync.hpp"
 #include "zoal_atc/traffic/csl_locator.hpp"
@@ -386,10 +387,17 @@ namespace {
 
 // tcas_holder is the plugin holding the AI/TCAS aircraft when it is not this
 // one, by the name it registered, or "" while this plugin has them.
+std::string tcas_controller();
+
 std::string tcas_holder() {
   if (!g_enabled || XPMPHasControlOfAIAircraft()) {
     return "";
   }
+  return tcas_controller();
+}
+
+// tcas_controller is the plugin X-Plane says holds the AI aircraft.
+std::string tcas_controller() {
   int total = 0, active = 0;
   XPLMPluginID controller = XPLM_NO_PLUGIN_ID;
   XPLMCountAircraft(&total, &active, &controller);
@@ -419,6 +427,14 @@ void take_tcas() {
   if (const char *err = XPMPMultiplayerEnable(planes_available, nullptr); err && *err) {
     log(std::string("could not take the AI/TCAS aircraft, so console traffic is not on TCAS "
                     "until that plugin lets go: ") + err);
+    static bool told = false;
+    if (!told && g_hooks.notice) {
+      // Once a session: the Traffic tab keeps saying it after the pilot
+      // dismisses this.
+      told = true;
+      g_hooks.notice(zoal_atc::gui::tr("Traffic is not on TCAS: it is held by ") +
+                     tcas_controller());
+    }
     return;
   }
   log("took the AI/TCAS aircraft: console traffic is on TCAS");

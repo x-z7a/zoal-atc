@@ -65,6 +65,11 @@ gui::HudTheme hud_theme();
 // cockpit, which is what auto readback waits for.
 void hud_reply_heard(std::uint64_t frequency_hz);
 
+// A line the pilot should see on the HUD until they dismiss it: something
+// about the cockpit they would not otherwise know, such as TCAS held by
+// another plugin (#1105).
+void hud_notice(const std::string &text);
+
 // A controller's transmission started playing, or will not play: the HUD shows
 // its words now rather than before its voice.
 void hud_reply_spoken(const std::string &text);

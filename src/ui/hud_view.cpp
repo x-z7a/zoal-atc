@@ -321,6 +321,20 @@ float strip_tail(ImDrawList *draw, HudSession &session, const Palette &p, float 
     y += 18.0f;
     *widest = std::max(*widest, w + 4.0f);
   }
+  if (!session.notice().empty()) {
+    const std::string shown = fit(g.face->semibold, css(kActionPx), session.notice(),
+                                  most - 20.0f);
+    const float w = measure(g.face->semibold, css(kActionPx), shown).x;
+    y += 4.0f;
+    bool hovered = false;
+    if (hit("notice", ImVec2(right - w - 4.0f, y), ImVec2(w + 4.0f, 18.0f), &hovered)) {
+      g.state->pressed_dismiss_notice = true;
+    }
+    text(draw, g.face->semibold, css(kActionPx), ImVec2(right - w - 2.0f, y + 2.0f),
+         rgba(p.warn), shown, p);
+    y += 18.0f;
+    *widest = std::max(*widest, w + 4.0f);
+  }
   return y;
 }
 

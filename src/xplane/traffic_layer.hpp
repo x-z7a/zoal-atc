@@ -24,6 +24,9 @@ namespace zoal_atc::xplane::traffic_layer {
 struct Hooks {
   std::function<bool(const std::string &folder, std::string *why)> save_csl;
   std::function<void()> started;
+  // Tells the pilot something on the HUD: that TCAS is held by another
+  // plugin, once, when the aircraft could not be taken (#1105).
+  std::function<void(const std::string &)> notice;
 };
 
 // `configured_csl` is zoal_atc.cfg's csl_path, tried first. Without models
