@@ -1952,15 +1952,57 @@ private:
   PttEventSink &delegate_;
 };
 
+// on_the_air is the channel of every transmission this cockpit is saying or
+// has waiting to say: the one playing, the replies queued behind it and the
+// pilot's own calls still to be said.
+std::vector<std::uint64_t> on_the_air() {
+  std::vector<std::uint64_t> channels;
+  const auto said = [](const ATCReplyMessage &reply) {
+    return reply.speak && !reply.text.empty();
+  };
+  if (g_active_speech.has_value() && said(g_active_speech->reply)) {
+    channels.push_back(g_active_speech->reply.frequency_hz);
+  }
+  for (const auto &call : g_own_calls) {
+    channels.push_back(call.frequency_hz);
+  }
+  std::lock_guard<std::mutex> lock(g_reply_mutex);
+  for (const auto &reply : g_reply_queue) {
+    if (said(reply)) {
+      channels.push_back(reply.frequency_hz);
+    }
+  }
+  return channels;
+}
+
+// A press refused because the frequency was busy, so its release is not a
+// release of anything.
+bool g_ptt_refused = false;
+
 int ptt_command_handler(XPLMCommandRef, XPLMCommandPhase phase, void *) {
   if (!g_ptt) {
     return 0;
   }
 
   if (phase == xplm_CommandBegin) {
+    const int com = selected_com() == 2 ? 2 : 1;
+    if (!zoal_atc::tts::may_key_up(tuned_com_hz(com), on_the_air())) {
+      // Nobody keys up over a voice in their headset (x-z7a/atc#1138): the
+      // microphone stays closed, and the HUD says why.
+      log_line("PTT refused: the frequency is busy in this cockpit");
+      g_ptt_refused = true;
+      zoal_atc::xplane::hud_frequency_busy(true);
+      return 0;
+    }
+    g_ptt_refused = false;
+    zoal_atc::xplane::hud_frequency_busy(false);
     log_line("PTT command begin");
     g_ptt->command_begin(now_ms());
   } else if (phase == xplm_CommandEnd) {
+    if (g_ptt_refused) {
+      g_ptt_refused = false;
+      return 0;
+    }
     log_line("PTT command end");
     g_ptt->command_end(now_ms());
   }

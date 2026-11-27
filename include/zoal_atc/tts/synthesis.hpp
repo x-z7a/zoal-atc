@@ -67,6 +67,15 @@ int receiving_com(std::uint64_t channel_hz, std::uint64_t com1_hz,
 bool still_receiving(std::uint64_t channel_hz, std::uint64_t com1_hz,
                      std::uint64_t com2_hz);
 
+// may_key_up is whether the pilot may transmit on transmit_hz while this
+// cockpit is still saying, or has waiting to say, the transmissions whose
+// channels are in `saying`: not while any of them is on the channel
+// transmitted on, because nobody keys up over a voice they can hear, and a
+// cockpit behind the console would otherwise have its pilot answer what they
+// have not yet heard (x-z7a/atc#1138). A transmission naming no channel is on
+// every channel; an unknown transmit channel blocks nothing.
+bool may_key_up(std::uint64_t transmit_hz, const std::vector<std::uint64_t> &saying);
+
 // sentences splits a transmission where a controller would draw breath, so the
 // first sentence can be on the air while the rest is still being synthesised.
 // A short trailing fragment is kept with the sentence before it.

@@ -97,6 +97,10 @@ public:
   // What the last press could not do; empty when it went.
   const std::string &call_error() const { return call_error_; }
   void dismiss_call_error() { call_error_.clear(); }
+  // The push-to-talk button was pressed while the cockpit was still saying
+  // something on the channel (x-z7a/atc#1138): busy, the HUD says so; clear,
+  // that notice goes, and nothing else the pilot was told.
+  void set_frequency_busy(bool busy);
   // A key pressed and not yet answered, so a button is not sent twice.
   bool call_in_flight(const std::string &key) const {
     return in_flight_.count(key) > 0;
