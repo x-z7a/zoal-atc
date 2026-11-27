@@ -1888,6 +1888,24 @@ void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
   flow.gap();
   flow.help(tr("The last few transmissions under the HUD's buttons. Off, you hear "
             "them on the radio and read them in this panel's radio log."));
+  flow.end_setting();
+
+  flow.begin_setting();
+  flow.label(tr("Other aircraft on the HUD"));
+  flow.gap();
+  const bool overheard = session.hud_overheard();
+  if (button(inner, "hud_overheard", ImVec2(flow.x + 2.0f, flow.y),
+             ImVec2(button_width(inner, tr("Off")) + 12.0f, kButtonHeight),
+             overheard ? tr("On") : tr("Off"), overheard ? Variant::filled : Variant::outlined,
+             session.settings_loaded())) {
+    flow.ui.later(
+        [&session, overheard, steady] { session.set_hud_overheard(!overheard, steady); });
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help(tr("What other aircraft and their controllers say, in the HUD's transcript. "
+            "Off, the HUD shows only your own exchanges; you still hear everyone on the "
+            "radio and read them in this panel's radio log."));
   flow.error(session.local().error);
 }
 

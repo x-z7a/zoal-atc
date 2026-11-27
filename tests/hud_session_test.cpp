@@ -725,6 +725,28 @@ void the_transcript_is_a_setting() {
   expect_true(!rig.hud.shows_transcript(), "hidden when turned off");
 }
 
+// Off, the HUD keeps only the pilot's own exchanges; somebody else's never
+// enters the feed, so a busy frequency cannot push the pilot's out
+// (x-z7a/atc#1135).
+void other_aircraft_on_the_hud_is_a_setting() {
+  Rig rig;
+  rig.bring_up();
+  expect_true(rig.hud.shows_overheard(), "shown by default");
+  const std::string overheard =
+      R"({"kind":"atc","text":"Jazz four fifty, taxi via Alpha","overheard":true,"addressedTo":"JZA450","at":")" +
+      std::string(kWallIso) + R"(","spokenBy":"ground"})";
+  rig.bridge.on_socket_frame(gui_event("comm_log", overheard), 0);
+  rig.hud.pump(0, kWall);
+  expect_true(rig.hud.feed().lines().size() == 1, "somebody else's line, shown");
+
+  rig.hud.on_settings_changed(R"({"hudOverheard":false})");
+  expect_true(!rig.hud.shows_overheard(), "turned off");
+  rig.bridge.on_socket_frame(gui_event("comm_log", overheard), 0);
+  rig.bridge.on_socket_frame(gui_event("comm_log", atc_line("Cleared to land")), 0);
+  rig.hud.pump(1, kWall);
+  expect_true(rig.hud.feed().lines().size() == 2, "the pilot's own line, and no new overheard one");
+}
+
 void the_typing_line_is_a_setting() {
   Rig rig;
   expect_true(rig.hud.shows_typing(), "shown by default");
@@ -769,6 +791,7 @@ int main() {
   a_typed_call_is_sent_and_spoken();
   the_typing_line_is_a_setting();
   the_transcript_is_a_setting();
+  other_aircraft_on_the_hud_is_a_setting();
 
   if (g_failures != 0) {
     std::cerr << g_failures << " failure(s)\n";

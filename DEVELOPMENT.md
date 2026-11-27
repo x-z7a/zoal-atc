@@ -99,6 +99,11 @@ against a running console over a real socket (`live_console_probe <host> <port>
 - **Connection.** The hello declares capabilities: `local_stt` once the whisper
   model has loaded, and `voice_catalogue_2` once the voice catalogue is built.
   A console only sends voices past 28 to a client that declared the latter.
+  `heard_ack_v1` is always declared: an overheard `atc_reply` carrying a
+  `heard_id` is answered with a `speak_ack` of generation zero and the same
+  `heard_id` once it has played, failed, been cut off by a retune or dropped
+  from a full queue, so the console's AI aircraft wait for this pilot to hear
+  it before acting on it (x-z7a/atc#1135).
   Each connection carries the installation's `client_id` and, if set,
   `simbrief_id`.
 - **Push-to-talk turn.** `audio_start` (session, sequence, format, and the
