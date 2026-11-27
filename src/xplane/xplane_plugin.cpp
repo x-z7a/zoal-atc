@@ -114,6 +114,11 @@ constexpr const char *kTtsModelName = "kokoro-multi-lang-v1_0";
 // catalogue, so it may name any voice in it. A console never sends a number
 // past the stock English voices to a client that did not declare it.
 constexpr const char *kVoiceCatalogueCapability = "voice_catalogue_2";
+// The capability that tells the console this cockpit says when it has finished
+// playing something overheard that carries a heard_id, so the console's own AI
+// aircraft wait for the pilot here to hear it before they act on it
+// (x-z7a/atc#1135).
+constexpr const char *kHeardAckCapability = "heard_ack_v1";
 // How long a reply waits for its first sentence before it is given up as not
 // delivered. Synthesis is a second or two; this is for a model that hung.
 constexpr std::uint64_t kSynthesisDeadlineMs = 12000;
@@ -178,6 +183,10 @@ struct ATCReplyMessage {
   // pilot is another aircraft's call, overheard (speaker "pilot"): said
   // through a cockpit transmitter rather than a ground station's.
   bool pilot = false;
+  // heard_id names something overheard the console is waiting on this cockpit
+  // to have heard; it is answered with a speak_ack carrying it. Empty for a
+  // reply with a generation, and from a console that does not wait.
+  std::string heard_id;
   std::uint64_t queued_at_ms = 0;
   bool own_call = false;
   // speech is the reply being synthesised in that voice, started the moment
@@ -242,6 +251,10 @@ bool g_auto_readback = false;
 bool g_hud_typing = true;
 // The HUD's last few transmissions. Shown unless the pilot turns them off.
 bool g_hud_transcript = true;
+// Whether the HUD shows what other aircraft and their controllers said; off,
+// it shows only this pilot's own exchanges. The panel's radio log keeps
+// everyone's either way (x-z7a/atc#1135).
+bool g_hud_overheard = true;
 // The radio log on disk, under the plugin folder (gui/logbook.hpp), and how
 // many files each of its folders keeps.
 std::unique_ptr<zoal_atc::gui::Logbook> g_logbook;
@@ -482,6 +495,7 @@ std::string settings_json() {
       << R"(,"autoReadback":)" << (g_auto_readback ? "true" : "false")
       << R"(,"hudTyping":)" << (g_hud_typing ? "true" : "false")
       << R"(,"hudTranscript":)" << (g_hud_transcript ? "true" : "false")
+      << R"(,"hudOverheard":)" << (g_hud_overheard ? "true" : "false")
       << R"(,"logbookKeep":)" << g_logbook_keep
       << "}";
   return out.str();
@@ -503,6 +517,7 @@ void load_call_settings(const std::string &text) {
   g_auto_readback = config_value(text, "auto_readback").value_or("") == "true";
   g_hud_typing = config_value(text, "hud_typing").value_or("true") != "false";
   g_hud_transcript = config_value(text, "hud_transcript").value_or("true") != "false";
+  g_hud_overheard = config_value(text, "hud_overheard").value_or("true") != "false";
   g_logbook_keep = zoal_atc::gui::Logbook::kDefaultKeep;
   if (const auto keep = config_value(text, "logbook_keep")) {
     char *end = nullptr;
@@ -692,6 +707,20 @@ handle_local_gui_action(const std::string &action,
       zoal_atc::xplane::hud_settings_changed(
           std::string(R"({"hudTranscript":)") + (*hud_transcript ? "true" : "false") + "}");
     }
+    const auto hud_overheard =
+        zoal_atc::transport::json_bool_field(payload_json, "hudOverheard");
+    if (hud_overheard.has_value()) {
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "hud_overheard",
+          *hud_overheard ? "true" : "false");
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_hud_overheard = *hud_overheard;
+      zoal_atc::xplane::hud_settings_changed(
+          std::string(R"({"hudOverheard":)") + (*hud_overheard ? "true" : "false") + "}");
+    }
     if (theme.has_value()) {
       const auto existing = read_file(g_config_path);
       const std::string updated = zoal_atc::transport::upsert_config_value(
@@ -834,12 +863,17 @@ std::optional<ATCReplyMessage> parse_atc_reply(const std::string &payload) {
   reply.language = zoal_atc::transport::reply_language(
       json_string_field(payload, "language").value_or("en"));
   reply.pilot = json_string_field(payload, "speaker").value_or("") == "pilot";
+  if (reply.generation == 0) {
+    reply.heard_id = json_string_field(payload, "heard_id").value_or("");
+  }
   return reply;
 }
 
 using zoal_atc::transport::json_escape;
 
 bool urgent_speech(const ATCReplyMessage &reply);
+void send_speak_ack(const ATCReplyMessage &reply, bool ok,
+                    const SpeechDeliveryInfo &speech);
 
 void queue_atc_reply(ATCReplyMessage reply) {
   reply.queued_at_ms = monotonic_ms();
@@ -853,15 +887,25 @@ void queue_atc_reply(ATCReplyMessage reply) {
         said, reply.voice, urgent_speech(reply), reply.language,
         reply.pilot ? zoal_atc::tts::kCockpitTransmitter : zoal_atc::tts::kReceiver);
   }
-  std::lock_guard<std::mutex> lock(g_reply_mutex);
-  if (reply.generation != 0 && reply.voice != 0 && reply.frequency_hz != 0) {
-    g_station_voice[reply.frequency_hz] = reply.voice;
+  std::optional<ATCReplyMessage> dropped;
+  {
+    std::lock_guard<std::mutex> lock(g_reply_mutex);
+    if (reply.generation != 0 && reply.voice != 0 && reply.frequency_hz != 0) {
+      g_station_voice[reply.frequency_hz] = reply.voice;
+    }
+    constexpr std::size_t kMaxQueuedReplies = 16;
+    if (g_reply_queue.size() >= kMaxQueuedReplies) {
+      dropped = std::move(g_reply_queue.front());
+      g_reply_queue.pop_front();
+    }
+    g_reply_queue.push_back(std::move(reply));
   }
-  constexpr std::size_t kMaxQueuedReplies = 16;
-  if (g_reply_queue.size() >= kMaxQueuedReplies) {
-    g_reply_queue.pop_front();
+  if (dropped.has_value() && !dropped->heard_id.empty()) {
+    // Never to be played: whoever waits on it waits no longer.
+    SpeechDeliveryInfo speech;
+    speech.ack_basis = "dropped_from_full_queue";
+    send_speak_ack(*dropped, false, speech);
   }
-  g_reply_queue.push_back(std::move(reply));
 }
 
 bool urgent_speech(const ATCReplyMessage &reply) {
@@ -946,13 +990,17 @@ std::optional<ATCReplyMessage> take_atc_reply(bool urgent_only) {
 
 void send_speak_ack(const ATCReplyMessage &reply, bool ok,
                     const SpeechDeliveryInfo &speech) {
-  if (!g_transport_sink || reply.generation == 0) {
+  if (!g_transport_sink || (reply.generation == 0 && reply.heard_id.empty())) {
     return;
   }
   std::ostringstream message;
   message << "{\"type\":\"speak_ack\",\"session_id\":\""
           << json_escape(reply.session_id) << "\",\"generation\":"
-          << reply.generation << ",\"ok\":" << (ok ? "true" : "false")
+          << reply.generation << ",\"ok\":" << (ok ? "true" : "false");
+  if (!reply.heard_id.empty()) {
+    message << ",\"heard_id\":\"" << json_escape(reply.heard_id) << "\"";
+  }
+  message
           << ",\"speech_api\":\"kokoro\""
           << ",\"speech_api_called\":"
           << (speech.api_called ? "true" : "false")
@@ -2166,6 +2214,9 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
                     .value_or(std::string())))) {
       endpoint.capabilities.push_back(zoal_atc::taxi::kTaxiRouteCapability);
     }
+
+    // Every overheard transmission that asks is answered, played or not.
+    endpoint.capabilities.push_back(kHeardAckCapability);
 
     const std::string voices = zoal_atc::gui::join_path(models, kTtsModelName);
     if (zoal_atc::tts::KokoroSynthesizer::installed(voices)) {

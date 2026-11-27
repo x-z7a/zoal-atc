@@ -118,6 +118,16 @@ const Row kRows[] = {
      "en el registro de radio de este panel.",
      "Les dernières transmissions sous les boutons du HUD. Désactivé, vous les entendez à la radio et "
      "les lisez dans le journal radio de ce panneau."},
+    {"Other aircraft on the HUD", "Otras aeronaves en el HUD", "Autres aéronefs sur le HUD"},
+    {"What other aircraft and their controllers say, in the HUD's transcript. Off, the HUD shows "
+     "only your own exchanges; you still hear everyone on the radio and read them in this panel's "
+     "radio log.",
+     "Lo que dicen otras aeronaves y sus controladores, en la transcripción del HUD. Desactivado, el "
+     "HUD muestra solo sus propios intercambios; sigue oyendo a todos en la radio y leyéndolos en el "
+     "registro de radio de este panel.",
+     "Ce que disent les autres aéronefs et leurs contrôleurs, dans la transcription du HUD. "
+     "Désactivé, le HUD n'affiche que vos propres échanges ; vous entendez toujours tout le monde à "
+     "la radio et les lisez dans le journal radio de ce panneau."},
     {"Appearance", "Apariencia", "Apparence"},
     {"Theme", "Tema", "Thème"},
     {"Graphite", "Grafito", "Graphite"},

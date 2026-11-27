@@ -414,6 +414,9 @@ void HudSession::on_settings_changed(const std::string &payload_json) {
   if (const auto raw = json_raw_field(payload_json, "hudTranscript")) {
     shows_transcript_ = *raw != "false";
   }
+  if (const auto raw = json_raw_field(payload_json, "hudOverheard")) {
+    shows_overheard_ = *raw != "false";
+  }
 }
 
 void HudSession::press_reload(std::uint64_t steady_ms, std::int64_t wall_ms) {
@@ -497,6 +500,12 @@ void HudSession::handle_event(const std::string &envelope,
   }
   if (*event == "comm_log") {
     if (const auto entry = parse_hud_entry(*payload)) {
+      if (entry->overheard && !shows_overheard_) {
+        // Somebody else's exchange: on the radio and in the panel's log, and
+        // not on this HUD. Left out of the feed rather than hidden in it, so
+        // a busy frequency cannot push the pilot's own lines out.
+        return;
+      }
       if (holds_until_spoken_ && entry->kind == "atc" && !entry->overheard) {
         const auto said = std::find_if(spoken_.begin(), spoken_.end(),
                                       [&](const HeldLine &line) {

@@ -90,6 +90,10 @@ public:
   // Whether the HUD shows the last few transmissions: on unless the pilot
   // turned it off. The radio log in the panel keeps them either way.
   bool shows_transcript() const { return shows_transcript_; }
+  // Whether the transcript includes what other aircraft and their controllers
+  // said: on unless the pilot turned it off, when it shows only their own
+  // exchanges. The radio log in the panel keeps everyone's either way.
+  bool shows_overheard() const { return shows_overheard_; }
   // What the last press could not do; empty when it went.
   const std::string &call_error() const { return call_error_; }
   void dismiss_call_error() { call_error_.clear(); }
@@ -183,6 +187,7 @@ private:
   bool auto_readback_ = false;
   bool shows_typing_ = true;
   bool shows_transcript_ = true;
+  bool shows_overheard_ = true;
   std::set<std::string> in_flight_;
   // Readbacks already pressed for the pilot, so one transmission is read
   // back once.
