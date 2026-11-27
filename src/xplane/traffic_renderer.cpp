@@ -1,6 +1,7 @@
 #include "traffic_renderer.hpp"
 
 #include "zoal_atc/traffic/clock_sync.hpp"
+#include "zoal_atc/traffic/config_slew.hpp"
 #include "zoal_atc/traffic/ground_fit.hpp"
 
 #include "XPMPAircraft.h"
@@ -70,6 +71,8 @@ public:
       SetVisible(false);
       return;
     }
+    // Gear, flaps and spoilers at their real travel speeds (#52).
+    s = slew_.update(*s, elapsed);
     if (!IsVisible()) {
       SetVisible(true);
     }
@@ -143,6 +146,7 @@ private:
   bool tracked_ = false;
   float label_height_ = -1.0f;
   traffic::GroundFit fit_;
+  traffic::ConfigSlew slew_;
   XPLMProbeRef probe_ = nullptr;
   double clearance_m_ = 0.0; // 0 until probed: probe from the start
   int skipped_ = 0;

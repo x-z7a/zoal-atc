@@ -86,13 +86,75 @@ void prune_keeps_the_left_end() {
     smoother.add(eastbound(i, i * 0.001));
   }
   smoother.prune_before(2.5);
-  require(smoother.size() == 3, "prune removed the interval's left end");
+  require(smoother.size() == 4, "prune removed the interval's left end or the report before it");
   require(smoother.evaluate(2.5).has_value(), "cannot draw after prune");
+}
+
+Sample pitched(double t, double pitch) {
+  Sample s = eastbound(t, t * 100.0 / 111320.0);
+  s.pitch_deg = pitch;
+  return s;
+}
+
+// The rate an angle is drawn changing at time t, by a small central step.
+double pitch_rate(const Sample *before, const Sample &a, const Sample &b, double t) {
+  const double h = 1e-4;
+  return (interpolate(before, a, b, t + h).pitch_deg - interpolate(before, a, b, t - h).pitch_deg) / (2 * h);
+}
+
+// A nose rotating at a 1 Hz feed (#52): blended in a straight line, its rate
+// stepped at every report, from one interval's rate to the next's. Drawn as a
+// curve, the rate arriving at a report is the rate leaving it.
+void an_angle_keeps_its_rate_across_a_report() {
+  const Sample s0 = pitched(0, 0), s1 = pitched(1, 2), s2 = pitched(2, 6);
+  const double arriving = pitch_rate(&s0, s0, s1, 1.0 - 1e-3);
+  const double leaving = pitch_rate(&s0, s1, s2, 1.0 + 1e-3);
+  near(arriving, leaving, 0.05, "the pitch rate stepped at the report");
+  near(interpolate(&s0, s1, s2, 1.0).pitch_deg, 2.0, 1e-9, "the curve passes through the report");
+  near(interpolate(&s0, s1, s2, 2.0).pitch_deg, 6.0, 1e-9, "and the next");
+}
+
+// Leveling off, the curve never passes the report it is heading for, nor
+// turns back short of it.
+void an_angle_never_overshoots() {
+  const Sample s0 = pitched(0, 0), s1 = pitched(1, 8), s2 = pitched(2, 8.5);
+  for (int i = 0; i <= 100; ++i) {
+    const double p = interpolate(&s0, s1, s2, 1.0 + i / 100.0).pitch_deg;
+    require(p >= 8.0 - 1e-9 && p <= 8.5 + 1e-9, "the pitch left the two reports' range");
+  }
+}
+
+// Nothing after b shapes [a, b]: a report landing while it is drawn changes
+// nothing already on screen.
+void a_later_report_does_not_change_the_curve() {
+  TrackSmoother smoother;
+  smoother.add(pitched(0, 0));
+  smoother.add(pitched(1, 2));
+  smoother.add(pitched(2, 6));
+  const double before = smoother.evaluate(1.5)->pitch_deg;
+  smoother.add(pitched(3, -4));
+  near(smoother.evaluate(1.5)->pitch_deg, before, 1e-12, "a later report moved the curve being drawn");
+}
+
+// The smoother draws [a, b] with the report before a, after pruning too.
+void the_smoother_uses_the_report_before() {
+  TrackSmoother smoother;
+  const Sample s0 = pitched(0, 0), s1 = pitched(1, 2), s2 = pitched(2, 6);
+  smoother.add(s0);
+  smoother.add(s1);
+  smoother.add(s2);
+  smoother.prune_before(1.5);
+  near(smoother.evaluate(1.5)->pitch_deg, interpolate(&s0, s1, s2, 1.5).pitch_deg, 1e-12,
+       "the report before the interval was not used");
 }
 
 } // namespace
 
 int main() {
+  an_angle_keeps_its_rate_across_a_report();
+  an_angle_never_overshoots();
+  a_later_report_does_not_change_the_curve();
+  the_smoother_uses_the_report_before();
   straight_line_interpolates_linearly();
   heading_takes_the_short_way();
   extrapolation_is_bounded();
