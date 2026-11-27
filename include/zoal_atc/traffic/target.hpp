@@ -30,6 +30,9 @@ struct Identity {
   // renderer passes it to XPMP2 so the aircraft shows on TCAS with an address
   // the console recognises as its own (see docs/protocol.md, echo suppression).
   std::uint32_t mode_s = 0;
+  // The field the aircraft filed to, e.g. "KSFO"; "" where nothing was
+  // filed or the console predates it. A label, not a model.
+  std::string destination;
 
   [[nodiscard]] bool same_model(const Identity &other) const {
     return icao_type == other.icao_type && airline == other.airline &&

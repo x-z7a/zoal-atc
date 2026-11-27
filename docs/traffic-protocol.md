@@ -34,7 +34,7 @@ read only inside their element.
    "heading_deg":284,"pitch_deg":2.5,"roll_deg":0,
    "groundspeed_kts":210,"vertical_speed_fpm":1500,"track_deg":283,"on_ground":false,
    "gear":0,"flaps":0.25,"speedbrake":0,"thrust":0.8,"lights":7,
-   "icao_type":"B738","airline":"UAL","livery":"","callsign":"UAL123"}
+   "icao_type":"B738","airline":"UAL","livery":"","destination":"KSFO","callsign":"UAL123"}
  ],
  "removed":["ai:SWA9"]}
 ```
@@ -51,6 +51,7 @@ read only inside their element.
 | motion | `heading_deg`, `track_deg` (defaults to heading), `pitch_deg`, `roll_deg`, `groundspeed_kts`, `vertical_speed_fpm`. Velocities matter: the smoother uses them as curve tangents. |
 | config | `gear` 0–1 (defaults down on the ground), `flaps`, `speedbrake`, `thrust` 0–1; `lights` bitmask nav=1 beacon=2 strobe=4 taxi=8 landing=16. |
 | identity | `icao_type`, `airline` (ICAO operator), `livery`, `callsign`. Free text last. |
+| `targets[].destination` | The field the aircraft filed to, for its tag (`B738 → KSFO`). Additive: empty or absent where nothing was filed, and a console that predates it sends none. A label only; it never changes the model. |
 | `removed` | Track ids that are gone. Absence from `targets` does **not** remove a track (frames may be partial); the plugin also expires a track silent for 15 s. |
 
 ## Aircraft → console: render fields on `telemetry`

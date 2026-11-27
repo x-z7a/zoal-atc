@@ -63,6 +63,7 @@ int main() {
   a.identity.callsign = "ACA451";
   a.identity.icao_type = "A320";
   a.identity.airline = "ACA";
+  a.identity.destination = "CYYZ";
   a.has_own = true;
   a.distance_nm = 12.44;
   a.bearing_deg = 284;
@@ -105,7 +106,7 @@ int main() {
 
   const auto& row0 = result.rows[0];
   eq(row0.callsign, "ACA451", "row0 callsign");
-  eq(row0.type, "A320 · ACA", "row0 type");
+  eq(row0.type, "A320 \xE2\x86\x92 CYYZ", "row0 type");
   eq(row0.distance, "12.4 nm", "row0 distance");
   eq(row0.bearing, "284°", "row0 bearing");
   eq(row0.altitude, "6,200 ft", "row0 altitude");

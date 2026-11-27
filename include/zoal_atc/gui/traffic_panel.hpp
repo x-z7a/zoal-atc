@@ -22,7 +22,7 @@ struct TrafficPanelRow {
   std::string id;          // console track id; what follow and track name
   bool pilot = false;      // a participant, not console AI
   std::string callsign;    // callsign, else the track id
-  std::string type;        // "B738 · ACA", "B738", "ACA", or kUnknown
+  std::string type;        // identity_line, or kUnknown
   std::string distance;    // "12.4 nm"; kUnknown without own-ship
   std::string bearing;     // "284°", "001°", "360°" never; kUnknown without own-ship
   std::string altitude;    // format_traffic_altitude
@@ -34,6 +34,12 @@ struct TrafficPanelRow {
   bool tracked = false;
   bool followed = false;
 };
+
+// The second thing a tag says after the callsign: the type, then where the
+// aircraft is going — "B738 → KSFO". Without a destination the operator,
+// but only where the callsign does not already say it: "B738 · ACA" for a
+// registration flying for Air Canada, "B738" for ACA451. "" with nothing.
+std::string identity_line(const traffic::Identity &who);
 
 // A CSL folder found on this computer, offered for one-press use.
 struct CslOffer {

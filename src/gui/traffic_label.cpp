@@ -65,15 +65,7 @@ TrafficLabel traffic_label(const traffic::Nearby &aircraft,
   
   label.callsign = identity.callsign.empty() ? identity.id : identity.callsign;
   
-  if (!identity.icao_type.empty() && !identity.airline.empty()) {
-    label.type = identity.icao_type + " \xC2\xB7 " + identity.airline;
-  } else if (!identity.icao_type.empty()) {
-    label.type = identity.icao_type;
-  } else if (!identity.airline.empty()) {
-    label.type = identity.airline;
-  } else {
-    label.type = "";
-  }
+  label.type = identity_line(identity);
   
   label.altitude = format_traffic_altitude(sample.alt_ft_msl, sample.on_ground);
   

@@ -15,7 +15,7 @@ TrafficFrame sample_frame() {
   frame.seq = 42;
   frame.server_time_s = 1764000000.123;
   Target ai;
-  ai.identity = {"ai:UAL123", TrafficKind::Ai, "UAL123", "B738", "UAL", "", 0xA1B2C3};
+  ai.identity = {"ai:UAL123", TrafficKind::Ai, "UAL123", "B738", "UAL", "", 0xA1B2C3, "KSFO"};
   ai.sample.t_s = 1764000000.100;
   ai.sample.lat_deg = 37.6188056;
   ai.sample.lon_deg = -122.3754167;
@@ -48,6 +48,8 @@ void round_trips() {
   require(ai.identity.kind == TrafficKind::Ai, "kind lost");
   require(ai.identity.callsign == "UAL123", "callsign lost");
   require(ai.identity.mode_s == 0xA1B2C3, "mode s lost");
+  require(ai.identity.destination == "KSFO", "destination lost");
+  require(parsed->targets[1].identity.destination.empty(), "destination invented");
   near(ai.sample.t_s, 1764000000.100, 1e-6, "target time lost ms precision");
   near(ai.sample.lat_deg, 37.6188056, 1e-7, "latitude lost precision");
   require(ai.sample.lights == (kLightNav | kLightBeacon | kLightLanding), "lights lost");
