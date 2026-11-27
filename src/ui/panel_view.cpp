@@ -1364,6 +1364,14 @@ void traffic_tab(const Ui &ui, PanelViewState &state, ImVec2 min, ImVec2 max) {
     }
   }
   y += 28.0f + kGap;
+  if (!traffic->tcas_holder.empty()) {
+    // Drawn, but not on TCAS: the pilot otherwise has no way to know why.
+    y += paragraph(ui, ImVec2(min.x + 4.0f, y), std::min(width - 8.0f, 680.0f),
+                   tr("Not on TCAS. It is held by ") + traffic->tcas_holder +
+                       tr(". Disable that plugin to see this traffic there."),
+                   p.warn) +
+         kGap;
+  }
   if (state.csl_picking) {
     csl_picker(ui, state, *traffic, ImVec2(min.x, y), max);
     return;

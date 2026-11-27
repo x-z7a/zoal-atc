@@ -288,6 +288,11 @@ const Row kRows[] = {
      "carpeta que contiene sus modelos CSL.",
      "Aucun modèle CSL trouvé, le trafic est donc désactivé. Choisissez ci-dessous le dossier "
      "qui contient vos modèles CSL."},
+    {"Not on TCAS. It is held by ", "No aparece en el TCAS. Lo controla ",
+     "Absent du TCAS. Il est contrôlé par "},
+    {". Disable that plugin to see this traffic there.",
+     ". Desactive ese plugin para ver este tráfico en él.",
+     ". Désactivez ce plugin pour y voir ce trafic."},
     // The CSL folder picker.
     {"No CSL models found", "No se encontraron modelos CSL", "Aucun modèle CSL trouvé"},
     {"CSL models", "Modelos CSL", "Modèles CSL"},
