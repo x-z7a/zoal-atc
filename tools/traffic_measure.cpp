@@ -20,7 +20,10 @@
 // (max, feet), heading and roll error (max, degrees), and the acceleration
 // the drawing shows from one frame to the next (p99 and max, m/s^2) beside
 // the reference's largest. An airliner's real accelerations are a few m/s^2;
-// anything far above that is a judder the eye sees.
+// anything far above that is a judder the eye sees. And how sharply the drawn
+// heading, pitch and roll rates change from one frame to the next (max,
+// deg/s): an angle blended in a straight line between reports changes its
+// rate all at once at each of them, which is a step the eye sees.
 //
 // Usage: traffic_measure <truth-dir>
 #include "zoal_atc/traffic/track_smoother.hpp"
@@ -106,6 +109,9 @@ std::string group(const std::string &phase, const Sample &s, double field_ft) {
   return s.alt_ft_msl - field_ft < 1500.0 ? "low" : "air";
 }
 
+// The signed turn from b to a, in (-180, 180].
+double angle_err_signed(double a, double b) { return std::fmod(a - b + 540.0, 360.0) - 180.0; }
+
 double angle_err(double a, double b) {
   return std::abs(std::fmod(a - b + 540.0, 360.0) - 180.0);
 }
@@ -120,7 +126,7 @@ Point local(const Sample &s, double lat0, double lon0) {
 }
 
 struct Stats {
-  std::vector<double> pos, accel;
+  std::vector<double> pos, accel, hdg_kink, pitch_kink, roll_kink;
   double alt = 0, hdg = 0, roll = 0, ref_accel = 0;
   void add(double p, double a, double drawn_accel, double reference_accel, double h, double r, bool has_accel) {
     pos.push_back(p);
@@ -156,6 +162,7 @@ std::map<std::string, Stats> render(const Feed &feed, double delay, double from,
   std::size_t phase_at = 0;
   const double lat0 = truth.front().s.lat_deg, lon0 = truth.front().s.lon_deg;
   Point drawn[3], ref[3];
+  double hdg[3] = {}, pitch[3] = {}, roll[3] = {};
   int have = 0;
   for (double t = from; t < to; t += kFrame) {
     while (next < feed.size() && feed[next].first <= t) {
@@ -179,6 +186,14 @@ std::map<std::string, Stats> render(const Feed &feed, double delay, double from,
     ref[0] = ref[1];
     ref[1] = ref[2];
     ref[2] = local(*r, lat0, lon0);
+    for (double *v : {hdg, pitch, roll}) {
+      v[0] = v[1];
+      v[1] = v[2];
+    }
+    // Heading unwrapped onto the previous frame's, so north is no step.
+    hdg[2] = hdg[1] + angle_err_signed(d->heading_deg, hdg[1]);
+    pitch[2] = d->pitch_deg;
+    roll[2] = d->roll_deg;
     have = std::min(have + 1, 3);
     double drawn_accel = 0.0, reference_accel = 0.0;
     if (have == 3) {
@@ -189,11 +204,18 @@ std::map<std::string, Stats> render(const Feed &feed, double delay, double from,
       drawn_accel = accel(drawn);
       reference_accel = accel(ref);
     }
+    // The change in an angle's rate from one frame to the next, deg/s.
+    auto kink = [](const double *v) { return std::abs(v[2] - 2 * v[1] + v[0]) / kFrame; };
     const Point dp = local(*d, lat0, lon0), rp = local(*r, lat0, lon0);
     const std::string phase = group(truth[phase_at].phase, truth[phase_at].s, field_ft);
     out[phase].add(std::hypot(dp.x - rp.x, dp.y - rp.y), std::abs(d->alt_ft_msl - r->alt_ft_msl), drawn_accel,
                    reference_accel,
                    angle_err(d->heading_deg, r->heading_deg), std::abs(d->roll_deg - r->roll_deg), have == 3);
+    if (have == 3) {
+      out[phase].hdg_kink.push_back(kink(hdg));
+      out[phase].pitch_kink.push_back(kink(pitch));
+      out[phase].roll_kink.push_back(kink(roll));
+    }
   }
   return out;
 }
@@ -217,9 +239,10 @@ Reference truth_reference(const std::vector<Row> &truth) {
 
 void print(const std::string &file, const std::string &feed, const std::map<std::string, Stats> &stats) {
   for (const auto &[phase, s] : stats) {
-    std::printf("| %s | %s | %s | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f |\n", file.c_str(),
-                feed.c_str(), phase.c_str(), Stats::pct(s.pos, 0.95), Stats::pct(s.pos, 1.0), s.alt, s.hdg, s.roll,
-                Stats::pct(s.accel, 0.99), Stats::pct(s.accel, 1.0), s.ref_accel);
+    std::printf("| %s | %s | %s | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.2f | %.2f | %.2f |\n",
+                file.c_str(), feed.c_str(), phase.c_str(), Stats::pct(s.pos, 0.95), Stats::pct(s.pos, 1.0), s.alt,
+                s.hdg, s.roll, Stats::pct(s.accel, 0.99), Stats::pct(s.accel, 1.0), s.ref_accel,
+                Stats::pct(s.hdg_kink, 1.0), Stats::pct(s.pitch_kink, 1.0), Stats::pct(s.roll_kink, 1.0));
   }
 }
 
@@ -336,8 +359,8 @@ int main(int argc, char **argv) {
     }
   }
   std::sort(files.begin(), files.end());
-  std::printf("| truth | feed | phase | pos p95 m | pos max m | alt max ft | hdg max ° | roll max ° | drawn accel p99 m/s² | drawn accel max m/s² | reference accel max m/s² |\n");
-  std::printf("|---|---|---|---|---|---|---|---|---|---|---|\n");
+  std::printf("| truth | feed | phase | pos p95 m | pos max m | alt max ft | hdg max ° | roll max ° | drawn accel p99 m/s² | drawn accel max m/s² | reference accel max m/s² | heading rate step max °/s | pitch rate step max °/s | roll rate step max °/s |\n");
+  std::printf("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
   for (const auto &path : files) {
     const auto truth = read_truth(path.string());
     if (truth.size() < 10) {
