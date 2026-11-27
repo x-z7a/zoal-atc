@@ -56,9 +56,9 @@ Velocity velocity_of(const Sample &s) {
 // climb between the reports passes untouched; one that does not -- a feed
 // that flips between 1,500 fpm and level each second, a pilot's VSI lagging
 // a level-off -- would otherwise bow the curve up and down at every report.
-void monotone_tangents(double rise_ft, double dt_s, double *v0, double *v1, double flat = 0.5) {
+void monotone_tangents(double rise_ft, double dt_s, double *v0, double *v1) {
   const double chord = rise_ft / dt_s;
-  if (std::abs(rise_ft) < flat) {
+  if (std::abs(rise_ft) < 0.5) {
     *v0 = 0.0; // level: any tangent would bump it
     *v1 = 0.0;
     return;
@@ -93,13 +93,19 @@ double turn_deg(double from, double to) {
 // the rate is continuous across every report, and the curve uses no report
 // later than b: one taken from the report after b changed the curve already
 // being drawn when that report landed mid-interval, which drew as a pop of
-// 100 degrees a second at a 1 Hz feed. Limited so it neither overshoots nor
-// turns back between a and b (Fritsch-Carlson). Returns the change from a's
-// value at fraction f.
+// 100 degrees a second at a 1 Hz feed.
+//
+// Nothing limits the curve, because both its rates are already fixed by
+// continuity, and changing either steps the drawn rate at a report. A monotone
+// limit did exactly that where a turn stopped or reversed within an interval:
+// up to 8.7 degrees a second in one frame on an AI aircraft's taxi at 1 Hz
+// (#58). Unlimited, the curve carries the rate it arrived with a little past
+// the next report and comes back, as a nose does: by at most that rate times
+// the interval times 4/27, which measured as 0.2 degrees more heading error at
+// worst. Returns the change from a's value at fraction f.
 double angle_curve(double before_delta, double before_dt, double delta, double dt, double f) {
-  double v0 = before_dt > 0.0 ? before_delta / before_dt : delta / dt;
-  double v1 = delta / dt;
-  monotone_tangents(delta, dt, &v0, &v1, 1e-6);
+  const double v0 = before_dt > 0.0 ? before_delta / before_dt : delta / dt;
+  const double v1 = delta / dt;
   return hermite(0.0, v0, delta, v1, dt, f);
 }
 
