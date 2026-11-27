@@ -31,6 +31,11 @@ target_compile_definitions(xpmp2
             $<IF:$<CONFIG:Debug>,DEBUG=1,NDEBUG=1>)
 if(WIN32)
     target_compile_definitions(xpmp2 PRIVATE _WIN32_WINNT=0x0601)
+    # Network.cpp enumerates interfaces for its remote-client multicast:
+    # GetAdaptersAddresses and if_indextoname are iphlpapi's, the sockets
+    # ws2_32's. A static library carries no link of its own, so without this
+    # the Windows plugin failed to link from the day XPMP2 came in.
+    target_link_libraries(xpmp2 PUBLIC ws2_32 iphlpapi)
 endif()
 if(NOT MSVC)
     target_compile_options(xpmp2 PRIVATE -w -fexceptions -fvisibility=hidden)
