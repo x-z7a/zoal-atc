@@ -19,6 +19,8 @@
 #include "zoal_atc/weather/metar.hpp"
 #include "hud_window.hpp"
 #include "panel_window.hpp"
+#include "taxi_lights.hpp"
+#include "zoal_atc/taxi/taxi_route.hpp"
 #include "traffic_layer.hpp"
 
 #include <XPLMDataAccess.h>
@@ -1235,6 +1237,9 @@ void reply_receiver_loop() {
     if (zoal_atc::xplane::traffic_layer::offer_frame(payload)) {
       continue;
     }
+    if (zoal_atc::xplane::taxi_lights::offer_frame(payload)) {
+      continue;
+    }
     if (auto context = zoal_atc::stt::parse_stt_context(payload)) {
       g_stt_prompt.set(std::move(*context));
       continue;
@@ -2015,6 +2020,7 @@ float flight_loop_callback(float, float, int, void *) {
   process_gui_bridge();
   process_atc_replies();
   zoal_atc::xplane::traffic_layer::tick();
+  zoal_atc::xplane::taxi_lights::tick();
 
   const double now_secs = read_f(g_datarefs.total_running_time_sec);
   check_nearest_airport(now_secs);
@@ -2149,6 +2155,18 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
       endpoint.capabilities.push_back("traffic_v1");
     }
 
+    // Follow the greens: Ground's read-back taxi route, lit ahead of the
+    // aircraft. taxi_lights in zoal_atc.cfg is the pilot's: always (the
+    // default, whatever scenery the console drew the route from), matching
+    // (only when this sim draws the field from the same scenery), or off.
+    if (zoal_atc::xplane::taxi_lights::start(
+            zoal_atc::gui::plugin_root_from_binary_path(binary), std::string(system_path),
+            zoal_atc::taxi::parse_lights_mode(
+                config_value(read_file(g_config_path).value_or(std::string()), "taxi_lights")
+                    .value_or(std::string())))) {
+      endpoint.capabilities.push_back(zoal_atc::taxi::kTaxiRouteCapability);
+    }
+
     const std::string voices = zoal_atc::gui::join_path(models, kTtsModelName);
     if (zoal_atc::tts::KokoroSynthesizer::installed(voices)) {
       // The catalogue is made here, before the hello, because the hello is
@@ -2241,6 +2259,7 @@ PLUGIN_API void XPluginStop() {
   g_gui_bridge.hold_controller_log(false);
   stop_reply_receiver();
   zoal_atc::xplane::traffic_layer::stop(); // after the receiver: nothing offers frames now
+  zoal_atc::xplane::taxi_lights::stop();
   g_synthesis.reset(); // joins the synthesis thread
   g_transport_sink.reset(); // joins the transcription thread first
   g_transcriber.reset();

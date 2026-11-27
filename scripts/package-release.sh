@@ -50,6 +50,14 @@ if [ -d "${xpmp2_resources}" ]; then
   cmake -E copy_directory "${xpmp2_resources}" "${release_dir}/Resources/xpmp2"
 fi
 
+# The taxi route's lights (#1041): the lead-on light, the stop bar and their
+# texture, loaded from objects/ beside the plugin. Without them the plugin
+# does not declare taxi_route_v1.
+cmake -E make_directory "${release_dir}/objects"
+for asset in taxi_lead_on_green.obj taxi_stop_bar.obj taxi_lights.png; do
+  cmake -E copy "${repo_root}/resources/objects/${asset}" "${release_dir}/objects/${asset}"
+done
+
 models_dir="${ZOAL_ATC_MODELS:-${repo_root}/.cache/models}"
 "${repo_root}/scripts/ensure-models.sh"
 cmake -E make_directory "${release_dir}/models"
