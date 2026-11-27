@@ -114,13 +114,27 @@ void an_angle_keeps_its_rate_across_a_report() {
   near(interpolate(&s0, s1, s2, 2.0).pitch_deg, 6.0, 1e-9, "and the next");
 }
 
-// Leveling off, the curve never passes the report it is heading for, nor
-// turns back short of it.
-void an_angle_never_overshoots() {
+// A turn that stops or reverses keeps its rate across the report it does so
+// at (#58): a monotone limit zeroed or scaled the rate there, which stepped
+// the drawn rate at every stop and reversal.
+void a_stop_or_reversal_keeps_its_rate_across_the_report() {
+  const Sample s0 = pitched(0, 0), s1 = pitched(1, 3);
+  const double arriving = pitch_rate(&s0, s0, s1, 1.0 - 1e-3);
+  for (const double next : {1.0, 3.0, 3.2}) { // reversing, stopping, stopping hard
+    const Sample s2 = pitched(2, next);
+    near(pitch_rate(&s0, s1, s2, 1.0 + 1e-3), arriving, 0.05, "the pitch rate stepped at the report");
+    near(interpolate(&s0, s1, s2, 2.0).pitch_deg, next, 1e-9, "and still meets the next report");
+  }
+}
+
+// The curve carries the rate it arrived with past the next report by no more
+// than that rate times the interval times 4/27, and comes back to it.
+void an_angle_overshoots_by_no_more_than_its_rate_carries_it() {
   const Sample s0 = pitched(0, 0), s1 = pitched(1, 8), s2 = pitched(2, 8.5);
+  const double bound = (8.0 - 0.5) * 1.0 * 4.0 / 27.0;
   for (int i = 0; i <= 100; ++i) {
     const double p = interpolate(&s0, s1, s2, 1.0 + i / 100.0).pitch_deg;
-    require(p >= 8.0 - 1e-9 && p <= 8.5 + 1e-9, "the pitch left the two reports' range");
+    require(p >= 8.0 - 1e-9 && p <= 8.5 + bound + 1e-9, "the pitch swung past what its rate carries it");
   }
 }
 
@@ -152,7 +166,8 @@ void the_smoother_uses_the_report_before() {
 
 int main() {
   an_angle_keeps_its_rate_across_a_report();
-  an_angle_never_overshoots();
+  a_stop_or_reversal_keeps_its_rate_across_the_report();
+  an_angle_overshoots_by_no_more_than_its_rate_carries_it();
   a_later_report_does_not_change_the_curve();
   the_smoother_uses_the_report_before();
   straight_line_interpolates_linearly();
