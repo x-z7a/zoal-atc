@@ -118,6 +118,17 @@ int main() {
     require(tts::still_receiving(0, tower, atis), "an older console names no channel");
   }
 
+  // Nobody keys up over a voice they can hear (x-z7a/atc#1138).
+  {
+    const std::uint64_t ground = 121'900'000, tower = 118'700'000;
+    require(tts::may_key_up(ground, {}), "a quiet radio");
+    require(!tts::may_key_up(ground, {ground}), "Ground is still being said");
+    require(!tts::may_key_up(ground, {tower, ground}), "one waiting on Ground is enough");
+    require(tts::may_key_up(ground, {tower}), "the other radio's channel blocks nothing");
+    require(!tts::may_key_up(ground, {0}), "a transmission naming no channel is on this one");
+    require(tts::may_key_up(0, {ground}), "an unknown transmit channel blocks nothing");
+  }
+
   // A clearance is said a sentence at a time, and the short pieces go with
   // their neighbours rather than being said alone.
   {

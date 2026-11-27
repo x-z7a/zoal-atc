@@ -110,6 +110,18 @@ bool still_receiving(std::uint64_t channel_hz, std::uint64_t com1_hz,
   return channel_hz == 0 || com1_hz == channel_hz || com2_hz == channel_hz;
 }
 
+bool may_key_up(std::uint64_t transmit_hz, const std::vector<std::uint64_t> &saying) {
+  if (transmit_hz == 0) {
+    return true;
+  }
+  for (const std::uint64_t channel : saying) {
+    if (channel == 0 || channel == transmit_hz) {
+      return false;
+    }
+  }
+  return true;
+}
+
 std::vector<std::string> sentences(const std::string &text) {
   std::vector<std::string> out;
   std::string current;

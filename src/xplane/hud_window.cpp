@@ -249,6 +249,12 @@ void hud_reply_spoken(const std::string &text) {
   }
 }
 
+void hud_frequency_busy(bool busy) {
+  if (g_hud) {
+    g_hud->session->set_frequency_busy(busy);
+  }
+}
+
 void hud_reply_heard(std::uint64_t frequency_hz) {
   if (g_hud) {
     g_hud->session->reply_heard(frequency_hz, steady_now(), wall_now());

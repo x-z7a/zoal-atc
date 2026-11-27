@@ -232,6 +232,15 @@ void HudSession::pump(std::uint64_t steady_ms, std::int64_t wall_ms) {
   feed_.expire(wall_ms);
 }
 
+void HudSession::set_frequency_busy(bool busy) {
+  const std::string notice = tr("frequency busy: wait for the transmission to end");
+  if (busy) {
+    call_error_ = notice;
+  } else if (call_error_ == notice) {
+    call_error_.clear();
+  }
+}
+
 void HudSession::reply_spoken(const std::string &text, std::int64_t wall_ms) {
   for (auto it = held_.begin(); it != held_.end(); ++it) {
     if (it->entry.text == text) {

@@ -747,6 +747,16 @@ void other_aircraft_on_the_hud_is_a_setting() {
   expect_true(rig.hud.feed().lines().size() == 2, "the pilot's own line, and no new overheard one");
 }
 
+// A refused push-to-talk says why on the HUD, and the next one taken clears
+// only that notice (x-z7a/atc#1138).
+void a_busy_frequency_is_said_and_cleared() {
+  Rig rig;
+  rig.hud.set_frequency_busy(true);
+  expect_str(rig.hud.call_error(), "frequency busy: wait for the transmission to end", "said");
+  rig.hud.set_frequency_busy(false);
+  expect_true(rig.hud.call_error().empty(), "cleared once the pilot keys up");
+}
+
 void the_typing_line_is_a_setting() {
   Rig rig;
   expect_true(rig.hud.shows_typing(), "shown by default");
@@ -791,6 +801,7 @@ int main() {
   a_typed_call_is_sent_and_spoken();
   the_typing_line_is_a_setting();
   the_transcript_is_a_setting();
+  a_busy_frequency_is_said_and_cleared();
   other_aircraft_on_the_hud_is_a_setting();
 
   if (g_failures != 0) {
