@@ -299,7 +299,7 @@ float strip_tail(ImDrawList *draw, HudSession &session, const Palette &p, float 
       }
       const std::string id = "option" + std::to_string(index++);
       if (call_pill(draw, p, id.c_str(), ImVec2(ox, oy), w, option.label, Icon::menu, false,
-                    !session.call_in_flight(option.key), all)) {
+                    !session.call_in_flight(option.key) && session.may_key_up(), all)) {
         g.state->pressed_call = option.key;
       }
       ox += w + kCallGap;
@@ -344,8 +344,9 @@ float call_strip(ImDrawList *draw, HudSession &session, const Palette &p,
   float calls_w = 0.0f;
   if (menu != nullptr) {
     for (const gui::HudCallItem &item : menu->items) {
+      // Shut while another voice is on the channel (x-z7a/atc#1143).
       CallButton button{item.key, item.label, item.readback,
-                        session.call_in_flight(item.key)};
+                        session.call_in_flight(item.key) || !session.may_key_up()};
       button.choice = !item.options.empty();
       button.open = button.choice && session.open_choice() != nullptr &&
                     session.open_choice()->key == item.key;

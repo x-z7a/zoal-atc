@@ -363,6 +363,10 @@ void PanelSession::tune(const std::string &text, std::uint64_t steady_ms) {
 }
 
 void PanelSession::transmit(const std::string &text, std::uint64_t steady_ms) {
+  if (may_key_up_ && !may_key_up_()) {
+    home_.error = tr("frequency busy: wait for the transmission to end");
+    return;
+  }
   send("submit_text", R"({"text":)" + quoted(text) + "}",
        Pending{Request::transmit, &home_}, steady_ms);
 }

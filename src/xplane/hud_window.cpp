@@ -152,6 +152,9 @@ void start_hud(gui::GuiBridge &bridge,
   if (g_hud->cockpit.controller_speech_pending) {
     g_hud->session->set_controller_speech_pending(g_hud->cockpit.controller_speech_pending);
   }
+  if (g_hud->cockpit.may_key_up) {
+    g_hud->session->set_may_key_up(g_hud->cockpit.may_key_up);
+  }
   g_hud->session->attach(steady_now());
 
   g_hud->command =

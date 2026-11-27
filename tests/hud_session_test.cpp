@@ -545,6 +545,54 @@ void auto_readback_waits_for_the_controller_to_finish() {
   expect_true(rig.last_request("pilot_call") != 0, "read back once it has played");
 }
 
+// A pressed or typed call is keying up, and nobody keys up over a voice in
+// their headset (x-z7a/atc#1143): while the cockpit is still saying something
+// on the channel, a press or a typed line is not sent and the HUD says why;
+// an automatic readback waits, and goes on the first pump the channel is
+// clear, without another transmission to prompt it.
+void nobody_presses_over_a_voice() {
+  Rig rig;
+  rig.bring_up();
+  bool busy = true;
+  rig.hud.set_may_key_up([&busy] { return !busy; });
+  rig.hud.set_radio(1, kGround, 0);
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(1, false)), 0);
+  rig.hud.pump(0, kWall);
+  rig.sent();
+
+  expect_true(!rig.hud.may_key_up(), "busy");
+  rig.hud.press_call("taxi_departure", 1, kWall);
+  rig.hud.submit_text("request taxi", 1);
+  expect_true(rig.last_request("pilot_call") == 0, "no press over a voice");
+  expect_true(rig.last_request("submit_text") == 0, "no typed call over one either");
+  expect_str(rig.hud.call_error(), "frequency busy: wait for the transmission to end", "and why");
+
+  busy = false;
+  rig.hud.press_call("taxi_departure", 2, kWall);
+  expect_true(rig.last_request("pilot_call") != 0, "pressed once it is clear");
+  expect_true(rig.hud.call_error().empty(), "the notice gone");
+}
+
+void auto_readback_waits_for_the_channel() {
+  Rig rig;
+  rig.bring_up();
+  bool busy = true;
+  rig.hud.set_may_key_up([&busy] { return !busy; });
+  rig.hud.on_settings_changed(R"({"autoReadback":true})");
+  rig.hud.set_radio(1, kGround, 0);
+  rig.hud.pump(0, kWall);
+  rig.sent();
+
+  rig.hud.reply_heard(kGround, 1, kWall);
+  rig.bridge.on_socket_frame(gui_event("pilot_menu", ground_menu(2, true)), 2);
+  rig.hud.pump(2, kWall + 1'000);
+  expect_true(rig.last_request("pilot_call") == 0, "not over another aircraft's call");
+
+  busy = false;
+  rig.hud.pump(3, kWall + 3'000);
+  expect_true(rig.last_request("pilot_call") != 0, "read back once the channel is clear");
+}
+
 void auto_readback_off_presses_nothing() {
   Rig rig;
   rig.bring_up();
@@ -801,6 +849,8 @@ int main() {
   a_typed_call_is_sent_and_spoken();
   the_typing_line_is_a_setting();
   the_transcript_is_a_setting();
+  nobody_presses_over_a_voice();
+  auto_readback_waits_for_the_channel();
   a_busy_frequency_is_said_and_cleared();
   other_aircraft_on_the_hud_is_a_setting();
 

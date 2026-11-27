@@ -133,6 +133,14 @@ public:
     controller_speech_pending_ = std::move(pending);
   }
 
+  // Whether the pilot may key up now: not while the cockpit is still saying
+  // something on the channel they transmit on (tts::may_key_up). A pressed or
+  // typed call is keying up, so the call buttons are shut, a press or a typed
+  // line is refused with the reason, and an automatic readback waits, as
+  // push-to-talk does (x-z7a/atc#1143). Unset, the pilot always may.
+  void set_may_key_up(std::function<bool()> may) { may_key_up_ = std::move(may); }
+  bool may_key_up() const { return !may_key_up_ || may_key_up_(); }
+
   const HudFeed &feed() const { return feed_; }
   const HudMenu &menu() const { return menu_; }
   // The console is there: the socket is up and the subscription answered.
@@ -211,6 +219,7 @@ private:
   std::vector<HeldLine> spoken_;
   std::function<void(const std::string &, std::uint64_t, const std::string &)> speak_own_;
   std::function<bool(std::uint64_t)> controller_speech_pending_;
+  std::function<bool()> may_key_up_;
 };
 
 // The console's comm_log payload (a CommLogEntry) as a HUD line; nullopt when

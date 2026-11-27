@@ -461,7 +461,24 @@ void splits_a_json_array() {
 
 } // namespace
 
+// A line typed in the panel is a call, and is not sent over a voice the
+// cockpit is still saying (x-z7a/atc#1143).
+void a_typed_line_waits_for_the_channel() {
+  Rig rig;
+  rig.bring_up();
+  bool busy = true;
+  rig.panel.set_may_key_up([&busy] { return !busy; });
+  rig.sent();
+  rig.panel.transmit("request taxi", 0);
+  expect_true(Rig::id_of(rig.sent(), "submit_text") == 0, "not sent over a voice");
+  expect_str(rig.panel.home().error, "frequency busy: wait for the transmission to end", "and why");
+  busy = false;
+  rig.panel.transmit("request taxi", 0);
+  expect_true(Rig::id_of(rig.sent(), "submit_text") != 0, "sent once it is clear");
+}
+
 int main() {
+  a_typed_line_waits_for_the_channel();
   formats_the_readouts();
   reads_the_stored_settings_on_the_way_up();
   follows_the_console();

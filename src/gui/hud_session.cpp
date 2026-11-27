@@ -202,6 +202,10 @@ void HudSession::pump(std::uint64_t steady_ms, std::int64_t wall_ms) {
       handle(message.payload, steady_ms, wall_ms);
     }
   }
+  if (attached_ && reachable_ && auto_readback_) {
+    // A readback held back for a busy channel goes once it is clear.
+    maybe_read_back(steady_ms, wall_ms);
+  }
   if (attached_ && reachable_ && active_hz_ != 0) {
     if (asked_hz_ != active_hz_ || !asked_reachable_) {
       menu_retries_left_ = kMenuRetries;
@@ -292,6 +296,11 @@ void HudSession::press_call(const std::string &key, std::uint64_t steady_ms,
     toggle_choice(key);
     return;
   }
+  if (!may_key_up()) {
+    // A press is keying up (x-z7a/atc#1143).
+    set_frequency_busy(true);
+    return;
+  }
   open_choice_.clear();
   call_error_.clear();
   const std::string request =
@@ -334,6 +343,11 @@ void HudSession::submit_text(const std::string &text, std::uint64_t steady_ms) {
   const auto last = said.find_last_not_of(" \t");
   said = first == std::string::npos ? std::string() : said.substr(first, last - first + 1);
   if (said.empty()) {
+    return;
+  }
+  if (!may_key_up()) {
+    // So is a typed call (x-z7a/atc#1143).
+    set_frequency_busy(true);
     return;
   }
   call_error_.clear();
@@ -404,6 +418,11 @@ void HudSession::maybe_read_back(std::uint64_t steady_ms,
     return;
   }
   if (controller_speech_pending_ && controller_speech_pending_(active_hz_)) {
+    return;
+  }
+  if (!may_key_up()) {
+    // Another voice on the channel still: the readback waits for it, and is
+    // looked at again every pump (x-z7a/atc#1143).
     return;
   }
   auto_pressed_.insert(item->key);

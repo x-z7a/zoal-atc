@@ -2159,6 +2159,13 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
   };
   cockpit.speak_own_call = speak_own_call;
   cockpit.controller_speech_pending = controller_speech_pending;
+  // A pressed or typed call is keying up (x-z7a/atc#1143).
+  const auto may_key_up = [] {
+    const int com = selected_com() == 2 ? 2 : 1;
+    return zoal_atc::tts::may_key_up(tuned_com_hz(com), on_the_air());
+  };
+  cockpit.may_key_up = may_key_up;
+  panel_config.may_key_up = may_key_up;
   // Only where there are voices to wait for.
   cockpit.speaks_replies = [] { return g_synthesis != nullptr; };
   zoal_atc::xplane::start_hud(g_gui_bridge, monotonic_ms, std::move(cockpit));

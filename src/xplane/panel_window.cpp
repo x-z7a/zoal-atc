@@ -199,6 +199,9 @@ void start_panel(const PanelConfig &config) {
   g_panel->ui_scale = XPLMFindDataRef("sim/graphics/misc/user_interface_scale");
 
   g_panel->session = std::make_unique<gui::PanelSession>(*config.bridge);
+  if (config.may_key_up) {
+    g_panel->session->set_may_key_up(config.may_key_up);
+  }
   g_panel->session->attach(steady_now());
 
   g_panel->command =

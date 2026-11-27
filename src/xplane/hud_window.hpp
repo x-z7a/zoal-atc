@@ -39,6 +39,8 @@ struct HudCockpit {
   std::function<void(const std::string &, std::uint64_t, const std::string &)> speak_own_call;
   // Whether a controller's transmission on a channel is queued or playing.
   std::function<bool(std::uint64_t)> controller_speech_pending;
+  // Whether the pilot may key up now on the radio they transmit on.
+  std::function<bool()> may_key_up;
 };
 
 // Creates the window and its command, attaches to `bridge` and shows the HUD.

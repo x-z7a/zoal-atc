@@ -181,6 +181,10 @@ public:
 
   void tune(const std::string &text, std::uint64_t steady_ms);
   void transmit(const std::string &text, std::uint64_t steady_ms);
+  // Whether the pilot may key up now, as the HUD asks it (x-z7a/atc#1143): a
+  // line typed here is a call, refused with the reason while the cockpit is
+  // still saying something on the channel. Unset, the pilot always may.
+  void set_may_key_up(std::function<bool()> may) { may_key_up_ = std::move(may); }
   // Home's one-press import: the plugin's own SimBrief ID is used.
   void import_plan(std::uint64_t steady_ms);
   // Two presses, because this one throws a clearance away: the first arms,
@@ -281,6 +285,7 @@ private:
   std::int64_t armed_at_ms_ = 0;
 
   PanelRunner home_;
+  std::function<bool()> may_key_up_;
   PanelRunner settings_;
   PanelRunner local_;
   std::unordered_map<std::uint64_t, Pending> pending_;
