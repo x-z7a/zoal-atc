@@ -108,6 +108,16 @@ int main() {
             "an older console names no channel: the selected radio");
   }
 
+  // Retuned away, the transmission on the old channel is no longer heard.
+  {
+    const std::uint64_t ground = 121'900'000, tower = 118'700'000, atis = 135'000'000;
+    require(tts::still_receiving(ground, ground, atis), "COM1 still on Ground");
+    require(tts::still_receiving(ground, atis, ground), "COM2 still on Ground");
+    require(!tts::still_receiving(ground, tower, atis), "both radios retuned away");
+    require(!tts::still_receiving(ground, 0, 0), "no radio tuned at all");
+    require(tts::still_receiving(0, tower, atis), "an older console names no channel");
+  }
+
   // A clearance is said a sentence at a time, and the short pieces go with
   // their neighbours rather than being said alone.
   {

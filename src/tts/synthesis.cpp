@@ -105,6 +105,11 @@ int receiving_com(std::uint64_t channel_hz, std::uint64_t com1_hz,
   return selected;
 }
 
+bool still_receiving(std::uint64_t channel_hz, std::uint64_t com1_hz,
+                     std::uint64_t com2_hz) {
+  return channel_hz == 0 || com1_hz == channel_hz || com2_hz == channel_hz;
+}
+
 std::vector<std::string> sentences(const std::string &text) {
   std::vector<std::string> out;
   std::string current;

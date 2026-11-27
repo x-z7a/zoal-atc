@@ -1044,6 +1044,13 @@ void advance_synthesized_speech(std::uint64_t now) {
     return;
   }
   ActiveSpeech &active = *g_active_speech;
+  if (!zoal_atc::tts::still_receiving(active.reply.frequency_hz, tuned_com_hz(1),
+                                      tuned_com_hz(2))) {
+    // The pilot retuned off the channel this was said on: the old frequency
+    // goes quiet at once, and the console is told it was not heard (#1091).
+    finish_active_speech(now, false, "radio_retuned");
+    return;
+  }
   if (active.playing) {
     if (!active.playing->complete) {
       return;
