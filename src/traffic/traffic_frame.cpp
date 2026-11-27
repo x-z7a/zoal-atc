@@ -63,6 +63,7 @@ std::optional<Target> parse_target(const std::string &element) {
   who.icao_type = string_or_empty(element, "icao_type");
   who.airline = string_or_empty(element, "airline");
   who.livery = string_or_empty(element, "livery");
+  who.destination = string_or_empty(element, "destination");
   who.mode_s = static_cast<std::uint32_t>(
       json::json_uint_field(element, "mode_s").value_or(0) & 0xFFFFFFu);
 
@@ -163,6 +164,9 @@ std::string encode_traffic_frame(const TrafficFrame &frame) {
     out += ",\"icao_type\":\"" + json_escape(who.icao_type) + "\"";
     out += ",\"airline\":\"" + json_escape(who.airline) + "\"";
     out += ",\"livery\":\"" + json_escape(who.livery) + "\"";
+    if (!who.destination.empty()) {
+      out += ",\"destination\":\"" + json_escape(who.destination) + "\"";
+    }
     out += ",\"callsign\":\"" + json_escape(who.callsign) + "\"}";
   }
   out += "],\"removed\":[";

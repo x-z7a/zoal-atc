@@ -15,6 +15,18 @@ constexpr const char *kMinus = "\xE2\x88\x92"; // U+2212
 
 } // namespace
 
+std::string identity_line(const traffic::Identity &who) {
+  std::string out = who.icao_type;
+  if (!who.destination.empty()) {
+    return out + (out.empty() ? "" : " ") + "\xE2\x86\x92 " + who.destination; // an arrow
+  }
+  bool said = !who.airline.empty() && who.callsign.rfind(who.airline, 0) == 0;
+  if (!who.airline.empty() && !said) {
+    out += (out.empty() ? "" : " \xC2\xB7 ") + who.airline;
+  }
+  return out;
+}
+
 std::string format_distance_nm(double nm) {
   if (nm < 99.95) {
     char buf[16];
@@ -108,13 +120,8 @@ TrafficPanel traffic_panel(const std::vector<traffic::Nearby> &picture,
     row.pilot = pilot;
     row.callsign = n.identity.callsign.empty() ? n.identity.id : n.identity.callsign;
 
-    if (!n.identity.icao_type.empty() && !n.identity.airline.empty()) {
-      row.type = n.identity.icao_type + " \xC2\xB7 " + n.identity.airline;
-    } else if (!n.identity.icao_type.empty()) {
-      row.type = n.identity.icao_type;
-    } else if (!n.identity.airline.empty()) {
-      row.type = n.identity.airline;
-    } else {
+    row.type = identity_line(n.identity);
+    if (row.type.empty()) {
       row.type = kUnknown;
     }
 

@@ -35,7 +35,7 @@ struct TrafficLabel {
   float opacity = 1.0f;
 
   std::string callsign; // callsign, else the track id
-  std::string type;     // "A320 · ACA", "A320", "ACA", or "" (not kUnknown)
+  std::string type;     // identity_line: "A320 → CYYZ", "A320"; "" (not kUnknown)
   std::string altitude; // format_traffic_altitude
   std::string vertical; // format_vertical_speed; "" on the ground
   int trend = 0;        // vertical_trend; 0 on the ground

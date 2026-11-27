@@ -1,5 +1,6 @@
 #include "test_support.hpp"
 #include "zoal_atc/gui/traffic_label.hpp"
+#include "zoal_atc/gui/traffic_panel.hpp"
 #include "zoal_atc/gui/i18n.hpp"
 #include "zoal_atc/traffic/screen_projection.hpp"
 #include <iostream>
@@ -61,7 +62,7 @@ void test_airborne_ai_full() {
   test::require(l.detail == LabelDetail::full, "airborne_ai_full: detail");
   test::near(l.opacity, 1.0, 1e-6, "airborne_ai_full: opacity");
   eq(l.callsign, "ACA451", "airborne_ai_full: callsign");
-  eq(l.type, "A320 \xC2\xB7 ACA", "airborne_ai_full: type");
+  eq(l.type, "A320", "airborne_ai_full: type (the callsign says ACA)");
   eq(l.altitude, "FL240", "airborne_ai_full: altitude");
   eq(l.vertical, "+1,500", "airborne_ai_full: vertical");
   eq(l.speed, "410 kt", "airborne_ai_full: speed");
@@ -115,6 +116,28 @@ void test_no_type() {
   eq(l.type, "", "no_type: type");
 }
 
+// The callsign already names the operator, so the tag says where the
+// aircraft is going instead, and the operator only where the callsign
+// does not say it.
+void test_identity_line() {
+  zoal_atc::traffic::Identity who;
+  who.callsign = "SKW5704";
+  who.icao_type = "E75L";
+  who.airline = "SKW";
+  eq(identity_line(who), "E75L", "identity_line: airline in the callsign");
+  who.destination = "KSFO";
+  eq(identity_line(who), "E75L \xE2\x86\x92 KSFO", "identity_line: destination");
+  who.icao_type = "";
+  eq(identity_line(who), "\xE2\x86\x92 KSFO", "identity_line: destination, no type");
+  zoal_atc::traffic::Identity reg;
+  reg.callsign = "CGABC";
+  reg.icao_type = "C172";
+  reg.airline = "ACA";
+  eq(identity_line(reg), "C172 \xC2\xB7 ACA", "identity_line: a registration flying for an operator");
+  reg.icao_type = "";
+  eq(identity_line(reg), "ACA", "identity_line: operator only");
+}
+
 void test_projection_identity() {
   float I[16] = {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
   
@@ -164,6 +187,7 @@ int main() {
   test_airborne_ai_full();
   test_pilot_on_ground_far();
   test_no_type();
+  test_identity_line();
   test_projection_identity();
   test_projection_behind_camera();
   
