@@ -62,6 +62,7 @@ add_library(zoal_atc_core STATIC
     src/traffic/screen_projection.cpp
     src/traffic/csl_locator.cpp
     src/traffic/ground_fit.cpp
+    src/traffic/config_slew.cpp
     src/taxi/taxi_route.cpp
     src/taxi/lead_on_lights.cpp
     src/taxi/scenery_match.cpp
@@ -397,6 +398,7 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_traffic_frame_tests tests/traffic_frame_wire_test.cpp)
     zoal_atc_add_test(zoal_atc_track_smoother_tests tests/track_smoother_test.cpp)
     zoal_atc_add_test(zoal_atc_track_smoother_accuracy_tests tests/track_smoother_accuracy_test.cpp)
+    zoal_atc_add_test(zoal_atc_config_slew_tests tests/config_slew_test.cpp)
     # Not a test: the measurement x-z7a/atc#1128 decides frame rates by.
     add_executable(traffic_measure tools/traffic_measure.cpp)
     target_link_libraries(traffic_measure PRIVATE zoal_atc_core)

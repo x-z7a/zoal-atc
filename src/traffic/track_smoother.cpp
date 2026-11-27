@@ -56,9 +56,9 @@ Velocity velocity_of(const Sample &s) {
 // climb between the reports passes untouched; one that does not -- a feed
 // that flips between 1,500 fpm and level each second, a pilot's VSI lagging
 // a level-off -- would otherwise bow the curve up and down at every report.
-void monotone_tangents(double rise_ft, double dt_s, double *v0, double *v1) {
+void monotone_tangents(double rise_ft, double dt_s, double *v0, double *v1, double flat = 0.5) {
   const double chord = rise_ft / dt_s;
-  if (std::abs(rise_ft) < 0.5) {
+  if (std::abs(rise_ft) < flat) {
     *v0 = 0.0; // level: any tangent would bump it
     *v1 = 0.0;
     return;
@@ -79,6 +79,30 @@ void monotone_tangents(double rise_ft, double dt_s, double *v0, double *v1) {
   }
 }
 
+// The shortest signed turn from one angle to another, in (-180, 180].
+double turn_deg(double from, double to) {
+  return std::fmod(to - from + 540.0, 360.0) - 180.0;
+}
+
+// An angle drawn between two reports as a curve rather than a straight line.
+// Blended in a straight line, a nose rotating or a bank rolling in changes its
+// rate all at once at every report, which a cockpit sees as a staircase of
+// constant-rate pieces (#52). Here the rate at each report is the rate over
+// the interval that ended there: at a, the chord from the report before it;
+// at b, the chord from a. The next interval starts with the same rate at b, so
+// the rate is continuous across every report, and the curve uses no report
+// later than b: one taken from the report after b changed the curve already
+// being drawn when that report landed mid-interval, which drew as a pop of
+// 100 degrees a second at a 1 Hz feed. Limited so it neither overshoots nor
+// turns back between a and b (Fritsch-Carlson). Returns the change from a's
+// value at fraction f.
+double angle_curve(double before_delta, double before_dt, double delta, double dt, double f) {
+  double v0 = before_dt > 0.0 ? before_delta / before_dt : delta / dt;
+  double v1 = delta / dt;
+  monotone_tangents(delta, dt, &v0, &v1, 1e-6);
+  return hermite(0.0, v0, delta, v1, dt, f);
+}
+
 } // namespace
 
 double blend_angle_deg(double from, double to, double fraction) {
@@ -87,6 +111,10 @@ double blend_angle_deg(double from, double to, double fraction) {
 }
 
 Sample interpolate(const Sample &a, const Sample &b, double t_s) {
+  return interpolate(nullptr, a, b, t_s);
+}
+
+Sample interpolate(const Sample *before, const Sample &a, const Sample &b, double t_s) {
   const double dt = b.t_s - a.t_s;
   if (dt <= 0.0) {
     return b;
@@ -116,10 +144,13 @@ Sample interpolate(const Sample &a, const Sample &b, double t_s) {
     out.alt_ft_msl = hermite(a.alt_ft_msl, v0, b.alt_ft_msl, v1, dt, f);
   }
 
-  out.heading_deg = blend_angle_deg(a.heading_deg, b.heading_deg, f);
+  const double before_dt = before != nullptr ? a.t_s - before->t_s : 0.0;
+  auto curve = [&](double before_delta, double delta) { return angle_curve(before_delta, before_dt, delta, dt, f); };
+  out.heading_deg = wrap_360(a.heading_deg + curve(before ? turn_deg(before->heading_deg, a.heading_deg) : 0.0,
+                                                   turn_deg(a.heading_deg, b.heading_deg)));
   out.track_deg = blend_angle_deg(a.track_deg, b.track_deg, f);
-  out.pitch_deg = lerp(a.pitch_deg, b.pitch_deg, f);
-  out.roll_deg = lerp(a.roll_deg, b.roll_deg, f);
+  out.pitch_deg = a.pitch_deg + curve(before ? a.pitch_deg - before->pitch_deg : 0.0, b.pitch_deg - a.pitch_deg);
+  out.roll_deg = a.roll_deg + curve(before ? a.roll_deg - before->roll_deg : 0.0, b.roll_deg - a.roll_deg);
   out.groundspeed_kts = lerp(a.groundspeed_kts, b.groundspeed_kts, f);
   out.vertical_speed_fpm = lerp(a.vertical_speed_fpm, b.vertical_speed_fpm, f);
   out.gear = lerp(a.gear, b.gear, f);
@@ -189,19 +220,25 @@ std::optional<Sample> TrackSmoother::evaluate(double t_s) const {
       [](double t, const Sample &s) { return t < s.t_s; });
   const Sample &b = *after;
   const Sample &a = *std::prev(after);
-  if (b.t_s - a.t_s > config_.max_interpolation_gap_s) {
+  const double gap = config_.max_interpolation_gap_s;
+  if (b.t_s - a.t_s > gap) {
     // Bridge a long outage by holding the earlier report's extrapolation,
     // bounded like any other, until the later one is reached.
     const double ahead = std::min(t_s - a.t_s, config_.max_extrapolation_s);
     return extrapolate(a, a.t_s + ahead);
   }
-  return interpolate(a, b, t_s);
+  // The report before a, where it is near enough to say how a was arrived at.
+  const Sample *before = std::prev(after) != samples_.begin() ? &*std::prev(after, 2) : nullptr;
+  if (before != nullptr && a.t_s - before->t_s > gap) {
+    before = nullptr;
+  }
+  return interpolate(before, a, b, t_s);
 }
 
 void TrackSmoother::prune_before(double t_s) {
-  // Keep one report at or before t_s: it is the left end of the interval
-  // that t_s falls in.
-  while (samples_.size() > 1 && samples_[1].t_s <= t_s) {
+  // Keep two reports at or before t_s: the left end of the interval t_s falls
+  // in, and the one before it, which says how the angles arrived there.
+  while (samples_.size() > 2 && samples_[2].t_s <= t_s) {
     samples_.pop_front();
   }
 }
