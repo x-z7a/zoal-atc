@@ -409,10 +409,10 @@ std::string default_config_template() {
       "#\n"
       "# stt_model = small\n"
       "\n"
-      "# Where whisper runs: gpu (the default) or cpu. On a Mac the GPU is\n"
-      "# quickest but shares the graphics card with X-Plane; if the picture\n"
-      "# stutters as you let go of push-to-talk, try cpu. Other systems always\n"
-      "# use the CPU. The panel's Settings tab writes this line.\n"
+      "# Where whisper runs: gpu (the default) or cpu. The GPU (Metal on a\n"
+      "# Mac, Vulkan elsewhere) is quickest but shares the graphics card with\n"
+      "# X-Plane; if the picture stutters as you let go of push-to-talk, try\n"
+      "# cpu. The panel's Settings tab writes this line.\n"
       "#\n"
       "# stt_device = gpu\n";
 }

@@ -1853,8 +1853,9 @@ void speech_settings(Flow &flow, PanelSession &session, const Ui &inner,
   flow.help(gpu ? tr("The GPU is quickest, but shares the graphics card with X-Plane. If the "
                      "picture stutters as you let go of push-to-talk, move it to the CPU. The "
                      "change applies from your next call.")
-                : tr("This build has no GPU recogniser: speech is always recognised on the "
-                     "CPU."));
+                : tr("No graphics card on this computer offers itself for speech recognition, "
+                     "so speech is recognised on the CPU. Updating the graphics driver may "
+                     "change that."));
   flow.end_setting();
 }
 

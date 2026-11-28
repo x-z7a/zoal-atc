@@ -18,6 +18,10 @@ option(ZOAL_ATC_BUILD_PREVIEW "Build tools/panel_preview, which renders the pane
 # console no longer transcribes audio, and nothing else in the cockpit speaks,
 # so a plugin without either is one the pilot cannot use.
 set(ZOAL_ATC_WHISPER_SOURCE "" CACHE PATH "whisper.cpp source tree (see scripts/ensure-whisper-src.sh)")
+# Whisper on the GPU through Vulkan, off macOS. Off only for a build that
+# cannot have it: scripts/build-windows-on-mac.sh has no Windows Vulkan import
+# library to link, so a Windows plugin cross-built on a Mac hears on the CPU.
+option(ZOAL_ATC_WHISPER_VULKAN "Build whisper's Vulkan backend (Windows and Linux)" ON)
 set(ZOAL_ATC_SHERPA_ONNX "" CACHE PATH "sherpa-onnx build (see scripts/ensure-sherpa-onnx.sh)")
 set(ATC_XPLANE_SDK "${CMAKE_CURRENT_SOURCE_DIR}/sdk" CACHE PATH "Path to the X-Plane SDK root")
 set(ZOAL_ATC_IMGUI_SOURCE "" CACHE PATH "Dear ImGui source tree (see scripts/ensure-imgui.sh)")
@@ -245,8 +249,14 @@ if(ZOAL_ATC_BUILD_PLUGIN)
     endif()
     # The same whisper.cpp release the console's transcriber used: static, no
     # examples, portable rather than tuned to the build machine because the
-    # plugin runs on other people's. On macOS Metal with its shaders embedded;
-    # elsewhere the CPU, without OpenMP so there is no runtime to ship with it.
+    # plugin runs on other people's. On macOS Metal with its shaders embedded.
+    # Elsewhere Vulkan, which reaches Nvidia, AMD and Intel cards alike
+    # (x-z7a/zoal-atc#66): linked directly rather than loaded, because X-Plane
+    # 12 itself needs Vulkan on Windows and Linux, so every machine that can
+    # load this plugin has the loader. Its shaders are compiled with glslc at
+    # build time and embedded. The CPU is still there, without OpenMP so there
+    # is no runtime to ship with it, for a pilot who chooses it and a machine
+    # whose driver offers no device.
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
     set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -259,6 +269,10 @@ if(ZOAL_ATC_BUILD_PLUGIN)
         set(GGML_BLAS_VENDOR "Apple" CACHE STRING "" FORCE)
     else()
         set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
+        set(GGML_VULKAN ${ZOAL_ATC_WHISPER_VULKAN} CACHE BOOL "" FORCE)
+        if(NOT ZOAL_ATC_WHISPER_VULKAN)
+            message(WARNING "whisper is built without Vulkan: this plugin hears on the CPU only")
+        endif()
     endif()
     # Static, but linked into a shared module, so position-independent.
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)

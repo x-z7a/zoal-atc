@@ -92,7 +92,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential libvulkan-dev glslc spirv-headers
 
       - name: Install Windows build dependencies
         if: runner.os == 'Windows'
@@ -103,6 +103,22 @@ jobs:
         shell: pwsh
         run: |
           "C:\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      # Whisper's Vulkan backend (x-z7a/zoal-atc#66) needs the Vulkan headers,
+      # the loader's import library and glslc to compile its shaders. MinGW
+      # links the LunarG SDK's vulkan-1.lib directly; nothing from the SDK is
+      # shipped, because the driver X-Plane already needs installs the loader.
+      - name: Install the Vulkan SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VULKAN_VERSION: 1.4.313.2
+        run: |
+          curl.exe -fsSL -o "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" "https://sdk.lunarg.com/sdk/download/$env:VULKAN_VERSION/windows/vulkansdk-windows-X64-$env:VULKAN_VERSION.exe"
+          & "$env:RUNNER_TEMP\VulkanSDK-Installer.exe" --accept-licenses --default-answer --confirm-command install | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "VULKAN_SDK=C:\VulkanSDK\$env:VULKAN_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "C:\VulkanSDK\$env:VULKAN_VERSION\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       # Tag-time quality used to rest entirely on the PR-time CI workflow: this
       # job went straight from checkout to packaging, so a tag pushed from a

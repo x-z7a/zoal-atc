@@ -40,9 +40,13 @@ public:
   // transcribed finishes where it started.
   void set_use_gpu(bool use_gpu);
 
-  // gpu_available is whether this build can put whisper on a GPU at all. Only
-  // the macOS build has one (Metal); elsewhere whisper always runs on the CPU.
-  static bool gpu_available();
+  // gpu_name is the GPU whisper would run on, empty when there is none: the
+  // first device ggml's Metal or Vulkan backend offers, which is the one
+  // whisper picks. A machine whose driver offers none runs whisper on the CPU
+  // whatever the pilot chose. Asked once and remembered: the first call
+  // enumerates the devices.
+  static const std::string &gpu_name();
+  static bool gpu_available() { return !gpu_name().empty(); }
 
 private:
   bool load_locked(std::string &error);

@@ -127,10 +127,12 @@ const Row kRows[] = {
      "Le GPU est le plus rapide, mais partage la carte graphique avec X-Plane. Si l'image saccade "
      "quand vous relâchez l'alternat, passez sur le CPU. Le changement s'applique dès votre "
      "prochain appel."},
-    {"This build has no GPU recogniser: speech is always recognised on the CPU.",
-     "Esta versión no tiene reconocimiento en GPU: la voz siempre se reconoce en la CPU.",
-     "Cette version n'a pas de reconnaissance sur GPU : la voix est toujours reconnue sur le "
-     "CPU."},
+    {"No graphics card on this computer offers itself for speech recognition, so speech is "
+     "recognised on the CPU. Updating the graphics driver may change that.",
+     "Ninguna tarjeta gráfica de este ordenador se ofrece para el reconocimiento de voz, así que "
+     "la voz se reconoce en la CPU. Actualizar el controlador gráfico puede cambiarlo.",
+     "Aucune carte graphique de cet ordinateur ne se propose pour la reconnaissance vocale : la "
+     "voix est donc reconnue sur le CPU. Mettre à jour le pilote graphique peut y remédier."},
     {"Auto readback", "Colación automática", "Collationnement automatique"},
     {"On", "Sí", "Oui"},
     {"Off", "No", "Non"},

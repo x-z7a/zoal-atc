@@ -2290,8 +2290,11 @@ void load_stt(const std::string &models, std::vector<std::string> *capabilities)
     g_transport_sink->set_transcriber(g_transcriber.get(), &g_stt_prompt);
   }
   capabilities->push_back("local_stt");
-  log_line("push-to-talk is transcribed in the cockpit with " + model + " on the " +
-           (gpu && zoal_atc::stt::WhisperTranscriber::gpu_available() ? "GPU" : "CPU"));
+  const std::string &device = zoal_atc::stt::WhisperTranscriber::gpu_name();
+  log_line("push-to-talk is transcribed in the cockpit with " + model + " on " +
+           (!gpu             ? std::string("the CPU, as chosen")
+            : device.empty() ? std::string("the CPU: no GPU was found")
+                             : "the GPU, " + device));
 }
 
 // load_tts makes the controllers' voices from Kokoro's model under `models`.

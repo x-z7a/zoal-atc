@@ -5,6 +5,14 @@
 - **CMake ≥ 3.24** and a **C++17 toolchain** (Clang/Xcode on macOS, GCC on
   Linux, MinGW on Windows — the release toolchain; MSVC is not what ships).
 - `make`, `bash`, `curl`. On Windows: `choco install make mingw`.
+- For `make plugin` on Linux and Windows, whisper's Vulkan backend: the Vulkan
+  headers and loader, `glslc` and SPIRV-Headers. On Ubuntu or Debian:
+  `apt-get install libvulkan-dev glslc spirv-headers`. On Windows: the
+  [LunarG Vulkan SDK](https://vulkan.lunarg.com/sdk/home#windows), with
+  `VULKAN_SDK` set and its `Bin` on `PATH`. Nothing from it ships: the GPU
+  driver X-Plane needs installs the loader. `-DZOAL_ATC_WHISPER_VULKAN=OFF`
+  builds without it, hearing on the CPU only, which is what
+  `scripts/build-windows-on-mac.sh` does.
 - For `make release-all` on macOS: Docker and `brew install mingw-w64`.
 
 No Node and no browser runtime — the panel and HUD are native Dear ImGui.
