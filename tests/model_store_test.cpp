@@ -148,6 +148,28 @@ void test_manifest_matches_the_release() {
           "the voices' marker is the one ensure-models.sh writes");
 }
 
+// x-z7a/zoal-atc#66: a pilot may choose a larger whisper. Each size is one
+// file in the manifest, and a size the plugin does not know is small, so a
+// typo in the config costs the choice, never the recogniser.
+void test_stt_sizes() {
+  require(stt_size_or_default("medium") == "medium", "medium is a size");
+  require(stt_size_or_default("large") == "large", "large is a size");
+  require(stt_size_or_default("") == "small", "unset is small");
+  require(stt_size_or_default("Large") == "small", "sizes are written in lower case");
+  require(stt_model_for("small") == kSttModel, "small is the shipped model");
+  require(stt_model_for("tiny") == kSttModel, "an unknown size is small");
+  for (const std::string size : {"small", "medium", "large"}) {
+    const auto files = files_of(manifest(), stt_model_for(size));
+    require(files.size() == 1, "whisper " + size + " is one file");
+    require(std::string(files[0].path).rfind("ggml-", 0) == 0, "and a ggml model: " + size);
+    require(std::string(files[0].path).find('/') == std::string::npos,
+            "beside the small one in models/: " + size);
+    require(!files[0].appendable, "nothing writes to it: " + size);
+  }
+  require(files_of(manifest(), kSttMediumModel)[0].size > files_of(manifest(), kSttModel)[0].size,
+          "medium is the larger download");
+}
+
 void test_store() {
   Fixture f = fixture("store");
   const auto stt = files_of(f.files, "stt");
@@ -259,6 +281,7 @@ void test_progress_text() {
 int main() {
   test_sha256();
   test_manifest_matches_the_release();
+  test_stt_sizes();
   test_store();
   test_provisioner_downloads_what_is_missing();
   test_provisioner_resumes_after_a_drop();

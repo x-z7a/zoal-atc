@@ -1786,6 +1786,78 @@ void logbook_settings(Flow &flow, PanelSession &session, const Ui &inner,
   flow.end_setting();
 }
 
+// Whisper's size and device (x-z7a/zoal-atc#66): a row of buttons each, like
+// the HUD's mode.
+void speech_settings(Flow &flow, PanelSession &session, const Ui &inner,
+                     std::uint64_t steady) {
+  const bool ready = session.settings_loaded();
+  flow.begin_setting();
+  flow.label(tr("Model"));
+  flow.gap();
+  {
+    float bx = flow.x + 2.0f;
+    for (const auto &[size, label] : {std::pair<const char *, const char *>{"small", "Small"},
+                                      std::pair<const char *, const char *>{"medium", "Medium"},
+                                      std::pair<const char *, const char *>{"large", "Large"}}) {
+      const std::string text = tr(label);
+      const float width = button_width(inner, text) + 12.0f;
+      const bool chosen = session.stt_model() == size;
+      const std::string id = std::string("stt_model_") + size;
+      if (button(inner, id.c_str(), ImVec2(bx, flow.y),
+                 ImVec2(width, kButtonHeight), text,
+                 chosen ? Variant::filled : Variant::outlined, ready) &&
+          !chosen) {
+        const std::string picked = size;
+        flow.ui.later([&session, picked, steady] { session.set_stt_model(picked, steady); });
+      }
+      bx += width + 6.0f;
+    }
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  if (session.stt_model() != session.stt_model_in_use()) {
+    flow.help(tr("Used from the next time X-Plane starts. A model that is not on this computer "
+                 "yet is downloaded then, while the small one goes on hearing you."));
+    flow.gap();
+  }
+  flow.help(tr("Small is the one the plugin ships, and is quick everywhere. Medium (539 MB) and "
+               "large (574 MB) hear clipped and accented calls better, and take about three "
+               "times as long and as much memory. Choose a larger one only if this computer "
+               "has the room."));
+  flow.end_setting();
+
+  flow.begin_setting();
+  flow.label(tr("Runs on"));
+  flow.gap();
+  const bool gpu = session.stt_gpu();
+  {
+    float bx = flow.x + 2.0f;
+    for (const auto &[device, label] : {std::pair<const char *, const char *>{"gpu", "GPU"},
+                                        std::pair<const char *, const char *>{"cpu", "CPU"}}) {
+      const std::string text = tr(label);
+      const float width = button_width(inner, text) + 12.0f;
+      const bool chosen = gpu ? session.stt_device() == device : std::string(device) == "cpu";
+      const std::string id = std::string("stt_device_") + device;
+      if (button(inner, id.c_str(), ImVec2(bx, flow.y),
+                 ImVec2(width, kButtonHeight), text,
+                 chosen ? Variant::filled : Variant::outlined, ready && gpu) &&
+          !chosen) {
+        const std::string picked = device;
+        flow.ui.later([&session, picked, steady] { session.set_stt_device(picked, steady); });
+      }
+      bx += width + 6.0f;
+    }
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help(gpu ? tr("The GPU is quickest, but shares the graphics card with X-Plane. If the "
+                     "picture stutters as you let go of push-to-talk, move it to the CPU. The "
+                     "change applies from your next call.")
+                : tr("This build has no GPU recogniser: speech is always recognised on the "
+                     "CPU."));
+  flow.end_setting();
+}
+
 void calls_settings(Flow &flow, PanelSession &session, const Ui &inner,
                     std::uint64_t steady) {
   const auto &voices = tts::voice_catalogue();
@@ -1991,6 +2063,10 @@ void settings(const Ui &ui, PanelSession &session, PanelViewState &state,
   flow.begin_setting();
   calls_settings(flow, session, inner, steady);
   flow.end_setting();
+
+  // ---- speech recognition ----
+  flow.section(tr("Speech recognition"));
+  speech_settings(flow, session, inner, steady);
 
   // ---- logbook ----
   flow.section(tr("Logbook"));

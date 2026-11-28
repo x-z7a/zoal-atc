@@ -20,7 +20,11 @@ namespace zoal_atc::stt {
 // whose audio then goes to the console — rather than the plugin.
 class WhisperTranscriber final : public Transcriber {
 public:
-  explicit WhisperTranscriber(std::string model_path);
+  // use_gpu is the pilot's (stt_device in zoal_atc.cfg). The GPU is the
+  // default and is fastest, but on macOS it shares Metal with X-Plane's frames,
+  // and a pilot who sees a stutter at the end of every call can move whisper
+  // to the CPU instead (x-z7a/zoal-atc#66).
+  WhisperTranscriber(std::string model_path, bool use_gpu);
   ~WhisperTranscriber() override;
 
   WhisperTranscriber(const WhisperTranscriber &) = delete;
@@ -31,6 +35,15 @@ public:
                         const std::string &language) override;
   void warm() override;
 
+  // set_use_gpu moves whisper between the GPU and the CPU. The model is let go
+  // and loaded again on the next turn, on the new device; a turn being
+  // transcribed finishes where it started.
+  void set_use_gpu(bool use_gpu);
+
+  // gpu_available is whether this build can put whisper on a GPU at all. Only
+  // the macOS build has one (Metal); elsewhere whisper always runs on the CPU.
+  static bool gpu_available();
+
 private:
   bool load_locked(std::string &error);
 
@@ -39,6 +52,7 @@ private:
   std::mutex mutex_;
   whisper_context *context_ = nullptr;
   bool load_failed_ = false;
+  bool use_gpu_ = true;
 };
 
 } // namespace zoal_atc::stt

@@ -31,6 +31,21 @@ struct ModelFile {
 inline constexpr const char *kSttModel = "stt";
 inline constexpr const char *kTtsModel = "tts";
 
+// Whisper comes in the sizes a pilot may choose between (x-z7a/zoal-atc#66).
+// Small is the one every release ships and the one used unless the pilot
+// asks for another. Medium (medium.en) and large (large-v3-turbo) hear a
+// clipped call better and cost about three times the memory and time; they are
+// in the manifest but never in the release, so only a pilot who chooses one
+// downloads it, and it is fetched the way a missing small model is.
+inline constexpr const char *kSttMediumModel = "stt-medium";
+inline constexpr const char *kSttLargeModel = "stt-large";
+
+// stt_size_or_default is a size as the config stores it: "small", "medium" or
+// "large", and "small" for anything else.
+std::string stt_size_or_default(const std::string &size);
+// stt_model_for names the manifest's whisper model for a size.
+std::string stt_model_for(const std::string &size);
+
 const std::vector<ModelFile> &manifest();
 std::vector<ModelFile> files_of(const std::vector<ModelFile> &all, const std::string &model);
 

@@ -95,6 +95,42 @@ const Row kRows[] = {
     {" female", " femenina", " féminine"},
     {" male", " masculina", " masculine"},
     {"default", "predeterminada", "par défaut"},
+    {"Speech recognition", "Reconocimiento de voz", "Reconnaissance vocale"},
+    {"Model", "Modelo", "Modèle"},
+    {"Small", "Pequeño", "Petit"},
+    {"Medium", "Mediano", "Moyen"},
+    {"Large", "Grande", "Grand"},
+    {"Runs on", "Se ejecuta en", "S'exécute sur"},
+    {"GPU", "GPU", "GPU"},
+    {"CPU", "CPU", "CPU"},
+    {"Used from the next time X-Plane starts. A model that is not on this computer yet is "
+     "downloaded then, while the small one goes on hearing you.",
+     "Se usa desde el próximo arranque de X-Plane. Un modelo que aún no está en este ordenador se "
+     "descarga entonces, mientras el pequeño le sigue escuchando.",
+     "Utilisé dès le prochain démarrage de X-Plane. Un modèle absent de cet ordinateur est alors "
+     "téléchargé, pendant que le petit continue de vous entendre."},
+    {"Small is the one the plugin ships, and is quick everywhere. Medium (539 MB) and large "
+     "(574 MB) hear clipped and accented calls better, and take about three times as long and as "
+     "much memory. Choose a larger one only if this computer has the room.",
+     "El pequeño es el que trae el plugin y es rápido en todas partes. El mediano (539 MB) y el "
+     "grande (574 MB) entienden mejor las llamadas cortadas o con acento, y tardan unas tres veces "
+     "más y usan unas tres veces más memoria. Elija uno mayor solo si este ordenador tiene margen.",
+     "Le petit est celui que fournit le plugin, et il est rapide partout. Le moyen (539 Mo) et le "
+     "grand (574 Mo) comprennent mieux les appels coupés ou avec accent, et prennent environ trois "
+     "fois plus de temps et de mémoire. N'en choisissez un plus grand que si cet ordinateur a de "
+     "la marge."},
+    {"The GPU is quickest, but shares the graphics card with X-Plane. If the picture stutters as "
+     "you let go of push-to-talk, move it to the CPU. The change applies from your next call.",
+     "La GPU es lo más rápido, pero comparte la tarjeta gráfica con X-Plane. Si la imagen da "
+     "tirones al soltar el botón de transmisión, páselo a la CPU. El cambio se aplica desde su "
+     "próxima llamada.",
+     "Le GPU est le plus rapide, mais partage la carte graphique avec X-Plane. Si l'image saccade "
+     "quand vous relâchez l'alternat, passez sur le CPU. Le changement s'applique dès votre "
+     "prochain appel."},
+    {"This build has no GPU recogniser: speech is always recognised on the CPU.",
+     "Esta versión no tiene reconocimiento en GPU: la voz siempre se reconoce en la CPU.",
+     "Cette version n'a pas de reconnaissance sur GPU : la voix est toujours reconnue sur le "
+     "CPU."},
     {"Auto readback", "Colación automática", "Collationnement automatique"},
     {"On", "Sí", "Oui"},
     {"Off", "No", "Non"},

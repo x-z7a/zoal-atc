@@ -163,6 +163,13 @@ public:
   bool hud_transcript() const { return hud_transcript_; }
   bool hud_overheard() const { return hud_overheard_; }
   HudMode hud_mode() const { return hud_mode_; }
+  // Whisper (x-z7a/zoal-atc#66): the size chosen ("small", "medium",
+  // "large"), the size hearing the pilot now, which differs until the next
+  // start, the device ("gpu" or "cpu"), and whether this build has a GPU.
+  const std::string &stt_model() const { return stt_model_; }
+  const std::string &stt_model_in_use() const { return stt_model_in_use_; }
+  const std::string &stt_device() const { return stt_device_; }
+  bool stt_gpu() const { return stt_gpu_; }
   std::uint64_t settings_revision() const { return settings_revision_; }
   bool connection_loaded() const { return connection_loaded_; }
   const std::string &token() const { return token_; }
@@ -208,6 +215,10 @@ public:
   void set_hud_transcript(bool on, std::uint64_t steady_ms);
   void set_hud_overheard(bool on, std::uint64_t steady_ms);
   void set_hud_mode(HudMode mode, std::uint64_t steady_ms);
+  // Shown at once, saved behind it. The size is used from the next start; the
+  // device from the next push-to-talk.
+  void set_stt_model(const std::string &size, std::uint64_t steady_ms);
+  void set_stt_device(const std::string &device, std::uint64_t steady_ms);
   // Puts the HUD back in the screen's top right corner, where it starts.
   void reset_hud_position(std::uint64_t steady_ms);
   // Settings' import, naming the pilot ID stored here.
@@ -281,6 +292,10 @@ private:
   bool hud_transcript_ = true;
   bool hud_overheard_ = true;
   HudMode hud_mode_ = HudMode::fixed;
+  std::string stt_model_ = "small";
+  std::string stt_model_in_use_ = "small";
+  std::string stt_device_ = "gpu";
+  bool stt_gpu_ = false;
   std::uint64_t settings_revision_ = 0;
   bool connection_loaded_ = false;
   std::string token_;

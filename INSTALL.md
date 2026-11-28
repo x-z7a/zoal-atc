@@ -162,10 +162,34 @@ for a newer plugin does not stop an older one from starting.
 | `token` | you or the panel | Shared secret for a console that requires one (see below). |
 | `simbrief_id` | you or the panel | SimBrief pilot ID the console fetches your flight plan with. |
 | `panel_theme` | the panel | `graphite`, `daylight` or `night`. |
+| `stt_model` | you or the panel | Which whisper model hears you: `small` (the default, shipped), `medium` or `large`. See [Speech recognition](#speech-recognition). |
+| `stt_device` | you or the panel | Where whisper runs: `gpu` (the default) or `cpu`. Only the macOS build has a GPU recogniser. |
 | `client_id` | the plugin | Identity of this installation, generated on first run. The console uses it to tell aircraft apart; don't copy it to another machine. |
 
 The resolved endpoint is written to X-Plane's `Log.txt` at startup (the token is
 reported only as present or absent, never echoed).
+
+## Speech recognition
+
+Push-to-talk is transcribed on your machine with whisper. Two settings, on
+**Settings → Speech recognition** or in the config file, change how:
+
+- **Model.** `small` (190 MB) ships with the plugin and is quick everywhere.
+  `medium` (medium.en, 539 MB) and `large` (large-v3-turbo, 574 MB) hear
+  clipped and accented calls better, and take roughly three times as long and
+  as much memory. A larger model is downloaded into the plugin's `models/`
+  folder the first time it is chosen, in the background, and is used from the
+  next start after it arrives; until then the small one hears you. The choice
+  takes effect when X-Plane next starts. On a computer without a GPU
+  recogniser, prefer `small`: a larger one on the CPU can take several seconds
+  per call.
+- **Runs on.** On macOS whisper runs on the GPU (Metal) by default, which is
+  quickest but shares the graphics card with X-Plane. If the picture stutters
+  as you let go of push-to-talk, choose `cpu`. The change applies from your
+  next call, with no restart. Windows and Linux builds always use the CPU.
+
+`Log.txt` says which model and device are in use:
+`push-to-talk is transcribed in the cockpit with …/ggml-small.en-q5_1.bin on the GPU`.
 
 ## Authentication
 
@@ -200,4 +224,5 @@ Look for lines starting with `[zoal-atc]` in `<X-Plane>/Log.txt`.
 | Aircraft ATC never mentions, or the same flight twice | Another traffic plugin or X-Plane's AI is running; see [Other traffic plugins](#other-traffic-plugins). |
 | Panel or HUD text looks wrong | That `fonts/` is present in the plugin folder; without it the plugin falls back to X-Plane's Roboto. |
 | Plugin fails to load | X-Plane version (12.4.4+), and that the whole folder — on Windows/Linux the libraries beside the `.xpl` — was copied. |
+| The sim stutters when you release push-to-talk | Move speech recognition to the CPU: **Settings → Speech recognition → Runs on → CPU** (macOS). See [Speech recognition](#speech-recognition). |
 | ATC can't hear you, or never speaks | The `[zoal-atc] models:` lines in `Log.txt`: a model still downloading says how far it has got, and one that failed says why (no network, no `curl`, a plugin folder that is not writable). It is tried again at the next start. |
