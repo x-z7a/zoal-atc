@@ -66,6 +66,10 @@ add_library(zoal_atc_core STATIC
     src/taxi/taxi_route.cpp
     src/taxi/lead_on_lights.cpp
     src/taxi/scenery_match.cpp
+    src/models/sha256.cpp
+    src/models/model_store.cpp
+    src/models/curl_fetcher.cpp
+    src/models/model_provisioner.cpp
 )
 
 target_include_directories(zoal_atc_core
@@ -412,6 +416,10 @@ if(ZOAL_ATC_BUILD_TESTS)
     zoal_atc_add_test(zoal_atc_taxi_route_tests tests/taxi_route_test.cpp)
     zoal_atc_add_test(zoal_atc_lead_on_lights_tests tests/lead_on_lights_test.cpp)
     zoal_atc_add_test(zoal_atc_scenery_match_tests tests/scenery_match_test.cpp)
+    zoal_atc_add_test(zoal_atc_model_store_tests tests/model_store_test.cpp)
+    # It reads ensure-models.sh's pins, which the manifest must agree with.
+    target_compile_definitions(zoal_atc_model_store_tests PRIVATE
+        ZOAL_ATC_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
     # Headless traffic client: runs the traffic core against a console.
     add_executable(traffic_probe tools/traffic_probe.cpp)

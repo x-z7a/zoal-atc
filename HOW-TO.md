@@ -53,8 +53,12 @@ Privacy & Security → Microphone.
 zoal-atc works with the **Skunkcrafts Updater**. Once you have installed a
 release zip, the updater finds the `skunkcrafts_updater.cfg` in the `zoal-atc`
 folder and keeps the plugin up to date for you. The voice and speech models
-are not part of these updates. They rarely change, and when they do, the
-release notes will ask you to install the full zip again.
+are not part of these updates, and you don't need to do anything about them:
+each time X-Plane starts, the plugin checks its models and, if one is missing
+or older than the plugin expects, downloads it in the background while X-Plane
+carries on loading. Until it arrives, ATC can't hear you (speech model) or
+can't speak to you (voices); everything else works. Progress is written to
+`Log.txt` on lines starting `[zoal-atc] models:`.
 
 On a Mac, the plugin is signed and notarized by Apple, so X-Plane loads it
 without a security warning.
