@@ -84,6 +84,20 @@ ZOAL_ATC_SHERPA_ONNX ?= $(ROOT_DIR)/.cache/sherpa-onnx-$(SHERPA_ONNX_VERSION)-$(
 # ignores -DCMAKE_BUILD_TYPE and places outputs in a <Config>/ subdirectory.
 # Force MinGW Makefiles (a single-config generator) so the plugin lands at
 # build-plugin/zoal_atc.xpl, matching the packaging step below.
+# Whisper's Vulkan backend builds a helper, vulkan-shaders-gen, as a separate
+# CMake project configured during the build, and runs it there to embed the
+# shaders. Linked against MinGW's runtime DLLs it loads whichever
+# libstdc++-6.dll comes first on PATH, and on a GitHub Windows runner that is
+# another toolchain's: it dies with 0xC0000139 (entry point not found). So it
+# is linked statically. CMake reads LDFLAGS only when it first configures a
+# project, so setting it around the build reaches that helper and not the
+# plugin, which was configured in the step before.
+ifeq ($(OS),Windows_NT)
+PLUGIN_BUILD_ENV := cmake -E env LDFLAGS=-static
+else
+PLUGIN_BUILD_ENV :=
+endif
+
 ifeq ($(OS),Windows_NT)
 CMAKE_GENERATOR := -G "MinGW Makefiles"
 else
@@ -156,7 +170,7 @@ models:
 
 plugin: $(SDK_SENTINEL) $(MINIAUDIO_SENTINEL) whisper-src imgui-src freetype-src sherpa-onnx
 	cmake -S . -B "$(PLUGIN_BUILD_DIR)" $(CMAKE_GENERATOR) -DCMAKE_BUILD_TYPE="$(BUILD_TYPE)" -DZOAL_ATC_BUILD_PLUGIN=ON -DZOAL_ATC_BUILD_TESTS=OFF -DATC_XPLANE_SDK="$(ATC_XPLANE_SDK)" -DZOAL_ATC_WHISPER_SOURCE="$(ZOAL_ATC_WHISPER_SOURCE)" -DZOAL_ATC_IMGUI_SOURCE="$(ZOAL_ATC_IMGUI_SOURCE)" -DZOAL_ATC_FREETYPE_SOURCE="$(ZOAL_ATC_FREETYPE_SOURCE)" -DZOAL_ATC_SHERPA_ONNX="$(ZOAL_ATC_SHERPA_ONNX)"
-	cmake --build "$(PLUGIN_BUILD_DIR)" --target zoal_atc
+	$(PLUGIN_BUILD_ENV) cmake --build "$(PLUGIN_BUILD_DIR)" --target zoal_atc
 
 # The panel rendered off-screen in every theme, Home and Settings, from the
 # same code the plugin runs: a look at a change without starting the sim.
