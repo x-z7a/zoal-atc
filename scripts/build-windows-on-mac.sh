@@ -52,7 +52,13 @@ ZOAL_ATC_IMGUI_SOURCE="${imgui_source}" "${repo_root}/scripts/ensure-imgui.sh"
 ZOAL_ATC_FREETYPE_SOURCE="${freetype_source}" "${repo_root}/scripts/ensure-freetype.sh"
 ZOAL_ATC_SHERPA_ONNX="${sherpa_root}" "${repo_root}/scripts/ensure-sherpa-onnx.sh" "${sherpa_flavour}"
 
+# Whisper's Vulkan backend links vulkan-1.dll through an import library, and a
+# Mac has none for MinGW (CMake would find the Mac's own libvulkan instead). So
+# this build hears on the CPU; the release workflow builds Windows natively,
+# with Vulkan (x-z7a/zoal-atc#66).
 echo "==> Cross-building the Windows x64 X-Plane plugin"
+echo "WARNING: this Windows plugin is built without Vulkan, so whisper runs on the CPU only." >&2
+echo "         The GitHub release workflow builds the Windows package with Vulkan." >&2
 cmake \
   -S "${repo_root}" \
   -B "${plugin_build_dir}" \
@@ -62,6 +68,7 @@ cmake \
   -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
   -DCMAKE_RC_COMPILER=x86_64-w64-mingw32-windres \
   -DCMAKE_BUILD_TYPE=Release \
+  -DZOAL_ATC_WHISPER_VULKAN=OFF \
   -DZOAL_ATC_BUILD_PLUGIN=ON \
   -DZOAL_ATC_BUILD_TESTS=OFF \
   -DATC_XPLANE_SDK="${sdk_dir}" \

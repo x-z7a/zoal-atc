@@ -1,5 +1,6 @@
 #include "zoal_atc/stt/whisper_transcriber.hpp"
 
+#include <ggml-backend.h>
 #include <whisper.h>
 
 #include <algorithm>
@@ -71,12 +72,26 @@ WhisperTranscriber::WhisperTranscriber(std::string model_path, bool use_gpu)
     : model_path_(std::move(model_path)), model_name_(base_name(model_path_)),
       use_gpu_(use_gpu) {}
 
-bool WhisperTranscriber::gpu_available() {
-#if defined(__APPLE__)
-  return true;
-#else
-  return false;
-#endif
+const std::string &WhisperTranscriber::gpu_name() {
+  // Thread-safe initialisation: the panel asks on the main thread, and the
+  // transcription thread may be loading the model at the same moment.
+  static const std::string name = [] {
+    for (std::size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+      ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+      const auto type = ggml_backend_dev_type(dev);
+      // The same test whisper_backend_init_gpu makes.
+      if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) {
+        const char *description = ggml_backend_dev_description(dev);
+        const char *fallback = ggml_backend_dev_name(dev);
+        std::string found = description != nullptr && *description != '\0'
+                                ? description
+                                : (fallback != nullptr ? fallback : "");
+        return found.empty() ? std::string("GPU") : found;
+      }
+    }
+    return std::string();
+  }();
+  return name;
 }
 
 void WhisperTranscriber::set_use_gpu(bool use_gpu) {
