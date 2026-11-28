@@ -159,6 +159,43 @@ float hud_line_opacity(const HudLine &line, std::int64_t now_ms) {
   return static_cast<float>(left) / static_cast<float>(kHudFadeMs);
 }
 
+// --- fixed or minimized --------------------------------------------------------
+
+HudMode hud_mode_from_name(std::string_view name) {
+  return name == "minimized" ? HudMode::minimized : HudMode::fixed;
+}
+
+const char *hud_mode_name(HudMode mode) {
+  return mode == HudMode::minimized ? "minimized" : "fixed";
+}
+
+std::optional<std::int64_t> hud_newest_call_ms(const HudFeed &feed) {
+  std::optional<std::int64_t> newest;
+  for (const HudLine &line : feed.lines()) {
+    if (line.entry.kind != "atc" || line.entry.overheard) {
+      continue;
+    }
+    if (!newest.has_value() || line.shown_at_ms > *newest) {
+      newest = line.shown_at_ms;
+    }
+  }
+  return newest;
+}
+
+bool HudReveal::open(HudMode mode, std::int64_t now_ms, bool hovered, bool held,
+                     std::optional<std::int64_t> newest_call_ms) {
+  if (hovered || held) {
+    last_held_ms_ = now_ms;
+  }
+  if (mode == HudMode::fixed) {
+    return true;
+  }
+  if (last_held_ms_.has_value() && now_ms - *last_held_ms_ < kHudHoverGraceMs) {
+    return true;
+  }
+  return newest_call_ms.has_value() && now_ms - *newest_call_ms < kHudPopOutMs;
+}
+
 // --- labels -------------------------------------------------------------------
 
 std::string format_position(std::string_view position) {

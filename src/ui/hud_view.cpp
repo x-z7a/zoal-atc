@@ -560,6 +560,7 @@ float typing_line(ImDrawList *draw, const Palette &p, float right, float y, floa
     g.state->pressed_text = g.state->typed;
     g.state->typed[0] = '\0';
   }
+  g.state->typing_active = ImGui::IsItemActive();
   ImGui::PopStyleVar();
   ImGui::PopStyleColor(7);
   ImGui::PopFont();
@@ -664,7 +665,22 @@ float plan_notice(ImDrawList *draw, HudSession &session, const Palette &p,
 
 // --- one frame ---------------------------------------------------------------
 
-void build(HudSession &session, std::int64_t wall) {
+// Ends the frame begun by build, recording how big it was and whether the
+// mouse is over it. The window is exactly as big as the HUD, so a mouse
+// anywhere in it is over the HUD.
+void finish(float widest, float y) {
+  const ImGuiIO &io = ImGui::GetIO();
+  g.state->hovered = ImGui::IsMousePosValid() && io.MousePos.x >= 0.0f &&
+                     io.MousePos.y >= 0.0f && io.MousePos.x < io.DisplaySize.x &&
+                     io.MousePos.y < io.DisplaySize.y;
+  ImGui::End();
+  ImGui::PopStyleVar(2);
+
+  g.state->content_width = widest + kPad * 2.0f;
+  g.state->content_height = y + 4.0f;
+}
+
+void build(HudSession &session, std::int64_t wall, bool collapsed) {
   const Palette &p = palette(session.theme());
   ImFont *regular = g.face->regular;
   ImFont *semibold = g.face->semibold;
@@ -682,6 +698,7 @@ void build(HudSession &session, std::int64_t wall) {
                    ImGuiWindowFlags_NoFocusOnAppearing |
                    ImGuiWindowFlags_NoBringToFrontOnFocus);
   ImDrawList *draw = ImGui::GetWindowDrawList();
+  g.state->typing_active = false;
 
   // Everything hangs from the window's right edge, so the HUD hugs the
   // screen's corner and grows leftward.
@@ -735,6 +752,16 @@ void build(HudSession &session, std::int64_t wall) {
       tracked_text(draw, bold, css(kWarnPx), ImVec2(x, mid - css(kWarnPx) * 0.5f),
                    rgba(p.warn), warn, p, kWarnTracking);
       x += tracked_width(bold, css(kWarnPx), warn, kWarnTracking) + 8.0f;
+    }
+  }
+  {
+    // The bar, all but its handle, is what the HUD is dragged by: held, the
+    // window follows the mouse. A press that does not move is no drag.
+    bool hovered = false;
+    hit("drag", bar_min, ImVec2(std::max(1.0f, x - bar_min.x), kBarHeight), &hovered);
+    g.state->dragging = ImGui::IsItemActive();
+    if (hovered || g.state->dragging) {
+      ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeAll);
     }
   }
   {
@@ -848,6 +875,11 @@ void build(HudSession &session, std::int64_t wall) {
 
   // ---- the flight plan the console just filed ----
   y = plan_notice(draw, session, p, right, y, &widest);
+  // A minimized HUD at rest is its bar and nothing under it.
+  if (collapsed) {
+    finish(widest, y);
+    return;
+  }
 
   // ---- a line to type a call in, as wide as the strip under it ----
   if (session.shows_typing()) {
@@ -949,11 +981,7 @@ void build(HudSession &session, std::int64_t wall) {
     widest = std::max(widest, row_w);
   }
 
-  ImGui::End();
-  ImGui::PopStyleVar(2);
-
-  g.state->content_width = widest + kPad * 2.0f;
-  g.state->content_height = y + 4.0f;
+  finish(widest, y);
 }
 
 
@@ -962,7 +990,7 @@ void build(HudSession &session, std::int64_t wall) {
 void draw_hud(gui::HudSession &session, HudViewState &state, const Typeface &face,
               const HudFrame &frame) {
   g = Frame{&face, &state};
-  build(session, frame.wall_ms);
+  build(session, frame.wall_ms, frame.collapsed);
   g = Frame{};
 }
 

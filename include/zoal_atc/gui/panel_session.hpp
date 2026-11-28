@@ -162,6 +162,7 @@ public:
   bool hud_typing() const { return hud_typing_; }
   bool hud_transcript() const { return hud_transcript_; }
   bool hud_overheard() const { return hud_overheard_; }
+  HudMode hud_mode() const { return hud_mode_; }
   std::uint64_t settings_revision() const { return settings_revision_; }
   bool connection_loaded() const { return connection_loaded_; }
   const std::string &token() const { return token_; }
@@ -206,6 +207,9 @@ public:
   void set_hud_typing(bool on, std::uint64_t steady_ms);
   void set_hud_transcript(bool on, std::uint64_t steady_ms);
   void set_hud_overheard(bool on, std::uint64_t steady_ms);
+  void set_hud_mode(HudMode mode, std::uint64_t steady_ms);
+  // Puts the HUD back in the screen's top right corner, where it starts.
+  void reset_hud_position(std::uint64_t steady_ms);
   // Settings' import, naming the pilot ID stored here.
   void import_now(std::uint64_t steady_ms);
 
@@ -276,6 +280,7 @@ private:
   bool hud_typing_ = true;
   bool hud_transcript_ = true;
   bool hud_overheard_ = true;
+  HudMode hud_mode_ = HudMode::fixed;
   std::uint64_t settings_revision_ = 0;
   bool connection_loaded_ = false;
   std::string token_;

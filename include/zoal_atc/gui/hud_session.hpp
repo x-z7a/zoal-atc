@@ -2,6 +2,7 @@
 #define ZOAL_ATC_GUI_HUD_SESSION_HPP
 
 #include "zoal_atc/gui/gui_bridge.hpp"
+#include "zoal_atc/gui/hud_layout.hpp"
 #include "zoal_atc/gui/hud_model.hpp"
 
 #include <cstdint>
@@ -192,6 +193,13 @@ public:
   bool reachable() const { return reachable_; }
   const std::string &callsign() const { return callsign_; }
   HudTheme theme() const { return theme_; }
+  // Fixed or minimized, as the pilot chose in the panel.
+  HudMode mode() const { return mode_; }
+  // Where the pilot last left the HUD: the corner it hangs from.
+  const HudPlacement &placement() const { return placement_; }
+  // The pilot let go of the bar here: it is used at once and saved, so the
+  // HUD comes back where they put it.
+  void save_placement(const HudPlacement &placement, std::uint64_t steady_ms);
 
 private:
   enum class Request { action, settings, menu, call, tune };
@@ -230,6 +238,8 @@ private:
   bool reachable_ = false;
   std::string callsign_;
   HudTheme theme_ = HudTheme::graphite;
+  HudMode mode_ = HudMode::fixed;
+  HudPlacement placement_;
   std::unordered_map<std::uint64_t, Pending> pending_;
 
   HudCalls calls_;

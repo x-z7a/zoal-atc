@@ -14,7 +14,8 @@ namespace zoal_atc::xplane {
 // The radio HUD: the callsign, the console light, a menu of the three things a
 // pilot reaches for without opening the panel, and the last few transmissions.
 //
-// One Dear ImGui window in the top right corner, drawn natively by X-Plane
+// One Dear ImGui window, in the top right corner until the pilot drags its bar
+// somewhere else, fixed or minimized to its bar (hud_model.hpp), drawn natively by X-Plane
 // (imgui_window.hpp) -- not a browser window, so clicking it leaves other
 // plugins' UIs alone. It is a view of the GUI bridge (hud_session.hpp) and is
 // exactly as big as what it is showing, so it covers no more of the cockpit

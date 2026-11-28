@@ -24,6 +24,14 @@ struct HudViewState {
   float strip_width = 0.0f;
   // How far the call strip is scrolled, in boxels.
   float strip_scroll = 0.0f;
+  // The pilot is holding the bar, to drag the HUD somewhere else. The window
+  // moves it, by the mouse's global position: the HUD's own coordinates move
+  // with it.
+  bool dragging = false;
+  // The mouse is over the HUD, and the typing line is being typed in: what
+  // keeps a minimized HUD open.
+  bool hovered = false;
+  bool typing_active = false;
   // What the last frame drew, so the window can be made exactly that big.
   float content_width = 0.0f;
   float content_height = 36.0f;
@@ -32,6 +40,9 @@ struct HudViewState {
 struct HudFrame {
   // Unix milliseconds, which transmissions are stamped and faded with.
   std::int64_t wall_ms = 0;
+  // A minimized HUD at rest: only its bar, which is still dragged by and
+  // opens the menu.
+  bool collapsed = false;
 };
 
 // Draws one frame of the HUD into the current ImGui context, which must be as

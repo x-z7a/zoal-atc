@@ -104,6 +104,19 @@ const Row kRows[] = {
      "transmisión ha terminado de oírse en su radio. Desactivado, pulsa usted la colación.",
      "Collationne pour vous une clairance ou une instruction, avec le bouton de collationnement, une "
      "fois la transmission terminée sur votre radio. Désactivé, vous appuyez vous-même."},
+    {"HUD", "HUD", "HUD"},
+    {"Fixed", "Fijo", "Fixe"},
+    {"Minimized", "Minimizado", "Réduit"},
+    {"Move back to the corner", "Volver a la esquina", "Remettre dans le coin"},
+    {"Fixed shows the whole HUD all the time. Minimized shows only its bar, and opens while you "
+     "point at it and for a while after a controller calls you. Either way, drag the bar to put "
+     "the HUD anywhere on the screen.",
+     "Fijo muestra todo el HUD en todo momento. Minimizado muestra solo su barra, y se abre "
+     "mientras lo señala y durante un rato después de que un controlador le llame. En ambos casos, "
+     "arrastre la barra para colocar el HUD en cualquier lugar de la pantalla.",
+     "Fixe affiche tout le HUD en permanence. Réduit n'affiche que sa barre, et s'ouvre quand vous "
+     "le pointez et un moment après qu'un contrôleur vous appelle. Dans les deux cas, faites glisser "
+     "la barre pour placer le HUD n'importe où sur l'écran."},
     {"Typing line on the HUD", "Línea de escritura en el HUD", "Ligne de saisie sur le HUD"},
     {"A line under the HUD's bar to type a call in and send with Enter, without opening this panel. "
      "Off, the HUD shows only its buttons.",

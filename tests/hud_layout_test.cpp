@@ -70,9 +70,39 @@ void narrows_to_its_content() {
   expect_int(rect.right - rect.left, 120, "as wide as the content");
 }
 
+// A drag moves the corner the HUD hangs from: right and down shrink the right
+// margin and grow the top one, because X-Plane's y grows upward.
+void a_drag_moves_the_corner() {
+  const zoal_atc::gui::HudPlacement start;
+  const auto moved = zoal_atc::gui::hud_dragged(start, -300, -200, kScreen, 180);
+  expect_int(moved.margin_right, 16 + 300, "dragged left");
+  expect_int(moved.margin_top, 40 + 200, "dragged down");
+  const auto rect = zoal_atc::gui::hud_rect(kScreen, 36, [&] {
+    auto placement = moved;
+    placement.width = 180;
+    return placement;
+  }());
+  expect_int(rect.right, 1920 - 316, "the window follows");
+  expect_int(rect.top, 1080 - 240, "and its top too");
+}
+
+// However far the mouse goes, the bar stays on the screen to be dragged back.
+void a_drag_stops_at_the_edge() {
+  const zoal_atc::gui::HudPlacement start;
+  const auto far_left = zoal_atc::gui::hud_dragged(start, -5000, 0, kScreen, 180);
+  expect_int(far_left.margin_right, 1920 - 180, "stops at the left edge");
+  const auto far_right = zoal_atc::gui::hud_dragged(start, 5000, 5000, kScreen, 180);
+  expect_int(far_right.margin_right, 0, "stops at the right edge");
+  expect_int(far_right.margin_top, 0, "stops at the top");
+  const auto far_down = zoal_atc::gui::hud_dragged(start, 0, -5000, kScreen, 180);
+  expect_int(far_down.margin_top, 1080 - 36, "the bar stays above the bottom");
+}
+
 } // namespace
 
 int main() {
+  a_drag_moves_the_corner();
+  a_drag_stops_at_the_edge();
   pins_to_the_top_right();
   an_empty_hud_is_only_its_handle();
   never_runs_off_the_screen();
