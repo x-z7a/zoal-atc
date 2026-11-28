@@ -466,7 +466,10 @@ int main(int argc, char **argv) {
                               -> std::optional<gui::LocalAnswer> {
     if (action == "settings") {
       return gui::LocalAnswer{
-          true, R"({"simbriefPilotId":"412933","theme":")" + theme + R"("})", ""};
+          true,
+          R"({"simbriefPilotId":"412933","theme":")" + theme +
+              R"(","sttModel":"medium","sttModelInUse":"small","sttDevice":"gpu","sttGpu":true})",
+          ""};
     }
     if (action == "connection_settings") {
       return gui::LocalAnswer{true,

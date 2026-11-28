@@ -107,6 +107,17 @@ std::unique_ptr<PushToTalkController> g_ptt;
 // loaded. Without it every push-to-talk turn is cancelled.
 zoal_atc::stt::PromptHolder g_stt_prompt;
 std::unique_ptr<zoal_atc::stt::Transcriber> g_transcriber;
+// g_transcriber as whisper, so the panel can move it between GPU and CPU.
+zoal_atc::stt::WhisperTranscriber *g_whisper = nullptr;
+// The pilot's whisper (x-z7a/zoal-atc#66): stt_model and stt_device in
+// zoal_atc.cfg. The size is chosen at startup and used for the whole session;
+// the device can be changed in flight.
+std::string g_stt_size = "small";
+bool g_stt_on_cpu = false;
+// The manifest's whisper model hearing the pilot this session. It is the
+// chosen size's once that is on disk; until then it is the small model the
+// release ships, and the chosen one is fetched for the next start.
+std::string g_stt_model = zoal_atc::models::kSttModel;
 // The controllers' voices. Without them nothing in the cockpit speaks, and
 // every reply is acknowledged as not delivered.
 std::unique_ptr<zoal_atc::tts::SynthesisQueue> g_synthesis;
@@ -118,9 +129,11 @@ std::atomic<zoal_atc::tts::SynthesisQueue *> g_synthesis_for_replies{nullptr};
 // missing or out of date, so X-Plane goes on loading while they download.
 std::unique_ptr<zoal_atc::models::ModelProvisioner> g_models;
 std::map<std::string, int> g_model_progress_logged;
+// The models g_models was given, in its order.
+std::vector<std::string> g_provisioned_models;
 std::string g_models_dir;
-// Both models ship inside the plugin folder, under models/.
-constexpr const char *kSttModelName = "ggml-small.en-q5_1.bin";
+// The voices ship inside the plugin folder, under models/, beside whisper's
+// model, whose file is the manifest's for the size the pilot chose.
 constexpr const char *kTtsModelName = "kokoro-multi-lang-v1_0";
 // The capability that tells the console this cockpit speaks the voice
 // catalogue, so it may name any voice in it. A console never sends a number
@@ -496,6 +509,17 @@ std::optional<std::string> config_value(const std::string &text,
   return found;
 }
 
+// stt_size_of is the size a whisper model in the manifest is.
+std::string stt_size_of(const std::string &model) {
+  if (model == zoal_atc::models::kSttMediumModel) {
+    return "medium";
+  }
+  if (model == zoal_atc::models::kSttLargeModel) {
+    return "large";
+  }
+  return "small";
+}
+
 std::string settings_json() {
   const auto text = read_file(g_config_path).value_or(std::string());
   std::ostringstream out;
@@ -517,6 +541,13 @@ std::string settings_json() {
       << R"(,"hudRight":)" << g_hud_right
       << R"(,"hudTop":)" << g_hud_top
       << R"(,"logbookKeep":)" << g_logbook_keep
+      << R"(,"sttModel":")"
+      << zoal_atc::models::stt_size_or_default(
+             config_value(text, "stt_model").value_or(std::string()))
+      << R"(","sttModelInUse":")" << stt_size_of(g_stt_model)
+      << R"(","sttDevice":")" << (g_stt_on_cpu ? "cpu" : "gpu")
+      << R"(","sttGpu":)"
+      << (zoal_atc::stt::WhisperTranscriber::gpu_available() ? "true" : "false")
       << "}";
   return out.str();
 }
@@ -535,6 +566,9 @@ void load_call_settings(const std::string &text) {
     }
   }
   g_auto_readback = config_value(text, "auto_readback").value_or("") == "true";
+  g_stt_size = zoal_atc::models::stt_size_or_default(
+      config_value(text, "stt_model").value_or(std::string()));
+  g_stt_on_cpu = config_value(text, "stt_device").value_or("") == "cpu";
   g_hud_typing = config_value(text, "hud_typing").value_or("true") != "false";
   g_hud_transcript = config_value(text, "hud_transcript").value_or("true") != "false";
   g_hud_overheard = config_value(text, "hud_overheard").value_or("true") != "false";
@@ -796,6 +830,41 @@ handle_local_gui_action(const std::string &action,
       g_hud_top = hud_top.value_or(g_hud_top);
       zoal_atc::xplane::hud_settings_changed(R"({"hudRight":)" + std::to_string(g_hud_right) +
                                              R"(,"hudTop":)" + std::to_string(g_hud_top) + "}");
+    }
+    // Whisper's size is saved for the next start: the model hearing the pilot
+    // is not changed under a flight, and a larger one may first have to be
+    // downloaded.
+    const auto stt_model = zoal_atc::transport::json_string_field(payload_json, "sttModel");
+    if (stt_model.has_value()) {
+      if (zoal_atc::models::stt_size_or_default(*stt_model) != *stt_model) {
+        return zoal_atc::gui::LocalAnswer{false, "null", "unknown whisper size: " + *stt_model};
+      }
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "stt_model", *stt_model);
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      log_line("whisper " + *stt_model + " chosen from the panel; it hears you from the next start");
+    }
+    // The device is changed at once: the next turn is transcribed on it.
+    const auto stt_device = zoal_atc::transport::json_string_field(payload_json, "sttDevice");
+    if (stt_device.has_value()) {
+      if (*stt_device != "gpu" && *stt_device != "cpu") {
+        return zoal_atc::gui::LocalAnswer{false, "null", "unknown device: " + *stt_device};
+      }
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "stt_device", *stt_device);
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_stt_on_cpu = *stt_device == "cpu";
+      if (g_whisper != nullptr) {
+        g_whisper->set_use_gpu(!g_stt_on_cpu);
+      }
+      log_line(std::string("whisper moved to the ") + (g_stt_on_cpu ? "CPU" : "GPU") +
+               " from the panel");
     }
     if (theme.has_value()) {
       const auto existing = read_file(g_config_path);
@@ -2207,13 +2276,22 @@ void load_stt(const std::string &models, std::vector<std::string> *capabilities)
   if (g_transcriber) {
     return;
   }
-  const std::string model = zoal_atc::gui::join_path(models, kSttModelName);
-  g_transcriber = std::make_unique<zoal_atc::stt::WhisperTranscriber>(model);
+  const auto files = zoal_atc::models::files_of(zoal_atc::models::manifest(), g_stt_model);
+  if (files.empty()) {
+    log_line("the manifest has no whisper model " + g_stt_model);
+    return;
+  }
+  const std::string model = zoal_atc::gui::join_path(models, files.front().path);
+  const bool gpu = !g_stt_on_cpu;
+  auto whisper = std::make_unique<zoal_atc::stt::WhisperTranscriber>(model, gpu);
+  g_whisper = whisper.get();
+  g_transcriber = std::move(whisper);
   if (g_transport_sink) {
     g_transport_sink->set_transcriber(g_transcriber.get(), &g_stt_prompt);
   }
   capabilities->push_back("local_stt");
-  log_line("push-to-talk is transcribed in the cockpit with " + model);
+  log_line("push-to-talk is transcribed in the cockpit with " + model + " on the " +
+           (gpu && zoal_atc::stt::WhisperTranscriber::gpu_available() ? "GPU" : "CPU"));
 }
 
 // load_tts makes the controllers' voices from Kokoro's model under `models`.
@@ -2253,7 +2331,7 @@ void service_models() {
   for (const std::string &message : g_models->take_messages()) {
     log_line("models: " + message);
   }
-  for (const char *model : {zoal_atc::models::kSttModel, zoal_atc::models::kTtsModel}) {
+  for (const std::string &model : g_provisioned_models) {
     const auto status = g_models->status(model);
     if (status.state != zoal_atc::models::ModelStatus::State::Downloading || status.need_bytes == 0) {
       continue;
@@ -2262,16 +2340,20 @@ void service_models() {
     auto &logged = g_model_progress_logged[model];
     if (quarter > logged) {
       logged = quarter;
-      log_line(std::string("models: ") + model + " " + zoal_atc::models::progress_text(status));
+      log_line("models: " + model + " " + zoal_atc::models::progress_text(status));
     }
   }
   const std::string models = g_models_dir;
   for (const std::string &model : g_models->take_ready()) {
     std::vector<std::string> capabilities;
-    if (model == zoal_atc::models::kSttModel) {
+    if (model == g_stt_model) {
       load_stt(models, &capabilities);
     } else if (model == zoal_atc::models::kTtsModel) {
       load_tts(models, &capabilities);
+    } else {
+      // The size the pilot chose, fetched while the small model hears them.
+      log_line("models: whisper " + stt_size_of(model) +
+               " is here and hears you from the next start");
     }
     for (std::string &capability : capabilities) {
       if (g_websocket) {
@@ -2280,13 +2362,13 @@ void service_models() {
     }
   }
   if (finished) {
-    for (const char *model : {zoal_atc::models::kSttModel, zoal_atc::models::kTtsModel}) {
+    for (const std::string &model : g_provisioned_models) {
       const auto status = g_models->status(model);
       if (status.state == zoal_atc::models::ModelStatus::State::Failed) {
-        log_line(std::string("models: ") + model + " is not available (" + status.detail + "); " +
-                 (model == std::string(zoal_atc::models::kSttModel)
-                      ? "the console cannot hear this aircraft"
-                      : "no reply can be spoken") +
+        log_line("models: " + model + " is not available (" + status.detail + "); " +
+                 (model == g_stt_model                       ? "the console cannot hear this aircraft"
+                  : model == zoal_atc::models::kTtsModel ? "no reply can be spoken"
+                                                         : "the small whisper goes on hearing you") +
                  ". It is tried again at the next start.");
       }
     }
@@ -2404,16 +2486,30 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     // Anything else is checked and fetched by the provisioner, off the main
     // thread, and loaded by the flight loop once it is ready.
     namespace models_ns = zoal_atc::models;
+    const auto ready = [&](const std::string &model) {
+      return models_ns::quick_ready(models, models_ns::files_of(models_ns::manifest(), model));
+    };
+    // A larger whisper the pilot chose is used once it is on disk. Until then
+    // the small one the release ships hears them, and the chosen one is
+    // fetched last, behind both models a flight needs, for the next start.
+    const std::string chosen_stt = models_ns::stt_model_for(g_stt_size);
+    g_stt_model = ready(chosen_stt) ? chosen_stt : std::string(models_ns::kSttModel);
     std::vector<std::string> pending_models;
-    for (const char *model : {models_ns::kSttModel, models_ns::kTtsModel}) {
-      if (!models_ns::quick_ready(models, models_ns::files_of(models_ns::manifest(), model))) {
-        pending_models.emplace_back(model);
+    for (const std::string &model : {g_stt_model, std::string(models_ns::kTtsModel), chosen_stt}) {
+      if (!ready(model) &&
+          std::find(pending_models.begin(), pending_models.end(), model) == pending_models.end()) {
+        pending_models.push_back(model);
       }
     }
-    const auto pending = [&](const char *model) {
+    if (chosen_stt != g_stt_model) {
+      log_line("whisper " + g_stt_size + " is not in " + models +
+               " yet: it is downloaded in the background, and the small model hears you until "
+               "the next start");
+    }
+    const auto pending = [&](const std::string &model) {
       return std::find(pending_models.begin(), pending_models.end(), model) != pending_models.end();
     };
-    if (!pending(models_ns::kSttModel)) {
+    if (!pending(g_stt_model)) {
       load_stt(models, &endpoint.capabilities);
     }
 
@@ -2467,6 +2563,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
       load_tts(models, &endpoint.capabilities);
     }
     if (!pending_models.empty()) {
+      g_provisioned_models = pending_models;
       g_models = std::make_unique<models_ns::ModelProvisioner>(
           models, models_ns::manifest(), pending_models, models_ns::make_curl_fetcher());
       g_models->start();
@@ -2549,6 +2646,7 @@ PLUGIN_API void XPluginStop() {
   g_synthesis_for_replies.store(nullptr);
   g_synthesis.reset(); // joins the synthesis thread
   g_transport_sink.reset(); // joins the transcription thread first
+  g_whisper = nullptr;
   g_transcriber.reset();
   g_websocket.reset();
   // The receiver thread is gone, so nothing can be writing a line.

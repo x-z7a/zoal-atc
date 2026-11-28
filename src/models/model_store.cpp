@@ -61,6 +61,24 @@ std::vector<ModelFile> files_of(const std::vector<ModelFile> &all, const std::st
   return out;
 }
 
+std::string stt_size_or_default(const std::string &size) {
+  if (size == "medium" || size == "large") {
+    return size;
+  }
+  return "small";
+}
+
+std::string stt_model_for(const std::string &size) {
+  const std::string known = stt_size_or_default(size);
+  if (known == "medium") {
+    return kSttMediumModel;
+  }
+  if (known == "large") {
+    return kSttLargeModel;
+  }
+  return kSttModel;
+}
+
 std::string model_id(const std::vector<ModelFile> &files) {
   if (files.empty()) {
     return {};

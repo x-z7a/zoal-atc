@@ -100,6 +100,12 @@ server (see [section 9](#9-running-the-server-yourself)).
 The only other setting you might want is the **theme** (Graphite, Daylight or
 Night) under **Settings → Appearance**.
 
+If the sim stutters each time you let go of push-to-talk (on a Mac), set
+**Settings → Speech recognition → Runs on** to **CPU**. If ATC often mishears
+you and your computer has memory to spare, try a larger **Model** there; it is
+downloaded once and used from the next start. See
+[Speech recognition](INSTALL.md#speech-recognition).
+
 ## 4. Starting a flight
 
 The callsign ATC uses is **taken from your SimBrief flight plan**. If you file

@@ -465,6 +465,18 @@ void PanelSession::set_hud_mode(HudMode mode, std::uint64_t steady_ms) {
        Pending{Request::save_settings, &local_}, steady_ms);
 }
 
+void PanelSession::set_stt_model(const std::string &size, std::uint64_t steady_ms) {
+  stt_model_ = size;
+  send("save_settings", R"({"sttModel":")" + size + R"("})",
+       Pending{Request::save_settings, &local_}, steady_ms);
+}
+
+void PanelSession::set_stt_device(const std::string &device, std::uint64_t steady_ms) {
+  stt_device_ = device;
+  send("save_settings", R"({"sttDevice":")" + device + R"("})",
+       Pending{Request::save_settings, &local_}, steady_ms);
+}
+
 void PanelSession::reset_hud_position(std::uint64_t steady_ms) {
   send("save_settings",
        R"({"hudRight":)" + std::to_string(kDefaultMarginRight) + R"(,"hudTop":)" +
@@ -697,6 +709,21 @@ void PanelSession::apply_settings(const std::string &payload_json) {
   }
   if (const auto mode = top_string(payload_json, "hudMode")) {
     hud_mode_ = hud_mode_from_name(*mode);
+  }
+  const auto size = [](const std::string &value) {
+    return value == "medium" || value == "large" ? value : std::string("small");
+  };
+  if (const auto model = top_string(payload_json, "sttModel")) {
+    stt_model_ = size(*model);
+  }
+  if (const auto model = top_string(payload_json, "sttModelInUse")) {
+    stt_model_in_use_ = size(*model);
+  }
+  if (const auto device = top_string(payload_json, "sttDevice")) {
+    stt_device_ = *device == "cpu" ? "cpu" : "gpu";
+  }
+  if (const auto gpu = json_raw_field(payload_json, "sttGpu")) {
+    stt_gpu_ = *gpu == "true";
   }
   if (const auto theme = top_string(payload_json, "theme")) {
     theme_ = hud_theme_from_name(*theme);

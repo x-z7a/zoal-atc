@@ -68,6 +68,8 @@ struct Rig {
   std::string pilot_id = "123456";
   std::uint64_t my_voice = 0;
   bool auto_readback = false;
+  std::string stt_model = "small";
+  std::string stt_device = "gpu";
   std::string token;
   bool refuse_theme = false;
   GuiBridge bridge;
@@ -80,7 +82,9 @@ struct Rig {
           auto settings = [this] {
             return R"({"simbriefPilotId":")" + pilot_id + R"(","theme":")" +
                    theme + R"(","myVoice":)" + std::to_string(my_voice) +
-                   R"(,"autoReadback":)" + (auto_readback ? "true" : "false") + "}";
+                   R"(,"autoReadback":)" + (auto_readback ? "true" : "false") +
+                   R"(,"sttModel":")" + stt_model + R"(","sttModelInUse":"small","sttDevice":")" +
+                   stt_device + R"(","sttGpu":true})";
           };
           if (action == "settings") {
             local.push_back({action, payload});
@@ -102,6 +106,12 @@ struct Rig {
             }
             if (const auto on = zoal_atc::transport::json_bool_field(payload, "autoReadback")) {
               auto_readback = *on;
+            }
+            if (const auto model = json_string_field(payload, "sttModel")) {
+              stt_model = *model;
+            }
+            if (const auto device = json_string_field(payload, "sttDevice")) {
+              stt_device = *device;
             }
             return LocalAnswer{true, settings(), ""};
           }
@@ -411,6 +421,27 @@ void saves_the_call_settings_locally() {
   expect_true(rig.panel.auto_readback(), "and shown on");
 }
 
+// x-z7a/zoal-atc#66: whisper's size and device are the plugin's to store. The
+// size chosen is shown beside the one hearing the pilot, which stays until the
+// next start.
+void saves_the_speech_settings_locally() {
+  Rig rig;
+  rig.bring_up();
+  rig.panel.pump(0, kWall);
+  expect_str(rig.panel.stt_model(), "small", "small by default");
+  expect_str(rig.panel.stt_device(), "gpu", "on the GPU by default");
+  expect_true(rig.panel.stt_gpu(), "the plugin says it has one");
+  rig.panel.set_stt_model("large", 0);
+  expect_str(rig.panel.stt_model(), "large", "shown at once");
+  rig.panel.set_stt_device("cpu", 0);
+  rig.panel.pump(0, kWall);
+  expect_str(rig.stt_model, "large", "the size is stored");
+  expect_str(rig.stt_device, "cpu", "the device is stored");
+  expect_str(rig.panel.stt_model(), "large", "and shown");
+  expect_str(rig.panel.stt_model_in_use(), "small", "while small still hears the pilot");
+  expect_str(rig.panel.stt_device(), "cpu", "and the CPU shown");
+}
+
 void saves_settings_locally() {
   Rig rig;
   rig.bring_up();
@@ -490,6 +521,7 @@ int main() {
   imports_the_plan();
   saves_settings_locally();
   saves_the_call_settings_locally();
+  saves_the_speech_settings_locally();
   splits_a_json_array();
 
   if (g_failures != 0) {

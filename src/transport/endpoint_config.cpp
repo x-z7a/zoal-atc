@@ -398,7 +398,23 @@ std::string default_config_template() {
       "# installed. Choosing a folder on the panel's Traffic tab writes this\n"
       "# line. A path may not contain '#'.\n"
       "#\n"
-      "# csl_path = /path/to/CSL\n";
+      "# csl_path = /path/to/CSL\n"
+      "\n"
+      "# Which whisper model hears you on push-to-talk: small (the one the\n"
+      "# plugin ships), medium or large. A larger one hears clipped and\n"
+      "# accented calls better and takes about three times as long and as\n"
+      "# much memory. It is downloaded into the plugin's models folder the\n"
+      "# first time it is chosen, and used from the start after that. The\n"
+      "# panel's Settings tab writes this line.\n"
+      "#\n"
+      "# stt_model = small\n"
+      "\n"
+      "# Where whisper runs: gpu (the default) or cpu. On a Mac the GPU is\n"
+      "# quickest but shares the graphics card with X-Plane; if the picture\n"
+      "# stutters as you let go of push-to-talk, try cpu. Other systems always\n"
+      "# use the CPU. The panel's Settings tab writes this line.\n"
+      "#\n"
+      "# stt_device = gpu\n";
 }
 
 std::string host_header(const WebSocketEndpoint &endpoint) {

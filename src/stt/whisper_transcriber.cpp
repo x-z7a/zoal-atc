@@ -67,8 +67,31 @@ std::string base_name(const std::string &path) {
 
 } // namespace
 
-WhisperTranscriber::WhisperTranscriber(std::string model_path)
-    : model_path_(std::move(model_path)), model_name_(base_name(model_path_)) {}
+WhisperTranscriber::WhisperTranscriber(std::string model_path, bool use_gpu)
+    : model_path_(std::move(model_path)), model_name_(base_name(model_path_)),
+      use_gpu_(use_gpu) {}
+
+bool WhisperTranscriber::gpu_available() {
+#if defined(__APPLE__)
+  return true;
+#else
+  return false;
+#endif
+}
+
+void WhisperTranscriber::set_use_gpu(bool use_gpu) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (use_gpu_ == use_gpu) {
+    return;
+  }
+  use_gpu_ = use_gpu;
+  if (context_ != nullptr) {
+    whisper_free(context_);
+    context_ = nullptr;
+  }
+  // A model that would not load on one device may on the other.
+  load_failed_ = false;
+}
 
 WhisperTranscriber::~WhisperTranscriber() {
   std::lock_guard<std::mutex> lock(mutex_);
@@ -87,7 +110,7 @@ bool WhisperTranscriber::load_locked(std::string &error) {
     return false;
   }
   whisper_context_params params = whisper_context_default_params();
-  params.use_gpu = true;
+  params.use_gpu = use_gpu_;
   context_ = whisper_init_from_file_with_params(model_path_.c_str(), params);
   if (context_ == nullptr) {
     load_failed_ = true;
