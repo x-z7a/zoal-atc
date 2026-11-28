@@ -195,7 +195,11 @@ const Row kRows[] = {
      "un fichier par indicatif et par jour, en anglais et dans la langue des réponses. Seuls les "
      "fichiers les plus récents sont conservés ; au-delà de 100, tous le sont."},
     // The HUD.
-    {"Plan reloaded", "Plan recargado", "Plan rechargé"},
+    {"Plan loaded", "Plan cargado", "Plan chargé"},
+    {"Flight plan received", "Plan de vuelo recibido", "Plan de vol reçu"},
+    {"New flight: plan received", "Nuevo vuelo: plan recibido", "Nouveau vol : plan reçu"},
+    {"No flight plan loaded", "No se cargó ningún plan de vuelo", "Aucun plan de vol chargé"},
+    {"via ", "vía ", "via "},
     {"Reload plan", "Recargar plan", "Recharger le plan"},
     {"Started", "Iniciado", "Commencé"},
     {"Open panel", "Abrir panel", "Ouvrir le panneau"},

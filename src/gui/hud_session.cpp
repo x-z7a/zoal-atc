@@ -4,6 +4,7 @@
 #include "zoal_atc/transport/json_util.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <optional>
 #include <utility>
 
@@ -161,6 +162,67 @@ std::optional<HudEntry> parse_hud_entry(const std::string &payload_json) {
   return entry;
 }
 
+namespace {
+
+// A cruising level as a pilot reads it off a plan: a flight level from 18,000
+// feet, feet below.
+std::string level_of(double feet) {
+  if (feet <= 0.0) {
+    return "";
+  }
+  const auto rounded = static_cast<long long>(feet / 100.0 + 0.5);
+  if (rounded >= 180) {
+    return "FL" + std::to_string(rounded);
+  }
+  return std::to_string(rounded * 100) + " ft";
+}
+
+} // namespace
+
+std::optional<HudPlanNotice> parse_plan_notice(const std::string &event,
+                                               const std::string &payload_json) {
+  HudPlanNotice notice;
+  if (event == "flight_plan_failed") {
+    notice.kind = HudPlanNotice::Kind::failed;
+    notice.error = top_string(payload_json, "error").value_or("");
+    const std::string at = top_string(payload_json, "at").value_or("");
+    notice.at_ms = parse_iso8601_ms(at).value_or(0);
+    notice.key = "failed:" + at + ":" + notice.error;
+    return notice;
+  }
+  if (event != "flight_plan" || !top_bool(payload_json, "hasPlan")) {
+    return std::nullopt;
+  }
+  notice.destination = top_string(payload_json, "destination").value_or("");
+  if (notice.destination.empty()) {
+    return std::nullopt;
+  }
+  notice.kind = top_bool(payload_json, "newFlight") ? HudPlanNotice::Kind::new_flight
+                                                    : HudPlanNotice::Kind::filed;
+  notice.origin = top_string(payload_json, "origin").value_or("");
+  notice.route = top_string(payload_json, "route").value_or("");
+  std::string detail;
+  for (const std::string &part :
+       {top_string(payload_json, "callsign").value_or(""),
+        level_of(json_raw_field(payload_json, "cruiseAltFt").has_value()
+                     ? std::strtod(json_raw_field(payload_json, "cruiseAltFt")->c_str(), nullptr)
+                     : 0.0),
+        top_string(payload_json, "aircraftIcao").value_or("")}) {
+    if (part.empty()) {
+      continue;
+    }
+    if (!detail.empty()) {
+      detail += "  \xC2\xB7  ";
+    }
+    detail += part;
+  }
+  notice.detail = detail;
+  const std::string at = top_string(payload_json, "importedAt").value_or("");
+  notice.at_ms = parse_iso8601_ms(at).value_or(0);
+  notice.key = "filed:" + at + ":" + notice.origin + ":" + notice.destination;
+  return notice;
+}
+
 HudSession::HudSession(GuiBridge &bridge) : bridge_(bridge) {}
 
 void HudSession::attach(std::uint64_t steady_ms) {
@@ -201,6 +263,10 @@ void HudSession::pump(std::uint64_t steady_ms, std::int64_t wall_ms) {
          bridge_.take_js_messages(kMaxMessagesPerPump, GuiView::hud)) {
       handle(message.payload, steady_ms, wall_ms);
     }
+  }
+  if (plan_notice_.has_value() &&
+      wall_ms - plan_notice_->shown_at_ms >= kHudPlanNoticeMs) {
+    plan_notice_.reset();
   }
   if (attached_ && reachable_ && auto_readback_) {
     // A readback held back for a busy channel goes once it is clear.
@@ -538,6 +604,18 @@ void HudSession::handle_event(const std::string &envelope,
     }
   } else if (*event == "flight_snapshot") {
     callsign_ = top_string(*payload, "callsign").value_or("");
+  } else if (*event == "flight_plan" || *event == "flight_plan_failed") {
+    auto notice = parse_plan_notice(*event, *payload);
+    if (!notice.has_value() || notice->key == plan_notice_key_) {
+      return;
+    }
+    plan_notice_key_ = notice->key;
+    if (notice->at_ms != 0 && wall_ms - notice->at_ms > kHudPlanNoticeFreshMs) {
+      // The bridge's cache, replayed on attach: an old plan, not news.
+      return;
+    }
+    notice->shown_at_ms = wall_ms;
+    plan_notice_ = std::move(notice);
   } else if (*event == "pilot_menu") {
     if (auto menu = parse_call_menu(*payload)) {
       calls_.put(std::move(*menu));

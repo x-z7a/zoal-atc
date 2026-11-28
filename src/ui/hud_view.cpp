@@ -160,7 +160,7 @@ std::vector<ActionButton> action_buttons(const HudSession &session) {
   std::vector<ActionButton> buttons;
   const bool reloaded = menu.done() == HudAction::reload_plan;
   buttons.push_back({"reload", reloaded ? Icon::check : Icon::reload,
-                     reloaded ? tr("Plan reloaded") : tr("Reload plan"),
+                     reloaded ? tr("Plan loaded") : tr("Reload plan"),
                      menu.reload_enabled(), false, reloaded});
   const bool started = menu.done() == HudAction::end_flight;
   buttons.push_back({"new_flight",
@@ -567,6 +567,101 @@ float typing_line(ImDrawList *draw, const Palette &p, float right, float y, floa
   return y + kTypeHeight;
 }
 
+// --- the flight plan notice ---------------------------------------------------
+//
+// What the console just filed, for kHudPlanNoticeMs: where the plan says the
+// pilot is going. The plugin reloads the plan on its own when the aircraft
+// loads, so this is often the only sign one arrived. Clicked, it goes.
+
+constexpr float kNoticePad = 10.0f;
+constexpr float kNoticeRoutePx = 15.0f;
+constexpr float kNoticeLine = 17.0f;
+
+float plan_notice(ImDrawList *draw, HudSession &session, const Palette &p,
+                  float right, float y, float *widest) {
+  const gui::HudPlanNotice *notice = session.plan_notice();
+  if (notice == nullptr) {
+    return y;
+  }
+  using Kind = gui::HudPlanNotice::Kind;
+  const bool failed = notice->kind == Kind::failed;
+  const unsigned ink = failed ? p.danger : p.active;
+  const std::string heading = failed ? tr("No flight plan loaded")
+                              : notice->kind == Kind::new_flight
+                                  ? tr("New flight: plan received")
+                                  : tr("Flight plan received");
+  const float room = kErrorMaxWidth - kNoticePad * 2.0f;
+  ImFont *semibold = g.face->semibold;
+  ImFont *bold = g.face->bold;
+  ImFont *regular = g.face->regular;
+
+  std::vector<std::string> lines;
+  if (failed) {
+    lines.push_back(fit(regular, css(kActionPx), notice->error, room));
+  } else {
+    if (!notice->detail.empty()) {
+      lines.push_back(fit(regular, css(kActionPx), notice->detail, room));
+    }
+    if (!notice->route.empty()) {
+      lines.push_back(fit(regular, css(kActionPx), tr("via ") + notice->route, room));
+    }
+  }
+  const std::string origin = notice->origin.empty() ? "?" : notice->origin;
+  const float arrow = 18.0f;
+  float width = kIcon + 6.0f + measure(semibold, css(kActionPx), heading).x;
+  if (!failed) {
+    width = std::max(width, measure(bold, css(kNoticeRoutePx), origin).x + arrow +
+                                measure(bold, css(kNoticeRoutePx), notice->destination).x);
+  }
+  for (const std::string &line : lines) {
+    width = std::max(width, measure(regular, css(kActionPx), line).x);
+  }
+  width = std::min(width, room) + kNoticePad * 2.0f;
+  const float height = kNoticePad * 2.0f + kNoticeLine * (failed ? 1.0f : 2.0f) +
+                       kNoticeLine * static_cast<float>(lines.size());
+
+  y += kGap;
+  const ImVec2 min(right - width, y);
+  const ImVec2 max(right, y + height);
+  bool hovered = false;
+  if (hit("plan_notice", min, ImVec2(width, height), &hovered)) {
+    session.dismiss_plan_notice();
+  }
+  draw->AddRectFilled(min, max, glass(p), kBarRadius);
+  draw->AddRect(min, max, hovered ? rgba(ink, 0.9f) : rgba(ink, 0.5f), kBarRadius, 1.0f);
+  draw->AddRectFilled(min, ImVec2(min.x + 3.0f, max.y), rgba(ink), kBarRadius,
+                      ImDrawFlags_RoundCornersLeft);
+
+  float ty = min.y + kNoticePad;
+  float tx = min.x + kNoticePad;
+  icon(draw, failed ? Icon::warn : Icon::check,
+       ImVec2(tx, ty + (kNoticeLine - kIcon) * 0.5f), kIcon, rgba(ink));
+  text(draw, semibold, css(kActionPx),
+       ImVec2(tx + kIcon + 6.0f, ty + (kNoticeLine - css(kActionPx)) * 0.5f), rgba(ink),
+       heading, p);
+  ty += kNoticeLine;
+  if (!failed) {
+    const float ry = ty + (kNoticeLine - css(kNoticeRoutePx)) * 0.5f + 2.0f;
+    text(draw, bold, css(kNoticeRoutePx), ImVec2(tx, ry), rgba(p.text), origin, p);
+    const float ax = tx + measure(bold, css(kNoticeRoutePx), origin).x + 4.0f;
+    const float am = ty + kNoticeLine * 0.5f + 2.0f;
+    draw->AddLine(ImVec2(ax, am), ImVec2(ax + arrow - 8.0f, am), rgba(p.text_dim), 1.5f);
+    draw->AddTriangleFilled(ImVec2(ax + arrow - 8.0f, am - 3.5f),
+                            ImVec2(ax + arrow - 8.0f, am + 3.5f),
+                            ImVec2(ax + arrow - 3.0f, am), rgba(p.text_dim));
+    text(draw, bold, css(kNoticeRoutePx), ImVec2(ax + arrow, ry), rgba(p.text),
+         notice->destination, p);
+    ty += kNoticeLine;
+  }
+  for (const std::string &line : lines) {
+    text(draw, regular, css(kActionPx),
+         ImVec2(tx, ty + (kNoticeLine - css(kActionPx)) * 0.5f), rgba(p.text_dim), line, p);
+    ty += kNoticeLine;
+  }
+  *widest = std::max(*widest, width);
+  return max.y;
+}
+
 // --- one frame ---------------------------------------------------------------
 
 void build(HudSession &session, std::int64_t wall) {
@@ -750,6 +845,9 @@ void build(HudSession &session, std::int64_t wall) {
   }
   widest = std::max(widest, row_width);
   float y = top + kBarHeight;
+
+  // ---- the flight plan the console just filed ----
+  y = plan_notice(draw, session, p, right, y, &widest);
 
   // ---- a line to type a call in, as wide as the strip under it ----
   if (session.shows_typing()) {

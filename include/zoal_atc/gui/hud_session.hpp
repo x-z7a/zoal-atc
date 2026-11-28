@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <set>
 #include <string>
 #include <unordered_map>
@@ -18,6 +19,36 @@ enum class HudTheme { graphite, daylight, night };
 
 // "daylight" / "night" / anything else (graphite, the default).
 HudTheme hud_theme_from_name(const std::string &name);
+
+// A plan the console filed, or a fetch that found none: the console's
+// flight_plan and flight_plan_failed events.
+struct HudPlanNotice {
+  enum class Kind { filed, new_flight, failed };
+  Kind kind = Kind::filed;
+  std::string origin;
+  std::string destination;
+  // "ACA401  ·  FL350  ·  A20N": whichever of them the plan carries.
+  std::string detail;
+  std::string route;
+  std::string error;
+  // When the console filed it or gave up, Unix ms; 0 when it did not say.
+  std::int64_t at_ms = 0;
+  // What makes it this notice and not the last one.
+  std::string key;
+  // When the HUD started showing it, Unix ms.
+  std::int64_t shown_at_ms = 0;
+};
+
+// The event's payload as a notice; nullopt for any other event, or a filed
+// plan with nowhere to go.
+std::optional<HudPlanNotice> parse_plan_notice(const std::string &event,
+                                               const std::string &payload_json);
+
+// How long a plan notice stays up.
+inline constexpr std::int64_t kHudPlanNoticeMs = 8'000;
+// An event older than this when it arrives is the bridge's cache replaying it,
+// not news.
+inline constexpr std::int64_t kHudPlanNoticeFreshMs = 60'000;
 
 // HudSession is the HUD's end of the GUI bridge: the same conversation the
 // React HUD had with the plugin, held in C++.
@@ -146,6 +177,15 @@ public:
   void set_may_key_up(std::function<bool()> may) { may_key_up_ = std::move(may); }
   bool may_key_up() const { return !may_key_up_ || may_key_up_(); }
 
+  // The flight plan the console last filed, or failed to, while it is still
+  // news: shown for kHudPlanNoticeMs, then null (x-z7a/atc: the plugin reloads
+  // the plan on its own when the aircraft loads, and nothing else says where
+  // the console now thinks the pilot is going).
+  const HudPlanNotice *plan_notice() const {
+    return plan_notice_.has_value() ? &*plan_notice_ : nullptr;
+  }
+  void dismiss_plan_notice() { plan_notice_.reset(); }
+
   const HudFeed &feed() const { return feed_; }
   const HudMenu &menu() const { return menu_; }
   // The console is there: the socket is up and the subscription answered.
@@ -226,6 +266,10 @@ private:
   std::function<bool(std::uint64_t)> controller_speech_pending_;
   std::function<bool()> may_key_up_;
   bool transmitting_ = false;
+  std::optional<HudPlanNotice> plan_notice_;
+  // The last notice shown, so the bridge replaying its cached event when the
+  // HUD reattaches does not show it again.
+  std::string plan_notice_key_;
 };
 
 // The console's comm_log payload (a CommLogEntry) as a HUD line; nullopt when
