@@ -249,7 +249,7 @@ void reloads_the_flight_plan_through_the_console() {
   rig.bridge.on_socket_frame(gui_ok(sent.front().id, R"({"hasPlan":true})"), 6);
   rig.hud.pump(6, kWall + 300);
   expect_true(!rig.hud.menu().busy(), "settled");
-  expect_true(rig.hud.menu().done() == HudAction::reload_plan, "Plan reloaded");
+  expect_true(rig.hud.menu().done() == HudAction::reload_plan, "Plan loaded");
 }
 
 void shows_the_consoles_refusal() {
@@ -820,7 +820,96 @@ void the_typing_line_is_a_setting() {
 
 } // namespace
 
+// The console announces every plan it files, including the ones the plugin
+// fetched on its own when the aircraft loaded, and the HUD says where it goes.
+void says_where_the_filed_plan_goes() {
+  Rig rig;
+  rig.bring_up();
+  rig.bridge.on_socket_frame(
+      gui_event("flight_plan",
+                std::string(R"({"hasPlan":true,"callsign":"ACA401","origin":"CYUL",)") +
+                    R"("destination":"KJFK","cruiseAltFt":35000,"aircraftIcao":"A20N",)" +
+                    R"("route":"HABBS7 YUL J555","importedAt":")" + kWallIso +
+                    R"(","newFlight":false})"),
+      1);
+  rig.hud.pump(1, kWall + 500);
+  const HudPlanNotice *notice = rig.hud.plan_notice();
+  expect_true(notice != nullptr, "a notice is up");
+  if (notice == nullptr) {
+    return;
+  }
+  expect_true(notice->kind == HudPlanNotice::Kind::filed, "filed");
+  expect_str(notice->origin, "CYUL", "from");
+  expect_str(notice->destination, "KJFK", "to");
+  expect_str(notice->detail, "ACA401  \xC2\xB7  FL350  \xC2\xB7  A20N", "callsign, level, type");
+  expect_str(notice->route, "HABBS7 YUL J555", "route");
+
+  rig.hud.pump(2, kWall + 500 + kHudPlanNoticeMs);
+  expect_true(rig.hud.plan_notice() == nullptr, "and it goes");
+}
+
+void says_a_new_flight_started_and_feet_below_flight_levels() {
+  Rig rig;
+  rig.bring_up();
+  rig.bridge.on_socket_frame(
+      gui_event("flight_plan",
+                std::string(R"({"hasPlan":true,"origin":"CYOW","destination":"CYYZ",)") +
+                    R"("cruiseAltFt":9000,"importedAt":")" + kWallIso + R"(","newFlight":true})"),
+      1);
+  rig.hud.pump(1, kWall);
+  const HudPlanNotice *notice = rig.hud.plan_notice();
+  expect_true(notice != nullptr && notice->kind == HudPlanNotice::Kind::new_flight,
+              "a new flight");
+  if (notice != nullptr) {
+    expect_str(notice->detail, "9000 ft", "feet below FL180");
+  }
+}
+
+void says_why_no_plan_arrived() {
+  Rig rig;
+  rig.bring_up();
+  rig.bridge.on_socket_frame(
+      gui_event("flight_plan_failed",
+                std::string(R"({"error":"no flight plan: SimBrief has none","at":")") +
+                    kWallIso + R"("})"),
+      1);
+  rig.hud.pump(1, kWall);
+  const HudPlanNotice *notice = rig.hud.plan_notice();
+  expect_true(notice != nullptr && notice->kind == HudPlanNotice::Kind::failed, "failed");
+  if (notice != nullptr) {
+    expect_str(notice->error, "no flight plan: SimBrief has none", "the console's reason");
+  }
+  rig.hud.dismiss_plan_notice();
+  expect_true(rig.hud.plan_notice() == nullptr, "dismissed");
+}
+
+// The bridge replays its cached events when the HUD reattaches: the same plan
+// again, or one from long ago, is not news.
+void an_old_plan_replayed_is_not_news() {
+  Rig rig;
+  rig.bring_up();
+  const std::string plan = gui_event(
+      "flight_plan", std::string(R"({"hasPlan":true,"origin":"CYUL","destination":"KJFK",)") +
+                         R"("importedAt":")" + kWallIso + R"("})");
+  rig.bridge.on_socket_frame(plan, 1);
+  rig.hud.pump(1, kWall);
+  rig.hud.dismiss_plan_notice();
+  rig.bridge.on_socket_frame(plan, 2);
+  rig.hud.pump(2, kWall + 1'000);
+  expect_true(rig.hud.plan_notice() == nullptr, "the same plan twice is shown once");
+
+  Rig later;
+  later.bring_up();
+  later.bridge.on_socket_frame(plan, 1);
+  later.hud.pump(1, kWall + kHudPlanNoticeFreshMs + 1'000);
+  expect_true(later.hud.plan_notice() == nullptr, "a plan filed long ago");
+}
+
 int main() {
+  says_where_the_filed_plan_goes();
+  says_a_new_flight_started_and_feet_below_flight_levels();
+  says_why_no_plan_arrived();
+  an_old_plan_replayed_is_not_news();
   says_the_console_is_reachable_once_subscribed();
   shows_what_atc_just_said();
   picks_up_the_cached_line_on_attach();
