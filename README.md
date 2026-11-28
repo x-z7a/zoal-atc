@@ -75,7 +75,8 @@ SimBrief, authentication and troubleshooting.
 | **Push-to-talk** | Captures the microphone with miniaudio while the PTT command is held, and records which COM radio and frequency was keyed. |
 | **Speech-to-text** | Transcribes each transmission in the cockpit with whisper.cpp (Metal on macOS, CPU elsewhere), prompted by context the console sends (callsign, stations, runways, route). Audio never leaves the aircraft — only the words do. |
 | **Controller voices** | Speaks every reply with Kokoro v1.0 through sherpa-onnx, in a stable voice per position chosen from a catalogue of accents, band-limited to sound like VHF, on the audio bus of the COM radio tuned to that channel. |
-| **Telemetry** | Samples own-ship state, TCAS traffic and aircraft identity at a rate the console commands, with a local fallback. |
+| **Telemetry** | Samples own-ship state and aircraft identity at a rate the console commands, with a local fallback. It reports only this aircraft, never the TCAS traffic around it. |
+| **Traffic** | Draws other pilots and the console's AI flights with CSL models through XPMP2, and puts them on TCAS. It replaces X-Plane's AI and does not mix with other traffic plugins; see [INSTALL.md](INSTALL.md#other-traffic-plugins). |
 | **Weather** | Sends the newest METAR from X-Plane's real-weather download on airport change, on reconnect and every ten minutes. |
 | **Panel** | A resizable Dear ImGui window: own-ship readouts, the radio log, a composer to type a transmission or tune COM1, and Settings (theme, console token, SimBrief pilot ID, flight-plan import). |
 | **HUD** | A compact bar at the top right — callsign, console status, a menu to reload the plan, start a new flight or open the panel — and the last three transmissions. |

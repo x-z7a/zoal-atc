@@ -81,6 +81,32 @@ The panel can be dragged from anywhere that is not a control and resized from
 its edges. It takes the keyboard only while you are typing in a field, and gives
 it back on Enter, Escape or a click elsewhere. Cmd/Ctrl+V pastes.
 
+## Other traffic plugins
+
+The console brings its own traffic: other pilots on it, and AI airline flights
+that call the same controllers you do. So zoal-atc **does not work alongside
+another traffic source**: X-Plane's own AI aircraft, LiveTraffic, or the
+aircraft an online network client such as xPilot, swift or X-IvAp puts around
+you. Turn them off while you fly with zoal-atc.
+
+- **ATC cannot see their aircraft.** The plugin reports only your own aircraft,
+  so a controller cannot call, sequence or separate you from anything another
+  plugin draws. It can clear you onto a runway one of them is landing on, and
+  they ignore ATC.
+- **Only one plugin can hold TCAS.** X-Plane gives its AI aircraft slots to one
+  plugin at a time. zoal-atc asks for them when its traffic starts, and while
+  it holds them X-Plane's own AI is not drawn. If another plugin took them
+  first, the console's traffic is still drawn but is not on your TCAS, and the
+  panel's **Traffic** tab says *"Not on TCAS. It is held by …"* with that
+  plugin's name. Disable that plugin and zoal-atc takes the slots as soon as it
+  lets go, with no restart.
+- **Two skies at once.** With both running you see two unrelated fleets. The
+  console's AI flights replay a past day's schedule at today's time, so the
+  same airline flight can appear twice.
+- **Sharing models is fine.** With no CSL models of its own, zoal-atc uses the
+  ones LiveTraffic, xPilot or IVAO installed. It only reads those folders, and
+  the other plugin does not have to be running.
+
 ## The console endpoint
 
 By default the plugin connects to the hosted console at
@@ -170,6 +196,8 @@ Look for lines starting with `[zoal-atc]` in `<X-Plane>/Log.txt`.
 | Nothing happens on push-to-talk | That `zoal_atc/ptt` is bound, and that X-Plane has microphone permission (macOS: System Settings → Privacy & Security → Microphone). |
 | ATC doesn't know your route or won't clear you | That your SimBrief pilot ID is set, that your newest OFP is the flight you're flying and is IFR, then *Import now* / *Reload plan*. |
 | You hear no replies | The COM radio tuned to the controller's frequency, its audio selector and volume. |
+| Console traffic missing from TCAS | The panel's **Traffic** tab names the plugin holding TCAS; disable it. See [Other traffic plugins](#other-traffic-plugins). |
+| Aircraft ATC never mentions, or the same flight twice | Another traffic plugin or X-Plane's AI is running; see [Other traffic plugins](#other-traffic-plugins). |
 | Panel or HUD text looks wrong | That `fonts/` is present in the plugin folder; without it the plugin falls back to X-Plane's Roboto. |
 | Plugin fails to load | X-Plane version (12.4.4+), and that the whole folder — on Windows/Linux the libraries beside the `.xpl` — was copied. |
 | ATC can't hear you, or never speaks | The `[zoal-atc] models:` lines in `Log.txt`: a model still downloading says how far it has got, and one that failed says why (no network, no `curl`, a plugin folder that is not writable). It is tried again at the next start. |
