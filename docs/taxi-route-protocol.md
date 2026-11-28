@@ -75,12 +75,16 @@ search never crosses from one into the other.
 - Each light is an instanced object (`objects/taxi_lead_on_green.obj`,
   `objects/taxi_stop_bar.obj`) placed on the terrain with a probe, and placed
   again every five seconds because the sim's local origin moves.
-- The light is X-Plane's own: each green is a `taxi_g` named light, the
-  centreline light airport scenery uses, aimed back down the route at the
-  aircraft following it, and the stop bar is a row of six `taxi_r` 3 m
-  apart. The fixtures under them are flush and unlit. A textured mesh is
-  not a light: by day it read as green chips beside the line, and only the
-  sprite glows the way a taxiway light does.
+- At night the light is X-Plane's own: each green is a `taxi_g` named
+  light, the centreline light airport scenery uses, aimed back down the
+  route at the aircraft following it, and the stop bar is a row of six
+  `taxi_r` 3 m apart. Those are airport lights, which X-Plane switches off
+  by day, so by day the route showed nothing at all (x-z7a/atc#1185). By day
+  the lenses under them glow instead: a lit texture at 8,000 nits
+  (`GLOBAL_luminance`), scaled per instance by the object dataref
+  `zoal_atc/taxi_lights/daylight`, which the plugin sets to one less
+  `sim/graphics/scenery/airport_light_level` whenever it places a light. The
+  lens fades as the airport lights come up and the sprite takes over.
 
 ## The pilot's setting
 
