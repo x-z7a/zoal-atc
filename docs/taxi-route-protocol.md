@@ -75,6 +75,12 @@ search never crosses from one into the other.
 - Each light is an instanced object (`objects/taxi_lead_on_green.obj`,
   `objects/taxi_stop_bar.obj`) placed on the terrain with a probe, and placed
   again every five seconds because the sim's local origin moves.
+- The light is X-Plane's own: each green is a `taxi_g` named light, the
+  centreline light airport scenery uses, aimed back down the route at the
+  aircraft following it, and the stop bar is a row of six `taxi_r` 3 m
+  apart. The fixtures under them are flush and unlit. A textured mesh is
+  not a light: by day it read as green chips beside the line, and only the
+  sprite glows the way a taxiway light does.
 
 ## The pilot's setting
 
