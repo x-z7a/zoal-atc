@@ -45,6 +45,7 @@ XPLMObjectRef g_red = nullptr;
 XPLMProbeRef g_probe = nullptr;
 XPLMDataRef g_lat = nullptr;
 XPLMDataRef g_lon = nullptr;
+XPLMDataRef g_airport_lights = nullptr;
 
 taxi::RouteBook g_book;
 taxi::LightPlan g_plan;
@@ -60,6 +61,20 @@ void log(const std::string &line) {
 
 double now_s() {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// The one dataref the light objects read, fed per instance: how much of the
+// lens's own glow shows. X-Plane's taxi_g and taxi_r are airport lights, off
+// by day, so by day the lens is the light and at night the sprite is
+// (x-z7a/atc#1185).
+const char *kInstanceDatarefs[] = {"zoal_atc/taxi_lights/daylight", nullptr};
+
+float daylight() {
+  if (g_airport_lights == nullptr) {
+    return 1.0f;
+  }
+  const float night = XPLMGetDataf(g_airport_lights);
+  return night <= 0.0f ? 1.0f : (night >= 1.0f ? 0.0f : 1.0f - night);
 }
 
 void place(XPLMInstanceRef instance, const taxi::Light &light) {
@@ -80,12 +95,12 @@ void place(XPLMInstanceRef instance, const taxi::Light &light) {
   where.y = static_cast<float>(y);
   where.z = static_cast<float>(z);
   where.heading = static_cast<float>(light.heading_deg);
-  XPLMInstanceSetPosition(instance, &where, nullptr);
+  const float data[] = {daylight()};
+  XPLMInstanceSetPosition(instance, &where, data);
 }
 
 XPLMInstanceRef make(XPLMObjectRef object) {
-  const char *no_datarefs[] = {nullptr};
-  return XPLMCreateInstance(object, no_datarefs);
+  return XPLMCreateInstance(object, kInstanceDatarefs);
 }
 
 void put_out() {
@@ -163,6 +178,7 @@ bool start(const std::string &plugin_root, const std::string &system_path,
   g_probe = XPLMCreateProbe(xplm_ProbeY);
   g_lat = XPLMFindDataRef("sim/flightmodel/position/latitude");
   g_lon = XPLMFindDataRef("sim/flightmodel/position/longitude");
+  g_airport_lights = XPLMFindDataRef("sim/graphics/scenery/airport_light_level");
   g_mode = mode;
   g_system_path = system_path;
   g_started = true;
