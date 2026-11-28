@@ -1951,6 +1951,41 @@ void settings(const Ui &ui, PanelSession &session, PanelViewState &state,
             "aircraft."));
   flow.end_setting();
 
+  flow.begin_setting();
+  flow.label(tr("HUD"));
+  flow.gap();
+  {
+    const gui::HudMode mode = session.hud_mode();
+    float bx = flow.x + 2.0f;
+    for (const auto &[option, label] :
+         {std::pair<gui::HudMode, const char *>{gui::HudMode::fixed, "Fixed"},
+          std::pair<gui::HudMode, const char *>{gui::HudMode::minimized, "Minimized"}}) {
+      const std::string text = tr(label);
+      const float width = button_width(inner, text) + 12.0f;
+      if (button(inner, option == gui::HudMode::fixed ? "hud_fixed" : "hud_minimized",
+                 ImVec2(bx, flow.y), ImVec2(width, kButtonHeight), text,
+                 mode == option ? Variant::filled : Variant::outlined,
+                 session.settings_loaded()) &&
+          mode != option) {
+        const gui::HudMode picked = option;
+        flow.ui.later([&session, picked, steady] { session.set_hud_mode(picked, steady); });
+      }
+      bx += width + 6.0f;
+    }
+    const std::string reset = tr("Move back to the corner");
+    if (button(inner, "hud_reset_position", ImVec2(bx + 10.0f, flow.y),
+               ImVec2(button_width(inner, reset) + 12.0f, kButtonHeight), reset,
+               Variant::outlined, session.settings_loaded())) {
+      flow.ui.later([&session, steady] { session.reset_hud_position(steady); });
+    }
+  }
+  flow.y += kButtonHeight;
+  flow.gap();
+  flow.help(tr("Fixed shows the whole HUD all the time. Minimized shows only its bar, and "
+            "opens while you point at it and for a while after a controller calls you. "
+            "Either way, drag the bar to put the HUD anywhere on the screen."));
+  flow.end_setting();
+
   // ---- calls by button ----
   flow.section(tr("Calls by button"));
   flow.begin_setting();

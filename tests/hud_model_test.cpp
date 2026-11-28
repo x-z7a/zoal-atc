@@ -317,9 +317,82 @@ void closing_the_menu_forgets_what_it_was_doing() {
   expect_true(menu.error().empty(), "error forgotten");
 }
 
+// --- fixed or minimized -------------------------------------------------------
+
+void reads_the_mode_by_name() {
+  expect_true(hud_mode_from_name("minimized") == HudMode::minimized, "minimized");
+  expect_true(hud_mode_from_name("fixed") == HudMode::fixed, "fixed");
+  expect_true(hud_mode_from_name("") == HudMode::fixed, "fixed by default");
+  expect_str(hud_mode_name(HudMode::minimized), "minimized", "named back");
+}
+
+void a_fixed_hud_is_always_open() {
+  HudReveal reveal;
+  expect_true(reveal.open(HudMode::fixed, kNow, false, false, std::nullopt),
+              "open with nothing to show");
+}
+
+void a_minimized_hud_is_its_bar_until_pointed_at() {
+  HudReveal reveal;
+  expect_true(!reveal.open(HudMode::minimized, kNow, false, false, std::nullopt),
+              "closed at rest");
+  expect_true(reveal.open(HudMode::minimized, kNow + 100, true, false, std::nullopt),
+              "open under the mouse");
+  expect_true(reveal.open(HudMode::minimized, kNow + 100 + kHudHoverGraceMs - 1, false,
+                          false, std::nullopt),
+              "stays open a moment after the mouse leaves");
+  expect_true(!reveal.open(HudMode::minimized, kNow + 100 + kHudHoverGraceMs, false,
+                           false, std::nullopt),
+              "and then closes");
+}
+
+void a_minimized_hud_stays_open_while_held() {
+  HudReveal reveal;
+  expect_true(reveal.open(HudMode::minimized, kNow, false, true, std::nullopt),
+              "open while typing or with the menu open");
+  expect_true(reveal.open(HudMode::minimized, kNow + 60'000, false, true, std::nullopt),
+              "however long it is held");
+}
+
+void a_transmission_pops_a_minimized_hud_open() {
+  HudFeed feed;
+  feed.add(atc("cleared to land"), kNow);
+  HudReveal reveal;
+  const auto newest = hud_newest_call_ms(feed);
+  expect_true(newest.has_value() && *newest == kNow, "the call is the newest");
+  expect_true(reveal.open(HudMode::minimized, kNow + 1'000, false, false, newest),
+              "pops open");
+  expect_true(reveal.open(HudMode::minimized, kNow + kHudPopOutMs - 1, false, false,
+                          newest),
+              "long enough to read it back");
+  expect_true(!reveal.open(HudMode::minimized, kNow + kHudPopOutMs, false, false, newest),
+              "then goes back to its bar");
+}
+
+void only_a_call_to_this_aircraft_pops_it_open() {
+  HudFeed feed;
+  HudEntry overheard = atc("delta one forty-one, contact departure");
+  overheard.overheard = true;
+  overheard.addressed_to = "DAL141";
+  feed.add(overheard, kNow);
+  HudEntry own;
+  own.kind = "pilot";
+  own.text = "request taxi";
+  own.at = kNowIso;
+  feed.add(own, kNow);
+  expect_true(!hud_newest_call_ms(feed).has_value(),
+              "overheard lines and the pilot's own words do not");
+}
+
 } // namespace
 
 int main() {
+  reads_the_mode_by_name();
+  a_fixed_hud_is_always_open();
+  a_minimized_hud_is_its_bar_until_pointed_at();
+  a_minimized_hud_stays_open_while_held();
+  a_transmission_pops_a_minimized_hud_open();
+  only_a_call_to_this_aircraft_pops_it_open();
   shows_a_transmission_the_moment_it_arrives();
   keeps_only_the_newest_three();
   lets_each_line_go_a_minute_after_it_came_in();

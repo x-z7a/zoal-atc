@@ -25,4 +25,16 @@ ScreenRect hud_rect(const ScreenRect &screen, int content_height,
   return rect;
 }
 
+HudPlacement hud_dragged(const HudPlacement &from, int dx, int dy,
+                         const ScreenRect &screen, int width) {
+  const int screen_width = std::max(1, screen.right - screen.left);
+  const int screen_height = std::max(1, screen.top - screen.bottom);
+  const int bar_width = std::clamp(width, 1, screen_width);
+  HudPlacement to = from;
+  to.margin_right = std::clamp(from.margin_right - dx, 0, screen_width - bar_width);
+  to.margin_top = std::clamp(from.margin_top - dy, 0,
+                             std::max(0, screen_height - from.min_height));
+  return to;
+}
+
 } // namespace zoal_atc::gui

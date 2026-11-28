@@ -46,6 +46,18 @@ struct Hud {
   // What the drawing remembers between frames and the presses it recorded.
   ui::HudViewState view;
   HudCockpit cockpit;
+  // Whether a minimized HUD is showing only its bar this frame.
+  gui::HudReveal reveal;
+  bool collapsed = false;
+  // The bar being dragged: where the mouse and the HUD were when it was
+  // pressed, and where the HUD is now. Saved when it is let go.
+  struct Drag {
+    bool active = false;
+    int mouse_x = 0;
+    int mouse_y = 0;
+    gui::HudPlacement from;
+    gui::HudPlacement now;
+  } drag;
 };
 
 std::unique_ptr<Hud> g_hud;
@@ -67,19 +79,57 @@ std::int64_t wall_now() {
 
 void build() {
   ui::draw_hud(*g_hud->session, g_hud->view, g_hud->face,
-               ui::HudFrame{wall_now()});
+               ui::HudFrame{wall_now(), g_hud->collapsed});
 }
 
-void place() {
+gui::ScreenRect screen_bounds() {
   gui::ScreenRect screen;
   XPLMGetScreenBoundsGlobal(&screen.left, &screen.top, &screen.right,
                             &screen.bottom);
-  gui::HudPlacement placement;
+  return screen;
+}
+
+void place() {
+  const gui::ScreenRect screen = screen_bounds();
+  gui::HudPlacement placement =
+      g_hud->drag.active ? g_hud->drag.now : g_hud->session->placement();
   placement.width = static_cast<int>(std::ceil(
       std::clamp(g_hud->view.content_width, 1.0f, static_cast<float>(placement.width))));
   const gui::ScreenRect rect = gui::hud_rect(
       screen, static_cast<int>(std::ceil(g_hud->view.content_height)), placement);
   g_hud->window->set_geometry(rect.left, rect.top, rect.right, rect.bottom);
+}
+
+// Follows the mouse while the bar is held, from where it was pressed, and
+// saves where the HUD was let go. Global coordinates: the HUD's own move with
+// the window being dragged.
+void drag(std::uint64_t steady) {
+  Hud::Drag &drag = g_hud->drag;
+  if (g_hud->view.dragging) {
+    int mx = 0, my = 0;
+    XPLMGetMouseLocationGlobal(&mx, &my);
+    if (!drag.active) {
+      drag.active = true;
+      drag.mouse_x = mx;
+      drag.mouse_y = my;
+      drag.from = g_hud->session->placement();
+      drag.now = drag.from;
+      return;
+    }
+    int left = 0, top = 0, right = 0, bottom = 0;
+    g_hud->window->geometry(&left, &top, &right, &bottom);
+    drag.now = gui::hud_dragged(drag.from, mx - drag.mouse_x, my - drag.mouse_y,
+                                screen_bounds(), right - left);
+    return;
+  }
+  if (!drag.active) {
+    return;
+  }
+  drag.active = false;
+  if (drag.now.margin_right != drag.from.margin_right ||
+      drag.now.margin_top != drag.from.margin_top) {
+    g_hud->session->save_placement(drag.now, steady);
+  }
 }
 
 void set_shown(bool shown) {
@@ -219,6 +269,13 @@ void tick_hud() {
     session.dismiss_call_error();
   }
   session.pump(steady, wall);
+  drag(steady);
+  // Minimized, the HUD is its bar until the pilot points at it or a
+  // controller calls them; anything they are in the middle of keeps it open.
+  const bool held = session.menu().open() || session.open_choice() != nullptr ||
+                    g_hud->view.typing_active || g_hud->view.dragging;
+  g_hud->collapsed = !g_hud->reveal.open(session.mode(), wall, g_hud->view.hovered,
+                                         held, gui::hud_newest_call_ms(session.feed()));
   // Text is rasterized for the screen's real density: X-Plane reports its UI
   // scale but not the display's (a Retina screen draws two pixels a boxel and
   // says 1:1), so twice the UI scale keeps it sharp on both kinds of screen.

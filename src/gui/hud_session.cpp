@@ -500,6 +500,35 @@ void HudSession::on_settings_changed(const std::string &payload_json) {
   if (const auto raw = json_raw_field(payload_json, "hudOverheard")) {
     shows_overheard_ = *raw != "false";
   }
+  if (const auto mode = top_string(payload_json, "hudMode")) {
+    mode_ = hud_mode_from_name(*mode);
+  }
+  // A margin that is not a small whole number is ignored rather than trusted:
+  // hud_rect clamps whatever is left onto the screen.
+  const auto margin = [&](const char *key, int *out) {
+    if (const auto raw = json_raw_field(payload_json, key)) {
+      char *end = nullptr;
+      const long n = std::strtol(raw->c_str(), &end, 10);
+      if (end != raw->c_str() && n >= 0 && n <= 100'000) {
+        *out = static_cast<int>(n);
+      }
+    }
+  };
+  margin("hudRight", &placement_.margin_right);
+  margin("hudTop", &placement_.margin_top);
+}
+
+void HudSession::save_placement(const HudPlacement &placement,
+                                std::uint64_t steady_ms) {
+  placement_.margin_right = placement.margin_right;
+  placement_.margin_top = placement.margin_top;
+  std::string error;
+  // Answered with every setting, which is applied like the first answer: the
+  // margins come back as saved.
+  send_json(R"({"action":"save_settings","payload":{"hudRight":)" +
+                std::to_string(placement_.margin_right) + R"(,"hudTop":)" +
+                std::to_string(placement_.margin_top) + "}}",
+            Pending{Request::settings, HudAction::none}, steady_ms, error);
 }
 
 void HudSession::press_reload(std::uint64_t steady_ms, std::int64_t wall_ms) {

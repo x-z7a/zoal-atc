@@ -38,7 +38,11 @@ The full steps are in [INSTALL.md](INSTALL.md#install). In short:
    You hold it to talk and let go when you are done.
 4. You should see the zoal-atc **HUD** in the top right corner of the screen.
    The full **panel** opens from **Plugins → zoal-atc → Toggle Panel**, or
-   from **Open panel** in the HUD menu.
+   from **Open panel** in the HUD menu. Drag the HUD's bar to put it anywhere
+   on the screen. In the panel, **Settings → Appearance → HUD** chooses
+   **Fixed** (the whole HUD, always) or **Minimized** (only its bar, opening
+   when you point at it or a controller calls you), and **Move back to the
+   corner** puts it back where it started.
 
 You need **X-Plane 12.4.4 or newer**. On a Mac, allow X-Plane to use the
 microphone when asked. You can also turn this on later under System Settings →

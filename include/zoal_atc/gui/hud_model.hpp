@@ -73,6 +73,45 @@ bool hud_line_fading(const HudLine &line, std::int64_t now_ms);
 // 1 while a line is fresh, falling to 0 over its last kHudFadeMs.
 float hud_line_opacity(const HudLine &line, std::int64_t now_ms);
 
+// --- fixed or minimized ------------------------------------------------------
+//
+// Fixed shows the whole HUD all the time, which is what it always did.
+// Minimized shows only its bar -- the callsign, the console light and the
+// radio's annunciators -- and opens into the whole HUD while the pilot points
+// at it, and for a while after a controller says something to them, so a
+// clearance still pops up to be read and read back. Either way the pilot drags
+// the bar to wherever on the screen they want it.
+enum class HudMode { fixed, minimized };
+
+// "minimized", or fixed for anything else, which is the default.
+HudMode hud_mode_from_name(std::string_view name);
+const char *hud_mode_name(HudMode mode);
+
+// How long a minimized HUD stays open after a controller's transmission to
+// this aircraft is shown, and after the mouse leaves it: long enough to read a
+// clearance and press its readback, and to move from the bar to a button
+// without the HUD closing under the mouse.
+inline constexpr std::int64_t kHudPopOutMs = 20'000;
+inline constexpr std::int64_t kHudHoverGraceMs = 1'500;
+
+// The newest controller transmission addressed to this aircraft that the HUD
+// shows, as when it was shown; nullopt with none. Overheard lines and the
+// pilot's own calls do not pop a minimized HUD open.
+std::optional<std::int64_t> hud_newest_call_ms(const HudFeed &feed);
+
+// HudReveal decides, frame by frame, whether a minimized HUD is open.
+class HudReveal {
+public:
+  // `hovered` is the mouse over the HUD; `held` is anything that must not
+  // close under the pilot (a menu open, the typing line being typed in, the
+  // bar being dragged). `newest_call_ms` is hud_newest_call_ms of the feed.
+  bool open(HudMode mode, std::int64_t now_ms, bool hovered, bool held,
+            std::optional<std::int64_t> newest_call_ms);
+
+private:
+  std::optional<std::int64_t> last_held_ms_;
+};
+
 // How a line is labelled and coloured, as the panel's CommBubble does it.
 enum class HudTone { pilot, surface, tower, delivery, advisory, radar, atc };
 

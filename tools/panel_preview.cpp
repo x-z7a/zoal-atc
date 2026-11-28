@@ -265,7 +265,7 @@ std::string menu_event(const std::string &scene) {
 int render_hud(const std::string &fonts, const std::string &out, const std::string &theme,
                int width, int height, float scale, const std::string &scene_path,
                const std::string &open_choice, const std::string &typed,
-               bool transcript) {
+               bool transcript, bool collapsed) {
   const std::string scene = read_all(scene_path);
   if (scene.empty()) {
     std::cerr << "no scene at " << scene_path << "\n";
@@ -341,7 +341,7 @@ int render_hud(const std::string &fonts, const std::string &out, const std::stri
     io.DeltaTime = 1.0f / 60.0f;
     io.AddMousePosEvent(-1.0f, -1.0f);
     ImGui::NewFrame();
-    ui::draw_hud(session, state, face, ui::HudFrame{wall});
+    ui::draw_hud(session, state, face, ui::HudFrame{wall, collapsed});
     ImGui::Render();
     update_textures(ImGui::GetDrawData());
   }
@@ -453,7 +453,8 @@ int main(int argc, char **argv) {
     }
     return render_hud(fonts, out, theme, width, height, scale, argv[8],
                       argc > 9 ? argv[9] : "", argc > 10 ? argv[10] : "",
-                      !(argc > 11 && std::string(argv[11]) == "no-transcript"));
+                      !(argc > 11 && std::string(argv[11]) == "no-transcript"),
+                      argc > 11 && std::string(argv[11]) == "collapsed");
   }
   const std::string mode = argc > 8 ? argv[8] : "full";
   const float mouse_x = argc > 10 ? static_cast<float>(std::atof(argv[9])) : -1.0f;

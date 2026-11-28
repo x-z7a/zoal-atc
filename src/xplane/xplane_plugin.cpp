@@ -14,6 +14,8 @@
 #include "zoal_atc/transport/json_util.hpp"
 #include "zoal_atc/transport/speech_text.hpp"
 #include "zoal_atc/gui/i18n.hpp"
+#include "zoal_atc/gui/hud_layout.hpp"
+#include "zoal_atc/gui/hud_model.hpp"
 #include "zoal_atc/gui/logbook.hpp"
 #include "zoal_atc/transport/websocket_client.hpp"
 #include "zoal_atc/weather/metar.hpp"
@@ -255,6 +257,11 @@ bool g_hud_transcript = true;
 // it shows only this pilot's own exchanges. The panel's radio log keeps
 // everyone's either way (x-z7a/atc#1135).
 bool g_hud_overheard = true;
+// The HUD fixed or minimized, and the corner it hangs from, as margins off the
+// screen's top right; the defaults until the pilot drags it.
+std::string g_hud_mode = "fixed";
+unsigned long long g_hud_right = zoal_atc::gui::kDefaultMarginRight;
+unsigned long long g_hud_top = zoal_atc::gui::kDefaultMarginTop;
 // The radio log on disk, under the plugin folder (gui/logbook.hpp), and how
 // many files each of its folders keeps.
 std::unique_ptr<zoal_atc::gui::Logbook> g_logbook;
@@ -496,6 +503,9 @@ std::string settings_json() {
       << R"(,"hudTyping":)" << (g_hud_typing ? "true" : "false")
       << R"(,"hudTranscript":)" << (g_hud_transcript ? "true" : "false")
       << R"(,"hudOverheard":)" << (g_hud_overheard ? "true" : "false")
+      << R"(,"hudMode":")" << g_hud_mode << R"(")"
+      << R"(,"hudRight":)" << g_hud_right
+      << R"(,"hudTop":)" << g_hud_top
       << R"(,"logbookKeep":)" << g_logbook_keep
       << "}";
   return out.str();
@@ -518,6 +528,20 @@ void load_call_settings(const std::string &text) {
   g_hud_typing = config_value(text, "hud_typing").value_or("true") != "false";
   g_hud_transcript = config_value(text, "hud_transcript").value_or("true") != "false";
   g_hud_overheard = config_value(text, "hud_overheard").value_or("true") != "false";
+  g_hud_mode = zoal_atc::gui::hud_mode_name(
+      zoal_atc::gui::hud_mode_from_name(config_value(text, "hud_mode").value_or("")));
+  const auto margin = [&](const char *key, unsigned long long fallback) {
+    if (const auto value = config_value(text, key)) {
+      char *end = nullptr;
+      const unsigned long long n = std::strtoull(value->c_str(), &end, 10);
+      if (end != value->c_str() && n <= 100000) {
+        return n;
+      }
+    }
+    return fallback;
+  };
+  g_hud_right = margin("hud_right", zoal_atc::gui::kDefaultMarginRight);
+  g_hud_top = margin("hud_top", zoal_atc::gui::kDefaultMarginTop);
   g_logbook_keep = zoal_atc::gui::Logbook::kDefaultKeep;
   if (const auto keep = config_value(text, "logbook_keep")) {
     char *end = nullptr;
@@ -720,6 +744,48 @@ handle_local_gui_action(const std::string &action,
       g_hud_overheard = *hud_overheard;
       zoal_atc::xplane::hud_settings_changed(
           std::string(R"({"hudOverheard":)") + (*hud_overheard ? "true" : "false") + "}");
+    }
+    const auto hud_mode = zoal_atc::transport::json_string_field(payload_json, "hudMode");
+    if (hud_mode.has_value()) {
+      const std::string mode =
+          zoal_atc::gui::hud_mode_name(zoal_atc::gui::hud_mode_from_name(*hud_mode));
+      if (mode != *hud_mode) {
+        return zoal_atc::gui::LocalAnswer{false, "null", "unknown HUD mode: " + *hud_mode};
+      }
+      const std::string updated = zoal_atc::transport::upsert_config_value(
+          read_file(g_config_path).value_or(std::string()), "hud_mode", mode);
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_hud_mode = mode;
+      zoal_atc::xplane::hud_settings_changed(R"({"hudMode":")" + mode + R"("})");
+    }
+    // Where the HUD was dragged to, saved by the HUD when it is let go, or put
+    // back by the panel. Either may come alone.
+    const auto hud_right = zoal_atc::transport::json_uint_field(payload_json, "hudRight");
+    const auto hud_top = zoal_atc::transport::json_uint_field(payload_json, "hudTop");
+    if (hud_right.has_value() || hud_top.has_value()) {
+      if (hud_right.value_or(0) > 100000 || hud_top.value_or(0) > 100000) {
+        return zoal_atc::gui::LocalAnswer{false, "null", "the HUD is not that far off the screen"};
+      }
+      std::string updated = read_file(g_config_path).value_or(std::string());
+      if (hud_right.has_value()) {
+        updated = zoal_atc::transport::upsert_config_value(updated, "hud_right",
+                                                           std::to_string(*hud_right));
+      }
+      if (hud_top.has_value()) {
+        updated = zoal_atc::transport::upsert_config_value(updated, "hud_top",
+                                                           std::to_string(*hud_top));
+      }
+      if (!write_config_atomically(g_config_path, updated)) {
+        return zoal_atc::gui::LocalAnswer{false, "null",
+                                          "could not write " + g_config_path};
+      }
+      g_hud_right = hud_right.value_or(g_hud_right);
+      g_hud_top = hud_top.value_or(g_hud_top);
+      zoal_atc::xplane::hud_settings_changed(R"({"hudRight":)" + std::to_string(g_hud_right) +
+                                             R"(,"hudTop":)" + std::to_string(g_hud_top) + "}");
     }
     if (theme.has_value()) {
       const auto existing = read_file(g_config_path);

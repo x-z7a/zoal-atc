@@ -818,6 +818,25 @@ void the_typing_line_is_a_setting() {
   expect_true(!rig.hud.shows_typing(), "another setting leaves it alone");
 }
 
+void the_mode_and_the_corner_are_settings() {
+  Rig rig;
+  expect_true(rig.hud.mode() == HudMode::fixed, "fixed by default");
+  expect_true(rig.hud.placement().margin_right == kDefaultMarginRight &&
+                  rig.hud.placement().margin_top == kDefaultMarginTop,
+              "in the top right corner by default");
+  rig.hud.on_settings_changed(R"({"hudMode":"minimized","hudRight":300,"hudTop":220})");
+  expect_true(rig.hud.mode() == HudMode::minimized, "minimized when chosen");
+  expect_true(rig.hud.placement().margin_right == 300 &&
+                  rig.hud.placement().margin_top == 220,
+              "where it was dragged to");
+  rig.hud.on_settings_changed(R"({"hudRight":-5,"hudTop":"x"})");
+  expect_true(rig.hud.placement().margin_right == 300 &&
+                  rig.hud.placement().margin_top == 220,
+              "a margin that makes no sense is ignored");
+  rig.hud.on_settings_changed(R"({"theme":"night"})");
+  expect_true(rig.hud.mode() == HudMode::minimized, "another setting leaves it alone");
+}
+
 } // namespace
 
 // The console announces every plan it files, including the ones the plugin
@@ -910,6 +929,7 @@ int main() {
   says_a_new_flight_started_and_feet_below_flight_levels();
   says_why_no_plan_arrived();
   an_old_plan_replayed_is_not_news();
+  the_mode_and_the_corner_are_settings();
   says_the_console_is_reachable_once_subscribed();
   shows_what_atc_just_said();
   picks_up_the_cached_line_on_attach();

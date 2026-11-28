@@ -459,6 +459,19 @@ void PanelSession::set_hud_overheard(bool on, std::uint64_t steady_ms) {
        Pending{Request::save_settings, &local_}, steady_ms);
 }
 
+void PanelSession::set_hud_mode(HudMode mode, std::uint64_t steady_ms) {
+  send("save_settings",
+       std::string(R"({"hudMode":")") + hud_mode_name(mode) + R"("})",
+       Pending{Request::save_settings, &local_}, steady_ms);
+}
+
+void PanelSession::reset_hud_position(std::uint64_t steady_ms) {
+  send("save_settings",
+       R"({"hudRight":)" + std::to_string(kDefaultMarginRight) + R"(,"hudTop":)" +
+           std::to_string(kDefaultMarginTop) + "}",
+       Pending{Request::save_settings, &local_}, steady_ms);
+}
+
 void PanelSession::import_now(std::uint64_t steady_ms) {
   // Named rather than left to the console: a console only learns a changed ID
   // on the next connection, and sending it means an import works the moment
@@ -681,6 +694,9 @@ void PanelSession::apply_settings(const std::string &payload_json) {
   }
   if (const auto on = json_raw_field(payload_json, "hudOverheard")) {
     hud_overheard_ = *on != "false";
+  }
+  if (const auto mode = top_string(payload_json, "hudMode")) {
+    hud_mode_ = hud_mode_from_name(*mode);
   }
   if (const auto theme = top_string(payload_json, "theme")) {
     theme_ = hud_theme_from_name(*theme);
