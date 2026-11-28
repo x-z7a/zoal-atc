@@ -7,6 +7,10 @@ set -euo pipefail
 # console, which no longer transcribes, nor say anything to the pilot, since
 # nothing else in the cockpit speaks. Pinned by checksum here and downloaded
 # once into .cache/models.
+#
+# The plugin downloads the same files itself when an install lacks them, by
+# src/models/model_manifest.inc. Moving a pin here means regenerating that with
+# scripts/model-manifest.py; model_store_test fails until the two agree.
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 root="${ZOAL_ATC_MODELS:-${repo_root}/.cache/models}"

@@ -1,4 +1,5 @@
 #include "zoal_atc/gui/gui_bridge.hpp"
+#include "zoal_atc/models/model_provisioner.hpp"
 #include "zoal_atc/gui/panel_paths.hpp"
 #include "zoal_atc/gui/panel_theme.hpp"
 #include "zoal_atc/ptt/miniaudio_audio_recorder.hpp"
@@ -109,6 +110,15 @@ std::unique_ptr<zoal_atc::stt::Transcriber> g_transcriber;
 // The controllers' voices. Without them nothing in the cockpit speaks, and
 // every reply is acknowledged as not delivered.
 std::unique_ptr<zoal_atc::tts::SynthesisQueue> g_synthesis;
+// g_synthesis as the reply-receiver thread reads it. The voices can now
+// arrive after that thread has started, made on the main thread, so it is
+// published here once they exist; it outlives the receiver, which stops first.
+std::atomic<zoal_atc::tts::SynthesisQueue *> g_synthesis_for_replies{nullptr};
+// The models this build pins, made present off the main thread when they are
+// missing or out of date, so X-Plane goes on loading while they download.
+std::unique_ptr<zoal_atc::models::ModelProvisioner> g_models;
+std::map<std::string, int> g_model_progress_logged;
+std::string g_models_dir;
 // Both models ship inside the plugin folder, under models/.
 constexpr const char *kSttModelName = "ggml-small.en-q5_1.bin";
 constexpr const char *kTtsModelName = "kokoro-multi-lang-v1_0";
@@ -943,13 +953,14 @@ void send_speak_ack(const ATCReplyMessage &reply, bool ok,
 
 void queue_atc_reply(ATCReplyMessage reply) {
   reply.queued_at_ms = monotonic_ms();
-  if (g_synthesis && reply.speak && !reply.text.empty()) {
+  zoal_atc::tts::SynthesisQueue *synthesis = g_synthesis_for_replies.load();
+  if (synthesis != nullptr && reply.speak && !reply.text.empty()) {
     // radio_text reads a frequency's digits out in English; a reply in
     // another language arrives with its numbers already in words.
     const std::string said = reply.language == "en"
                                  ? zoal_atc::transport::radio_text(reply.text)
                                  : reply.text;
-    reply.speech = g_synthesis->submit(
+    reply.speech = synthesis->submit(
         said, reply.voice, urgent_speech(reply), reply.language,
         reply.pilot ? zoal_atc::tts::kCockpitTransmitter : zoal_atc::tts::kReceiver);
   }
@@ -2190,7 +2201,101 @@ void process_gui_bridge() {
   zoal_atc::xplane::tick_panel();
 }
 
+// load_stt makes the transcriber from whisper's model under `models`. The
+// console learns the cockpit transcribes from local_stt in the hello.
+void load_stt(const std::string &models, std::vector<std::string> *capabilities) {
+  if (g_transcriber) {
+    return;
+  }
+  const std::string model = zoal_atc::gui::join_path(models, kSttModelName);
+  g_transcriber = std::make_unique<zoal_atc::stt::WhisperTranscriber>(model);
+  if (g_transport_sink) {
+    g_transport_sink->set_transcriber(g_transcriber.get(), &g_stt_prompt);
+  }
+  capabilities->push_back("local_stt");
+  log_line("push-to-talk is transcribed in the cockpit with " + model);
+}
+
+// load_tts makes the controllers' voices from Kokoro's model under `models`.
+// The catalogue is made before the hello that declares it, because the hello
+// is where the console learns it may ask for it. A folder it cannot be made
+// in keeps the stock English voices, and says so.
+void load_tts(const std::string &models, std::vector<std::string> *capabilities) {
+  if (g_synthesis) {
+    return;
+  }
+  const std::string voices = zoal_atc::gui::join_path(models, kTtsModelName);
+  std::string why;
+  const bool catalogue = zoal_atc::tts::prepare_catalogue(voices, &why);
+  if (catalogue) {
+    capabilities->push_back(kVoiceCatalogueCapability);
+  } else {
+    log_line("the voice catalogue could not be prepared (" + why +
+             "); controllers speak in the stock English voices");
+  }
+  g_synthesis = std::make_unique<zoal_atc::tts::SynthesisQueue>(
+      std::make_unique<zoal_atc::tts::KokoroSynthesizer>(voices, catalogue),
+      zoal_atc::tts::KokoroSynthesizer::kDefaultSpeaker);
+  g_synthesis_for_replies.store(g_synthesis.get());
+  log_line("controllers speak in their own voices from " + voices);
+}
+
+// service_models is the main-thread half of the provisioner: it logs what the
+// worker did, loads each model the moment it is ready, and declares it to the
+// console, which re-dials with the new hello.
+void service_models() {
+  if (!g_models) {
+    return;
+  }
+  // Read before anything is drained: the worker says done only after its
+  // last model and message, so everything it did is drained below.
+  const bool finished = g_models->done();
+  for (const std::string &message : g_models->take_messages()) {
+    log_line("models: " + message);
+  }
+  for (const char *model : {zoal_atc::models::kSttModel, zoal_atc::models::kTtsModel}) {
+    const auto status = g_models->status(model);
+    if (status.state != zoal_atc::models::ModelStatus::State::Downloading || status.need_bytes == 0) {
+      continue;
+    }
+    const int quarter = static_cast<int>(4 * status.have_bytes / status.need_bytes);
+    auto &logged = g_model_progress_logged[model];
+    if (quarter > logged) {
+      logged = quarter;
+      log_line(std::string("models: ") + model + " " + zoal_atc::models::progress_text(status));
+    }
+  }
+  const std::string models = g_models_dir;
+  for (const std::string &model : g_models->take_ready()) {
+    std::vector<std::string> capabilities;
+    if (model == zoal_atc::models::kSttModel) {
+      load_stt(models, &capabilities);
+    } else if (model == zoal_atc::models::kTtsModel) {
+      load_tts(models, &capabilities);
+    }
+    for (std::string &capability : capabilities) {
+      if (g_websocket) {
+        g_websocket->add_capability(std::move(capability));
+      }
+    }
+  }
+  if (finished) {
+    for (const char *model : {zoal_atc::models::kSttModel, zoal_atc::models::kTtsModel}) {
+      const auto status = g_models->status(model);
+      if (status.state == zoal_atc::models::ModelStatus::State::Failed) {
+        log_line(std::string("models: ") + model + " is not available (" + status.detail + "); " +
+                 (model == std::string(zoal_atc::models::kSttModel)
+                      ? "the console cannot hear this aircraft"
+                      : "no reply can be spoken") +
+                 ". It is tried again at the next start.");
+      }
+    }
+    g_models.reset();
+  }
+}
+
 float flight_loop_callback(float, float, int, void *) {
+  service_models();
   if (g_ptt) {
     tick_ptt();
     g_ptt->tick(now_ms());
@@ -2281,6 +2386,7 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     XPLMGetPluginInfo(XPLMGetMyID(), nullptr, binary, nullptr, nullptr);
     const std::string models = zoal_atc::gui::join_path(
         zoal_atc::gui::plugin_root_from_binary_path(binary), "models");
+    g_models_dir = models;
 
     // The radio log on the pilot's disk, beside the models.
     g_logbook = std::make_unique<zoal_atc::gui::Logbook>(zoal_atc::gui::join_path(
@@ -2293,17 +2399,22 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
       }
     });
 
-    // Declared only when the model is here, so the console sends a client
-    // that cannot transcribe nothing it cannot use.
-    const std::string model = zoal_atc::gui::join_path(models, kSttModelName);
-    std::error_code missing;
-    if (std::filesystem::is_regular_file(model, missing)) {
-      g_transcriber = std::make_unique<zoal_atc::stt::WhisperTranscriber>(model);
-      endpoint.capabilities.push_back("local_stt");
-      log_line("push-to-talk is transcribed in the cockpit with " + model);
-    } else {
-      log_line("no transcription model at " + model +
-               "; the console cannot hear this aircraft. Reinstall the plugin.");
+    // A model is loaded now when it is already here and this build's, which
+    // is a stat of each file, so its capability goes in the first hello.
+    // Anything else is checked and fetched by the provisioner, off the main
+    // thread, and loaded by the flight loop once it is ready.
+    namespace models_ns = zoal_atc::models;
+    std::vector<std::string> pending_models;
+    for (const char *model : {models_ns::kSttModel, models_ns::kTtsModel}) {
+      if (!models_ns::quick_ready(models, models_ns::files_of(models_ns::manifest(), model))) {
+        pending_models.emplace_back(model);
+      }
+    }
+    const auto pending = [&](const char *model) {
+      return std::find(pending_models.begin(), pending_models.end(), model) != pending_models.end();
+    };
+    if (!pending(models_ns::kSttModel)) {
+      load_stt(models, &endpoint.capabilities);
     }
 
     // Other pilots and the console's AI aircraft, drawn with XPMP2. Declared
@@ -2352,26 +2463,15 @@ PLUGIN_API int XPluginStart(char *name, char *sig, char *desc) {
     // Every overheard transmission that asks is answered, played or not.
     endpoint.capabilities.push_back(kHeardAckCapability);
 
-    const std::string voices = zoal_atc::gui::join_path(models, kTtsModelName);
-    if (zoal_atc::tts::KokoroSynthesizer::installed(voices)) {
-      // The catalogue is made here, before the hello, because the hello is
-      // where the console learns it may ask for it. A folder it cannot be
-      // made in keeps the stock English voices, and says so.
-      std::string why;
-      const bool catalogue = zoal_atc::tts::prepare_catalogue(voices, &why);
-      if (catalogue) {
-        endpoint.capabilities.push_back(kVoiceCatalogueCapability);
-      } else {
-        log_line("the voice catalogue could not be prepared (" + why +
-                 "); controllers speak in the stock English voices");
-      }
-      g_synthesis = std::make_unique<zoal_atc::tts::SynthesisQueue>(
-          std::make_unique<zoal_atc::tts::KokoroSynthesizer>(voices, catalogue),
-          zoal_atc::tts::KokoroSynthesizer::kDefaultSpeaker);
-      log_line("controllers speak in their own voices from " + voices);
-    } else {
-      log_line("no controller voices at " + voices +
-               "; no reply can be spoken. Reinstall the plugin.");
+    if (!pending(models_ns::kTtsModel)) {
+      load_tts(models, &endpoint.capabilities);
+    }
+    if (!pending_models.empty()) {
+      g_models = std::make_unique<models_ns::ModelProvisioner>(
+          models, models_ns::manifest(), pending_models, models_ns::make_curl_fetcher());
+      g_models->start();
+      log_line("checking the models in " + models +
+               " in the background; each is loaded once it is here and current");
     }
   }
   g_websocket = std::make_unique<WebSocketClient>(std::move(endpoint));
@@ -2425,6 +2525,7 @@ PLUGIN_API void XPluginStop() {
     XPLMDestroyFlightLoop(g_flight_loop);
     g_flight_loop = nullptr;
   }
+  g_models.reset(); // stops a download in progress and joins its thread
 
   if (g_ptt_command) {
     XPLMUnregisterCommandHandler(g_ptt_command, ptt_command_handler, 1,
@@ -2445,6 +2546,7 @@ PLUGIN_API void XPluginStop() {
   stop_reply_receiver();
   zoal_atc::xplane::traffic_layer::stop(); // after the receiver: nothing offers frames now
   zoal_atc::xplane::taxi_lights::stop();
+  g_synthesis_for_replies.store(nullptr);
   g_synthesis.reset(); // joins the synthesis thread
   g_transport_sink.reset(); // joins the transcription thread first
   g_transcriber.reset();

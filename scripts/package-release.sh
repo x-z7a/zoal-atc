@@ -63,6 +63,12 @@ models_dir="${ZOAL_ATC_MODELS:-${repo_root}/.cache/models}"
 cmake -E make_directory "${release_dir}/models"
 cmake -E copy "${models_dir}/ggml-small.en-q5_1.bin" "${release_dir}/models/ggml-small.en-q5_1.bin"
 cmake -E copy_directory "${models_dir}/kokoro-multi-lang-v1_0" "${release_dir}/models/kokoro-multi-lang-v1_0"
+# Each model's checksum beside it, which is how the plugin knows at startup,
+# without reading 560MB, that these are the models it pins: the voices carry
+# theirs from ensure-models.sh, and whisper's is its file's. A model whose
+# marker does not match is checked and fetched again in the background.
+stt_sum="$(cmake -E sha256sum "${release_dir}/models/ggml-small.en-q5_1.bin")"
+printf '%s\n' "${stt_sum%% *}" > "${release_dir}/models/ggml-small.en-q5_1.bin.content-sha256"
 # Skunkcrafts Updater: the config that points an installed plugin at the
 # release branch, with the version this tree is. The release workflow sets
 # ZOAL_ATC_VERSION to the tag; a local build says "dev", which the updater

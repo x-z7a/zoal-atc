@@ -46,8 +46,17 @@ zoal-atc/
 
 On first start the plugin builds its voice catalogue from the bundled Kokoro
 model (writing `voices-zoal.bin` beside the stock voices in
-`models/kokoro-multi-lang-v1_0/`). Nothing is downloaded; the
-plugin folder must be writable for this one-time step.
+`models/kokoro-multi-lang-v1_0/`). The plugin folder must be writable for
+this one-time step.
+
+At every start the plugin also checks `models/` against the models its own
+version pins. One that is missing or out of date (a plugin updated by the
+Skunkcrafts Updater, which never touches `models/`, or a folder copied
+without it) is downloaded from HuggingFace in the background, checked
+against its SHA-256 and moved into place, and loaded the moment it is; X-Plane
+never waits for it. A download cut off is resumed at the next start. It uses
+the system's `curl`, which macOS and Windows 10 and later include; on Linux,
+install `curl` if your distribution does not.
 
 ## Using it
 
@@ -162,4 +171,5 @@ Look for lines starting with `[zoal-atc]` in `<X-Plane>/Log.txt`.
 | ATC doesn't know your route or won't clear you | That your SimBrief pilot ID is set, that your newest OFP is the flight you're flying and is IFR, then *Import now* / *Reload plan*. |
 | You hear no replies | The COM radio tuned to the controller's frequency, its audio selector and volume. |
 | Panel or HUD text looks wrong | That `fonts/` is present in the plugin folder; without it the plugin falls back to X-Plane's Roboto. |
-| Plugin fails to load | X-Plane version (12.4.4+), and that the whole folder — `models/`, and on Windows/Linux the libraries beside the `.xpl` — was copied. |
+| Plugin fails to load | X-Plane version (12.4.4+), and that the whole folder — on Windows/Linux the libraries beside the `.xpl` — was copied. |
+| ATC can't hear you, or never speaks | The `[zoal-atc] models:` lines in `Log.txt`: a model still downloading says how far it has got, and one that failed says why (no network, no `curl`, a plugin folder that is not writable). It is tried again at the next start. |
