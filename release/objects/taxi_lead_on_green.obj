@@ -1,0 +1,40 @@
+I
+800
+OBJ
+
+# A green taxiway centreline light, aimed back down the route at the aircraft
+# following it (+Z is behind the instance's heading).
+#
+# Two lights in one, because X-Plane has none that serves both. At night it is
+# X-Plane's own taxi_g, the light airport scenery uses; but that is an airport
+# light, and X-Plane switches airport lights off by day, so by day the route
+# was not lit at all (x-z7a/atc#1185). By day the 50 cm lens glows: a lit
+# texture at daylight luminance, scaled per instance by
+# zoal_atc/taxi_lights/daylight, which the plugin sets to one less the sim's
+# airport light level, so the lens hands over to the sprite as the airport
+# lights come on.
+
+TEXTURE taxi_lights.png
+TEXTURE_LIT taxi_lights.png
+GLOBAL_luminance 8000
+POINT_COUNTS 4 0 0 6
+
+VT -0.250 0.030 -0.250 0 1 0 0.25 0.50
+VT 0.250 0.030 -0.250 0 1 0 0.25 0.50
+VT 0.250 0.030 0.250 0 1 0 0.25 0.50
+VT -0.250 0.030 0.250 0 1 0 0.25 0.50
+
+IDX 0
+IDX 1
+IDX 2
+IDX 0
+IDX 2
+IDX 3
+
+ATTR_no_cull
+ATTR_light_level 0 1 zoal_atc/taxi_lights/daylight
+ATTR_shiny_rat 0.0
+TRIS 0 6
+
+LIGHT_NAMED taxi_g 0 0.08 0
+LIGHT_NAMED taxi_g_halo 0 0.05 0

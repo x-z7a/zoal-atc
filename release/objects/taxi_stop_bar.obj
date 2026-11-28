@@ -1,0 +1,93 @@
+I
+800
+OBJ
+
+# A stop bar: a row of red lights across the taxiway, 3 m apart over 15 m, as
+# a real stop bar is spaced. As the green lead-on light: X-Plane's taxi_r at
+# night, and by day the lenses themselves glow, scaled per instance by
+# zoal_atc/taxi_lights/daylight (x-z7a/atc#1185).
+
+TEXTURE taxi_lights.png
+TEXTURE_LIT taxi_lights.png
+GLOBAL_luminance 8000
+POINT_COUNTS 24 0 0 36
+
+VT -7.650 0.030 -0.150 0 1 0 0.75 0.50
+VT -7.350 0.030 -0.150 0 1 0 0.75 0.50
+VT -7.350 0.030 0.150 0 1 0 0.75 0.50
+VT -7.650 0.030 0.150 0 1 0 0.75 0.50
+VT -4.650 0.030 -0.150 0 1 0 0.75 0.50
+VT -4.350 0.030 -0.150 0 1 0 0.75 0.50
+VT -4.350 0.030 0.150 0 1 0 0.75 0.50
+VT -4.650 0.030 0.150 0 1 0 0.75 0.50
+VT -1.650 0.030 -0.150 0 1 0 0.75 0.50
+VT -1.350 0.030 -0.150 0 1 0 0.75 0.50
+VT -1.350 0.030 0.150 0 1 0 0.75 0.50
+VT -1.650 0.030 0.150 0 1 0 0.75 0.50
+VT 1.350 0.030 -0.150 0 1 0 0.75 0.50
+VT 1.650 0.030 -0.150 0 1 0 0.75 0.50
+VT 1.650 0.030 0.150 0 1 0 0.75 0.50
+VT 1.350 0.030 0.150 0 1 0 0.75 0.50
+VT 4.350 0.030 -0.150 0 1 0 0.75 0.50
+VT 4.650 0.030 -0.150 0 1 0 0.75 0.50
+VT 4.650 0.030 0.150 0 1 0 0.75 0.50
+VT 4.350 0.030 0.150 0 1 0 0.75 0.50
+VT 7.350 0.030 -0.150 0 1 0 0.75 0.50
+VT 7.650 0.030 -0.150 0 1 0 0.75 0.50
+VT 7.650 0.030 0.150 0 1 0 0.75 0.50
+VT 7.350 0.030 0.150 0 1 0 0.75 0.50
+
+IDX 0
+IDX 1
+IDX 2
+IDX 0
+IDX 2
+IDX 3
+IDX 4
+IDX 5
+IDX 6
+IDX 4
+IDX 6
+IDX 7
+IDX 8
+IDX 9
+IDX 10
+IDX 8
+IDX 10
+IDX 11
+IDX 12
+IDX 13
+IDX 14
+IDX 12
+IDX 14
+IDX 15
+IDX 16
+IDX 17
+IDX 18
+IDX 16
+IDX 18
+IDX 19
+IDX 20
+IDX 21
+IDX 22
+IDX 20
+IDX 22
+IDX 23
+
+ATTR_no_cull
+ATTR_light_level 0 1 zoal_atc/taxi_lights/daylight
+ATTR_shiny_rat 0.0
+TRIS 0 36
+
+LIGHT_NAMED taxi_r -7.500 0.08 0
+LIGHT_NAMED taxi_r_halo -7.500 0.05 0
+LIGHT_NAMED taxi_r -4.500 0.08 0
+LIGHT_NAMED taxi_r_halo -4.500 0.05 0
+LIGHT_NAMED taxi_r -1.500 0.08 0
+LIGHT_NAMED taxi_r_halo -1.500 0.05 0
+LIGHT_NAMED taxi_r 1.500 0.08 0
+LIGHT_NAMED taxi_r_halo 1.500 0.05 0
+LIGHT_NAMED taxi_r 4.500 0.08 0
+LIGHT_NAMED taxi_r_halo 4.500 0.05 0
+LIGHT_NAMED taxi_r 7.500 0.08 0
+LIGHT_NAMED taxi_r_halo 7.500 0.05 0

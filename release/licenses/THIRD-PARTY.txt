@@ -1,0 +1,59 @@
+Third-party components shipped with the zoal-atc plugin
+=======================================================
+
+whisper.cpp v1.9.1 (MIT)
+  https://github.com/ggml-org/whisper.cpp
+  Linked into the plugin; transcribes push-to-talk.
+  models/ggml-small.en-q5_1.bin is OpenAI Whisper small.en (MIT), quantised by
+  the whisper.cpp project.
+
+Dear ImGui v1.92.9b (MIT)
+  https://github.com/ocornut/imgui
+  Linked into the plugin; draws the radio HUD.
+  Copyright (c) 2014-2026 Omar Cornut
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to
+  deal in the Software without restriction, including without limitation the
+  rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+  sell copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+  FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+  IN THE SOFTWARE.
+
+FreeType 2.14.3 (FreeType License, FTL)
+  https://freetype.org
+  Linked into the plugin; rasterizes the radio HUD's text.
+  This software is based in part on the work of the FreeType Team.
+  Portions of this software are copyright (c) 2026 The FreeType Project
+  (www.freetype.org). All rights reserved.
+  The full license is docs/FTL.TXT in the FreeType source distribution.
+
+Inter v4.1 (SIL Open Font License 1.1)
+  https://rsms.me/inter
+  fonts/Inter-Regular.ttf, Inter-SemiBold.ttf and Inter-Bold.ttf, unmodified;
+  the radio HUD is set in them. Copyright (c) 2016 The Inter Project Authors.
+  The license is licenses/inter/LICENSE.txt.
+
+sherpa-onnx v1.13.8 (Apache-2.0)
+  https://github.com/k2-fsa/sherpa-onnx
+  Synthesises the controllers' voices. Linked statically on macOS; shipped as
+  sherpa-onnx-c-api.dll / libsherpa-onnx-c-api.so beside the plugin elsewhere.
+  It includes:
+    ONNX Runtime (MIT)            https://github.com/microsoft/onnxruntime
+    espeak-ng (GPL-3.0-or-later)  https://github.com/espeak-ng/espeak-ng
+    piper-phonemize (MIT)         https://github.com/rhasspy/piper-phonemize
+
+Kokoro-82M v1.0 (Apache-2.0)
+  https://huggingface.co/hexgrad/Kokoro-82M
+  models/kokoro-multi-lang-v1_0, as packaged by sherpa-onnx with its English
+  voices and lexicons only; its LICENSE is in that directory.
